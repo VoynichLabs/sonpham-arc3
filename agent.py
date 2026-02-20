@@ -135,7 +135,40 @@ def compress_row(row):
     return " ".join(parts)
 
 
-def build_prompt(grid, state, available_actions, levels_completed, win_levels, game_id, history):
+def compute_change_map(prev_grid, curr_grid):
+    """Compare two grids and return a compressed text showing changed cells."""
+    if not prev_grid or not curr_grid:
+        return ""
+    h = min(len(prev_grid), len(curr_grid))
+    w = min(len(prev_grid[0]), len(curr_grid[0])) if h > 0 else 0
+    count = 0
+    rows = []
+    for y in range(h):
+        row_chars = []
+        for x in range(w):
+            if prev_grid[y][x] != curr_grid[y][x]:
+                row_chars.append("X")
+                count += 1
+            else:
+                row_chars.append(".")
+        row_str = "".join(row_chars)
+        if "X" in row_str:
+            # RLE compress
+            parts, cur, c = [], row_str[0], 1
+            for ch in row_str[1:]:
+                if ch == cur:
+                    c += 1
+                else:
+                    parts.append(f"{cur}x{c}" if c > 3 else cur * c)
+                    cur, c = ch, 1
+            parts.append(f"{cur}x{c}" if c > 3 else cur * c)
+            rows.append(f"Row {y}: {''.join(parts)}")
+    if not rows:
+        return ""
+    return f"\n# CHANGES SINCE LAST ACTION ({count} cells changed)\n" + "\n".join(rows)
+
+
+def build_prompt(grid, state, available_actions, levels_completed, win_levels, game_id, history, change_map_text=""):
     grid_text = "\n".join(f"Row {i}: {compress_row(r)}" for i, r in enumerate(grid))
     action_desc = ", ".join(f"{aid}={ACTION_NAMES.get(aid, f'ACTION{aid}')}" for aid in available_actions)
 
@@ -164,7 +197,7 @@ State: {state}
 Levels completed: {levels_completed}/{win_levels}
 Available actions: {action_desc}
 {history_text}
-
+{change_map_text}
 # CURRENT GRID (run-length encoded rows, color indices 0-15)
 {grid_text}
 
@@ -274,6 +307,7 @@ def play_game(arcade, game_id, model_key, max_steps=200):
         return "ERROR"
 
     history = []
+    prev_grid = None
     step_num = 0
 
     while step_num < max_steps:
@@ -291,8 +325,11 @@ def play_game(arcade, game_id, model_key, max_steps=200):
             print(f"\n  >>> GAME OVER at step {step_num} (levels: {levels_done}/{win_levels}) <<<\n")
             return "GAME_OVER"
 
+        # Build change map from previous grid
+        change_text = compute_change_map(prev_grid, grid) if prev_grid else ""
+
         # Build prompt and ask LLM
-        prompt = build_prompt(grid, state_str, available, levels_done, win_levels, game_id, history)
+        prompt = build_prompt(grid, state_str, available, levels_done, win_levels, game_id, history, change_text)
 
         try:
             t0 = time.time()
@@ -357,6 +394,8 @@ def play_game(arcade, game_id, model_key, max_steps=200):
             print(f"           | obs: {observation[:100]}")
         if reasoning:
             print(f"           | why: {reasoning[:100]}")
+
+        prev_grid = grid  # Store grid before stepping
 
         frame = env.step(action, data=action_data or None, reasoning=reasoning)
         if frame is None:

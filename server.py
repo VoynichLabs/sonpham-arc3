@@ -24,6 +24,7 @@ app.logger.setLevel(logging.INFO)
 # Global state: one Arcade instance, multiple game sessions
 arcade_instance: Optional[arc_agi.Arcade] = None
 game_sessions: dict[str, Any] = {}  # session_id -> env wrapper
+session_grids: dict[str, list[list[int]]] = {}  # session_id -> previous grid
 session_lock = threading.Lock()
 
 # Color palette matching ARC-AGI-3
@@ -82,6 +83,64 @@ def get_arcade():
 def frame_to_grid(frame) -> list[list[int]]:
     """Convert a numpy frame to a plain list of lists."""
     return frame.tolist()
+
+
+def compute_change_map(prev_grid: list[list[int]], curr_grid: list[list[int]]) -> dict:
+    """Compare two grids and return a change map.
+
+    Returns dict with:
+      - changes: list of {x, y, from, to} for each changed cell
+      - change_count: total number of changed cells
+      - change_map_text: ASCII map where X marks changed cells, . marks unchanged
+    """
+    if not prev_grid or not curr_grid:
+        return {"changes": [], "change_count": 0, "change_map_text": ""}
+
+    h = min(len(prev_grid), len(curr_grid))
+    w = min(len(prev_grid[0]), len(curr_grid[0])) if h > 0 else 0
+
+    changes = []
+    rows = []
+    for y in range(h):
+        row_chars = []
+        for x in range(w):
+            if prev_grid[y][x] != curr_grid[y][x]:
+                changes.append({"x": x, "y": y, "from": prev_grid[y][x], "to": curr_grid[y][x]})
+                row_chars.append("X")
+            else:
+                row_chars.append(".")
+        rows.append("".join(row_chars))
+
+    # Compress the change map text: only include rows that have at least one X
+    # and use RLE for long runs
+    compressed_rows = []
+    for y, row_str in enumerate(rows):
+        if "X" in row_str:
+            compressed_rows.append(f"Row {y}: {_compress_change_row(row_str)}")
+
+    change_map_text = "\n".join(compressed_rows) if compressed_rows else "(no changes)"
+
+    return {
+        "changes": changes,
+        "change_count": len(changes),
+        "change_map_text": change_map_text,
+    }
+
+
+def _compress_change_row(row: str) -> str:
+    """Run-length encode a change map row (. and X characters)."""
+    if not row:
+        return ""
+    parts = []
+    cur, count = row[0], 1
+    for ch in row[1:]:
+        if ch == cur:
+            count += 1
+        else:
+            parts.append(f"{cur}x{count}" if count > 3 else cur * count)
+            cur, count = ch, 1
+    parts.append(f"{cur}x{count}" if count > 3 else cur * count)
+    return "".join(parts)
 
 
 def env_state_dict(env, frame_data=None) -> dict:
@@ -152,11 +211,14 @@ def start_game():
         return jsonify({"error": str(e)}), 400
 
     session_id = env._guid if hasattr(env, '_guid') else str(id(env))
-    with session_lock:
-        game_sessions[session_id] = env
 
     state = env_state_dict(env)
+    with session_lock:
+        game_sessions[session_id] = env
+        session_grids[session_id] = state.get("grid", [])
+
     state["session_id"] = session_id
+    state["change_map"] = {"changes": [], "change_count": 0, "change_map_text": "(initial state)"}
     return jsonify(state)
 
 
@@ -183,12 +245,25 @@ def step_game():
     except ValueError:
         return jsonify({"error": f"Invalid action id: {action_id}"}), 400
 
+    # Get previous grid for change map
+    with session_lock:
+        prev_grid = session_grids.get(session_id, [])
+
     frame_data = env.step(action, data=action_data or None, reasoning=reasoning)
     if frame_data is None:
         return jsonify({"error": "Step failed"}), 500
 
     state = env_state_dict(env, frame_data)
     state["session_id"] = session_id
+
+    # Compute change map
+    curr_grid = state.get("grid", [])
+    state["change_map"] = compute_change_map(prev_grid, curr_grid)
+
+    # Store current grid as previous for next step
+    with session_lock:
+        session_grids[session_id] = curr_grid
+
     return jsonify(state)
 
 
@@ -207,6 +282,11 @@ def reset_game():
     frame_data = env.reset()
     state = env_state_dict(env, frame_data)
     state["session_id"] = session_id
+    state["change_map"] = {"changes": [], "change_count": 0, "change_map_text": "(reset)"}
+
+    with session_lock:
+        session_grids[session_id] = state.get("grid", [])
+
     return jsonify(state)
 
 
@@ -280,6 +360,15 @@ def _build_prompt(payload):
 
     game_id_raw = payload.get('game_id', 'unknown')
 
+    # Change map from last action
+    change_map = payload.get("change_map", {})
+    change_text = ""
+    if change_map and change_map.get("change_count", 0) > 0:
+        change_text = f"""
+# CHANGES SINCE LAST ACTION ({change_map['change_count']} cells changed)
+{change_map.get('change_map_text', '(none)')}
+"""
+
     return f"""You are an expert AI agent playing an ARC-AGI-3 puzzle game.
 Your goal is to advance as far as possible through the levels and ideally complete the game.
 
@@ -297,7 +386,7 @@ State: {state}
 Levels completed: {levels_completed}/{win_levels}
 Available actions: {action_desc}
 {history_text}
-
+{change_text}
 # CURRENT GRID (run-length encoded rows, color indices 0-15)
 {grid_text}
 
