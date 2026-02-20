@@ -310,6 +310,12 @@ async function startGame(gameId) {
   autoPlaying = false;
   updateUI(data);
 
+  // Auto-enable click mode for click-based games
+  if ((data.available_actions || []).includes(6)) {
+    action6Mode = true;
+    canvas.style.cursor = 'crosshair';
+  }
+
   document.getElementById('emptyState').style.display = 'none';
   canvas.style.display = 'block';
   document.getElementById('controls').style.display = 'flex';
@@ -370,7 +376,6 @@ async function doAction(actionId, isAction6Click) {
 // ACTION6 click handler
 canvas.addEventListener('click', async (e) => {
   if (!action6Mode || !sessionId) return;
-  action6Mode = false;
   canvas.style.cursor = 'crosshair';
 
   const rect = canvas.getBoundingClientRect();
@@ -386,6 +391,10 @@ canvas.addEventListener('click', async (e) => {
 
   moveHistory.push({ step: stepCount, action: 6, result_state: data.state, x, y });
   updateUI(data);
+
+  // Re-enable click mode if action 6 is still available (click-based games)
+  action6Mode = (data.available_actions || []).includes(6);
+  if (!action6Mode) canvas.style.cursor = 'default';
 
   if (document.getElementById('llmEnabled').checked && data.state === 'NOT_FINISHED') {
     askLLM();
