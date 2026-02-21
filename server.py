@@ -417,15 +417,19 @@ ACTION_NAMES = {
 ARC_AGI3_DESCRIPTION = """\
 ARC-AGI-3 is an interactive reasoning benchmark. Each game is a 64x64 pixel
 grid with 16 colors (0-15).  There are NO instructions — you must discover the
-controls, rules, and goals by experimenting.
+rules and goals by experimenting.
+
+Action mappings:
+- ACTION1 = UP, ACTION2 = RIGHT, ACTION3 = DOWN, ACTION4 = LEFT (directional movement)
+- ACTION5 = context-dependent (cycle, toggle, interact — varies by game)
+- ACTION6 = CLICK at (x, y) — for selecting, placing, or interacting with specific cells
+- ACTION7 = context-dependent (secondary interact, rotate, swap — varies by game)
+- ACTION0 = RESET — restarts the current level. Use only as a last resort.
 
 Key facts:
-- Actions 1-5, 7 are simple (no parameters). ACTION6 needs x,y coordinates.
-- ACTION0 is RESET — restarts the current level. Use sparingly.
 - States: NOT_FINISHED (playing), WIN (all levels done), GAME_OVER (failed).
-- Large uniform regions = background/walls. Small shapes = interactive objects.
-- Edge bars = health/energy/progress indicators.
-- ACTIONs 1-4 often map to directional movement. ACTION6 is usually a click."""
+- Large uniform regions = background/walls. Small shapes = player/items.
+- Edge bars = health/energy/progress meters."""
 
 SYSTEM_MSG = (
     "You are an expert puzzle-solving AI agent. Analyse game grids and output "

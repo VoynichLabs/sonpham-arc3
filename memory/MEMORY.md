@@ -10,20 +10,26 @@
 
 ## General
 
-- Actions 1-4 usually map to directional movement (up/right/down/left — varies by game).
-- ACTION6 is a click action requiring x,y coordinates; try clicking distinct coloured objects.
-- ACTION0 is RESET — use only as a last resort; it restarts the current level.
-- Large uniform regions are typically background or walls, not interactive objects.
-- Small, isolated coloured shapes are usually the player character or key items.
-- Bars running along an edge (especially with a gradient) are typically progress/health/energy meters.
-- If the grid appears unchanged after multiple different actions, try ACTION6 on distinct objects.
+### Action Mappings (universal across all games)
+- ACTION1 = Move UP (or equivalent upward/north action)
+- ACTION2 = Move RIGHT (or equivalent rightward/east action)
+- ACTION3 = Move DOWN (or equivalent downward/south action)
+- ACTION4 = Move LEFT (or equivalent westward/west action)
+- ACTION5 = Context-dependent (cycle, toggle, interact, confirm — varies by game)
+- ACTION6 = CLICK at (x, y) coordinates — used for selecting, placing, or interacting with specific cells
+- ACTION7 = Context-dependent (secondary interact, rotate, swap — varies by game)
+- ACTION0 = RESET — restarts the current level. Use only as last resort or help optimize the goal.
+
+### Game Mechanics
+- States: NOT_FINISHED (playing), WIN (all levels done), GAME_OVER (failed)
+- Completing a level often triggers a grid reset — note what persists vs resets
+- You can lose by running out of lives, energy, moves, or time-based counters
 
 ## Strategies
 
-- Start by mapping each action to its observable effect before committing to a plan.
-- Track which cells change after each action to build a cause-and-effect model.
-- Completing a level often triggers a full or partial grid reset — note what persists.
-- If stuck after 10+ moves with no level progress, try RESET and a completely different approach.
+- The goal is to finish the game (WIN) in the fewest steps possible
+- If no visible changes occur from an action, try a different action or approach
+- Pay attention to color changes — they often signal progress or state transitions
 
 ## ls20
 
