@@ -1,0 +1,101 @@
+# ARC-AGI-3 Agent Configuration
+# ───────────────────────────────────────────────────────────────────────────
+# Three blocks control what the agent knows, how it reasons, and how memory
+# is managed.  Toggle any flag to experiment without changing code.
+
+
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  CONTEXT BLOCK                                                           │
+# │  Controls what information is fed to the model at each step.            │
+# └──────────────────────────────────────────────────────────────────────────┘
+context:
+
+  # Full run-length-encoded grid (current game state).
+  # Disable only if you rely entirely on the change_map and diff.
+  full_grid: true
+
+  # Cells that changed since the last action (X/. overlay, RLE-compressed).
+  # Cheap and highly informative — almost always keep this on.
+  change_map: true
+
+  # Count of each color present in the current grid.
+  # Useful for spotting progress (e.g. "now have 12 red cells, target needs 20").
+  color_histogram: false
+
+  # Connected-component regions per color via flood-fill BFS.
+  # Expensive to compute and verbose; enable when spatial reasoning helps.
+  region_map: false
+
+  # How many recent moves to show in the prompt.
+  # Larger window = more context but more tokens per call.
+  history_length: 10
+
+  # Inject relevant hard-memory facts (from memory/MEMORY.md) into each prompt.
+  # The agent uses this to recall what it already knows about a game.
+  memory_injection: true
+
+  # Max characters of MEMORY.md to inject (keeps prompts bounded).
+  memory_injection_max_chars: 1500
+
+
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  REASONING BLOCK                                                         │
+# │  Controls which model(s) handle each reasoning task.                    │
+# └──────────────────────────────────────────────────────────────────────────┘
+reasoning:
+
+  # ── Model used for every action decision (the main loop model).
+  # Available keys: see MODELS dict in agent.py.
+  executor_model: "gemini-2.5-flash"
+
+  # ── Model used for context condensation (summarising old history).
+  # Set to null to reuse executor_model (saves you from configuring twice
+  # when running on a single free-tier account).
+  condenser_model: null
+
+  # ── Model used for post-game reflection and MEMORY.md updates.
+  # Set to null to reuse executor_model.
+  reflector_model: null
+
+  # Sampling temperature for action decisions.
+  temperature: 0.3
+
+  # Max output tokens for action decisions.
+  max_tokens: 2048
+
+  # Max output tokens for condensation / reflection passes.
+  reflection_max_tokens: 1024
+
+
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  MEMORY MANAGEMENT BLOCK                                                 │
+# │  Controls both in-context history and cross-session hard memory.        │
+# └──────────────────────────────────────────────────────────────────────────┘
+memory:
+
+  # ── Hard memory (persistent across sessions) ─────────────────────────────
+
+  # Path to the free-form markdown file the agent reads and writes.
+  # Relative to the project root (i.e. arc-agi-3/).
+  hard_memory_file: "memory/MEMORY.md"
+
+  # Path to the structured JSON session log.
+  session_log_file: "memory/sessions.json"
+
+  # If true, the agent may write a "memory_update" field in its JSON response
+  # to append a new bullet to MEMORY.md mid-game (e.g. after discovering a rule).
+  allow_inline_memory_writes: true
+
+  # If true, run a dedicated reflection pass after each game ends and update
+  # MEMORY.md with what was learned.
+  reflect_after_game: true
+
+  # ── In-context history condensation ──────────────────────────────────────
+
+  # Summarise the oldest history entries every N steps.
+  # Set to 0 to disable condensation entirely.
+  condense_every: 25
+
+  # If accumulated history exceeds this many entries, force a condensation
+  # pass regardless of the condense_every counter.
+  condense_threshold: 50
