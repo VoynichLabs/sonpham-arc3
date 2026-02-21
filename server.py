@@ -196,7 +196,29 @@ session_step_counts: dict[str, int] = {}  # session_id → server-side step coun
 session_last_llm: dict[str, dict] = {}  # session_id → last LLM response (for DB storage)
 
 # ── Copilot auth state ────────────────────────────────────────────────────
-copilot_oauth_token: Optional[str] = None  # GitHub OAuth access token
+_COPILOT_TOKEN_FILE = Path(__file__).parent / "data" / ".copilot_token"
+
+def _load_copilot_token() -> Optional[str]:
+    """Load persisted Copilot OAuth token from disk."""
+    try:
+        if _COPILOT_TOKEN_FILE.exists():
+            return _COPILOT_TOKEN_FILE.read_text().strip() or None
+    except Exception:
+        pass
+    return None
+
+def _save_copilot_token(token: Optional[str]):
+    """Persist Copilot OAuth token to disk."""
+    try:
+        _COPILOT_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        if token:
+            _COPILOT_TOKEN_FILE.write_text(token)
+        elif _COPILOT_TOKEN_FILE.exists():
+            _COPILOT_TOKEN_FILE.unlink()
+    except Exception:
+        pass
+
+copilot_oauth_token: Optional[str] = _load_copilot_token()
 copilot_api_token: Optional[str] = None  # Copilot short-lived API token
 copilot_token_expiry: float = 0.0  # Unix timestamp when copilot_api_token expires
 copilot_device_code: Optional[str] = None  # Pending device code during auth flow
@@ -215,7 +237,7 @@ PROVIDER_MIN_DELAY: dict[str, float] = {
     "mistral":     2.0,   # ~1-2 req/sec free
     "huggingface": 6.0,   # ~10 req/min free
     "cloudflare":  0.5,   # neuron-based, no per-minute limit
-    "copilot":     1.0,   # unknown exact limit, be safe
+    "copilot":     4.0,   # unknown exact limit, pace it out
     "ollama":      0.0,   # local, no limit
 }
 _provider_last_call: dict[str, float] = {}  # provider → last call unix time
@@ -448,28 +470,52 @@ SYSTEM_MSG = (
 
 MODEL_REGISTRY: dict[str, dict] = {
     # ── Gemini ────────────────────────────────────────────────────────────
-    "gemini-2.5-flash": {
-        "provider": "gemini", "api_model": "gemini-2.5-flash",
+    "gemini-3.1-pro": {
+        "provider": "gemini", "api_model": "gemini-3.1-pro-preview",
         "env_key": "GEMINI_API_KEY",
-        "price": "$0.15/$0.60 per 1M tok",
+        "price": "$2/$12 per 1M tok (no free tier)",
+        "capabilities": {"image": True, "reasoning": True, "tools": True},
+    },
+    "gemini-3-pro": {
+        "provider": "gemini", "api_model": "gemini-3-pro-preview",
+        "env_key": "GEMINI_API_KEY",
+        "price": "$2/$12 per 1M tok (no free tier)",
+        "capabilities": {"image": True, "reasoning": True, "tools": True},
+    },
+    "gemini-3-flash": {
+        "provider": "gemini", "api_model": "gemini-3-flash-preview",
+        "env_key": "GEMINI_API_KEY",
+        "price": "$0.50/$3 per 1M tok (free tier)",
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "gemini-2.5-pro": {
         "provider": "gemini", "api_model": "gemini-2.5-pro",
         "env_key": "GEMINI_API_KEY",
-        "price": "$1.25/$10 per 1M tok",
+        "price": "$1.25/$10 per 1M tok (free tier)",
         "capabilities": {"image": True, "reasoning": True, "tools": True},
+    },
+    "gemini-2.5-flash": {
+        "provider": "gemini", "api_model": "gemini-2.5-flash",
+        "env_key": "GEMINI_API_KEY",
+        "price": "$0.30/$2.50 per 1M tok (free tier)",
+        "capabilities": {"image": True, "reasoning": True, "tools": True},
+    },
+    "gemini-2.5-flash-lite": {
+        "provider": "gemini", "api_model": "gemini-2.5-flash-lite",
+        "env_key": "GEMINI_API_KEY",
+        "price": "$0.10/$0.40 per 1M tok (free tier)",
+        "capabilities": {"image": True, "reasoning": False, "tools": False},
     },
     "gemini-2.0-flash": {
         "provider": "gemini", "api_model": "gemini-2.0-flash",
         "env_key": "GEMINI_API_KEY",
-        "price": "$0.10/$0.40 per 1M tok",
+        "price": "$0.10/$0.40 per 1M tok (free tier)",
         "capabilities": {"image": True, "reasoning": False, "tools": True},
     },
     "gemini-2.0-flash-lite": {
         "provider": "gemini", "api_model": "gemini-2.0-flash-lite",
         "env_key": "GEMINI_API_KEY",
-        "price": "Free tier",
+        "price": "$0.075/$0.30 per 1M tok (free tier)",
         "capabilities": {"image": True, "reasoning": False, "tools": False},
     },
     # ── Anthropic ─────────────────────────────────────────────────────────
@@ -821,12 +867,16 @@ COLOR PALETTE: 0=White 1=LightGray 2=Gray 3=DarkGray 4=VeryDarkGray 5=Black
 
     # ── History (always included) ─────────────────────────────────────────
     if history:
-        recent = history[-10:]
         lines = []
-        for h in recent:
+        for h in history:
             aname = ACTION_NAMES.get(h.get("action", 0), "?")
-            lines.append(f"  Step {h.get('step', '?')}: {aname} -> {h.get('result_state', '?')}")
-        parts.append("## HISTORY (last 10)\n" + "\n".join(lines))
+            line = f"  Step {h.get('step', '?')}: {aname} -> {h.get('result_state', '?')}"
+            grid_snap = h.get("grid")
+            if grid_snap:
+                rle = "\n".join(f"    Row {i}: {compress_row(r)}" for i, r in enumerate(grid_snap))
+                line += f"\n{rle}"
+            lines.append(line)
+        parts.append(f"## HISTORY ({len(history)} steps)\n" + "\n".join(lines))
 
     # ── Diff / change map ─────────────────────────────────────────────────
     if input_settings.get("diff") and change_map and change_map.get("change_count", 0) > 0:
@@ -1112,8 +1162,11 @@ def _get_copilot_token() -> str:
                          "Accept": "application/json"},
                 timeout=30.0,
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                app.logger.error("Copilot token exchange failed: %s %s", resp.status_code, resp.text)
+                resp.raise_for_status()
             data = resp.json()
+            app.logger.info("Copilot token exchange OK, keys: %s", list(data.keys()))
             copilot_api_token = data["token"]
             copilot_token_expiry = data.get("expires_at", time.time() + 1500)
         return copilot_api_token
@@ -1410,6 +1463,35 @@ def llm_models():
             pass
 
     return jsonify({"models": models, "mode": mode})
+
+
+@app.route("/api/llm/summarize", methods=["POST"])
+@bot_protection
+@turnstile_required
+def llm_summarize():
+    """Use a cheap/fast model to summarize game history for compact context."""
+    if not feature_enabled("server_llm"):
+        return jsonify({"error": "Server LLM not available"}), 403
+    payload = request.get_json(force=True)
+    prompt = payload.get("prompt", "")
+    if not prompt:
+        return jsonify({"error": "No prompt"}), 400
+    # Use the cheapest available model for summarization
+    summary_models = ["gemini-2.0-flash-lite", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+    for m in summary_models:
+        info = MODEL_REGISTRY.get(m)
+        if not info:
+            continue
+        env_key = info.get("env_key", "")
+        if env_key and not os.environ.get(env_key):
+            continue
+        try:
+            result = _route_model_call(m, prompt, None)
+            return jsonify({"summary": result})
+        except Exception as e:
+            app.logger.warning("Summarize with %s failed: %s", m, e)
+            continue
+    return jsonify({"error": "No summarization model available"}), 500
 
 
 @app.route("/api/llm/ask", methods=["POST"])
@@ -1709,6 +1791,7 @@ def copilot_auth_poll():
             with copilot_auth_lock:
                 copilot_oauth_token = data["access_token"]
                 copilot_device_code = None
+            _save_copilot_token(copilot_oauth_token)
             return jsonify({"status": "authenticated"})
         elif data.get("error") == "authorization_pending":
             return jsonify({"status": "pending"})

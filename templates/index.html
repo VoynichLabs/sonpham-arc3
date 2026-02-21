@@ -549,11 +549,15 @@
                       <label class="toggle"><input type="checkbox" id="compactContext" checked><span class="slider"></span></label>
                     </div>
                     <div class="opt-row">
-                      <span class="opt-label">After step</span>
-                      <input type="number" id="compactAfter" value="15" min="5" max="200" style="width:55px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
+                      <span class="opt-label">After call #</span>
+                      <input type="number" id="compactAfter" value="15" min="1" max="200" style="width:55px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
+                    </div>
+                    <div class="opt-row">
+                      <span class="opt-label">Token limit</span>
+                      <input type="number" id="compactTokenLimit" value="30000" min="1000" max="500000" step="1000" style="width:75px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
                     </div>
                     <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">
-                      Summarises learned mechanics + goals into a compact block for the LLM
+                      Compacts history after N calls OR when prompt exceeds token limit (whichever first). Drops old grid snapshots to save tokens.
                     </div>
                     <div class="opt-row">
                       <span class="opt-label">Planning horizon</span>
@@ -652,6 +656,7 @@ let previousGrid = null;
 let currentChangeMap = null;
 let currentState = {};
 let stepCount = 0;
+let llmCallCount = 0;  // counts agent/LLM calls (not game steps)
 let moveHistory = [];
 let autoPlaying = false;
 let action6Mode = false;
@@ -828,6 +833,9 @@ async function startGame(gameId) {
 
   sessionId = data.session_id;
   stepCount = 0;
+  llmCallCount = 0;
+  _cachedCompactSummary = '';
+  _compactSummaryAtCall = 0;
   moveHistory = [];
   undoStack = [];
   sessionStepsBuffer = [];
@@ -911,7 +919,7 @@ async function doAction(actionId, isClick) {
   const prevGrid = currentState.grid ? JSON.stringify(currentState.grid) : null;
   const data = await fetchJSON('/api/step', { session_id: sessionId, action: actionId, data: {} });
   if (data.error) { undoStack.pop(); alert(data.error); return; }
-  moveHistory.push({ step: stepCount, action: actionId, result_state: data.state, levels: data.levels_completed });
+  moveHistory.push({ step: stepCount, action: actionId, result_state: data.state, levels: data.levels_completed, grid: data.grid });
   recordStepForPersistence(actionId, {}, data.grid, data.change_map, null);
   logHumanAction(actionId, {}, data.change_map);
   updateUI(data);
@@ -936,7 +944,7 @@ canvas.addEventListener('click', async (e) => {
   const prevGrid = currentState.grid ? JSON.stringify(currentState.grid) : null;
   const data = await fetchJSON('/api/step', { session_id: sessionId, action: 6, data: { x, y } });
   if (data.error) { undoStack.pop(); alert(data.error); return; }
-  moveHistory.push({ step: stepCount, action: 6, result_state: data.state, x, y, levels: data.levels_completed });
+  moveHistory.push({ step: stepCount, action: 6, result_state: data.state, x, y, levels: data.levels_completed, grid: data.grid });
   recordStepForPersistence(6, { x, y }, data.grid, data.change_map, null);
   logHumanAction(6, { x, y }, data.change_map);
   updateUI(data);
@@ -960,7 +968,36 @@ document.addEventListener('keydown', (e) => {
 function getCompactSettings() {
   const enabled = document.getElementById('compactContext').checked;
   const after = parseInt(document.getElementById('compactAfter').value) || 15;
-  return { enabled, after };
+  const tokenLimit = parseInt(document.getElementById('compactTokenLimit').value) || 30000;
+  return { enabled, after, tokenLimit };
+}
+
+function estimateTokens(text) {
+  // Rough estimate: ~4 chars per token for English/code
+  return Math.ceil((text || '').length / 4);
+}
+
+function trimHistoryForTokens(history, tokenLimit) {
+  // Build full history text and check if it exceeds limit.
+  // If so, drop grid snapshots from older steps, keeping last 5 with grids.
+  const KEEP_GRIDS = 5;
+  if (!history || history.length <= KEEP_GRIDS) return history;
+
+  // Estimate token cost of full history with grids
+  let totalChars = 0;
+  for (const h of history) {
+    totalChars += 60; // step line overhead
+    if (h.grid) totalChars += h.grid.length * 30; // rough RLE per row
+  }
+  const est = Math.ceil(totalChars / 4);
+  if (est <= tokenLimit * 0.6) return history; // history alone under 60% of limit, keep all
+
+  // Strip grids from older entries, keep last KEEP_GRIDS with grids
+  return history.map((h, i) => {
+    if (i >= history.length - KEEP_GRIDS) return h;
+    const { grid, ...rest } = h;
+    return rest;
+  });
 }
 
 function collectObservation(resp) {
@@ -975,23 +1012,13 @@ function collectObservation(resp) {
   });
 }
 
-function buildCompactContext() {
-  // Distill accumulated observations into a compact memory block.
-  // Group insights: action effects, identified objects, goals, patterns.
+let _cachedCompactSummary = '';  // LLM-generated summary, cached until refreshed
+let _compactSummaryAtCall = 0;   // llmCallCount when summary was last generated
+
+function buildCompactContextFallback() {
+  // Heuristic fallback when LLM summary is not available yet.
   if (!llmObservations.length) return '';
-
-  // Deduplicate observations — keep unique insights only
-  const seenObs = new Set();
-  const uniqueObs = [];
-  for (const o of llmObservations) {
-    const key = (o.observation || '').substring(0, 80);
-    if (key && !seenObs.has(key)) {
-      seenObs.add(key);
-      uniqueObs.push(o);
-    }
-  }
-
-  // Build action effect map: which actions had what effect
+  const parts = ['## COMPACT CONTEXT (accumulated knowledge from prior steps)'];
   const actionEffects = {};
   for (const o of llmObservations) {
     if (o.action !== undefined) {
@@ -1001,29 +1028,75 @@ function buildCompactContext() {
       if (reason && actionEffects[aname].length < 3) actionEffects[aname].push(reason);
     }
   }
-
-  const parts = ['## COMPACT CONTEXT (accumulated knowledge from prior steps)'];
-
-  // Action effects
   const effectLines = Object.entries(actionEffects)
     .map(([a, reasons]) => `  ${a}: ${reasons[reasons.length - 1]}`)
     .join('\n');
   if (effectLines) parts.push(`Action effects:\n${effectLines}`);
-
-  // Latest understanding (last 3 unique observations)
-  const recent = uniqueObs.slice(-3);
-  if (recent.length) {
-    const lines = recent.map(o =>
-      `  Step ${o.step}: ${o.observation}${o.analysis ? ' | ' + o.analysis.substring(0, 120) : ''}`
-    ).join('\n');
+  const last3 = llmObservations.slice(-3);
+  if (last3.length) {
+    const lines = last3.map(o => `  Step ${o.step}: ${o.observation || ''}`).join('\n');
     parts.push(`Recent observations:\n${lines}`);
   }
-
-  // Current goals (from the last reasoning)
   const lastReasoning = llmObservations[llmObservations.length - 1]?.reasoning;
   if (lastReasoning) parts.push(`Current plan: ${lastReasoning}`);
-
   return parts.join('\n');
+}
+
+async function buildCompactContext() {
+  // Use LLM to summarize the game history into key takeaways.
+  // Falls back to heuristic if LLM call fails.
+  // Re-summarize every 5 calls to stay current.
+  const REFRESH_INTERVAL = 5;
+  if (_cachedCompactSummary && (llmCallCount - _compactSummaryAtCall) < REFRESH_INTERVAL) {
+    return _cachedCompactSummary;
+  }
+
+  // Build a summary prompt from observations + history
+  const obsText = llmObservations.map(o =>
+    `Step ${o.step}: action=${ACTION_NAMES[o.action] || o.action}, obs="${o.observation || ''}", reasoning="${(o.reasoning || '').substring(0, 150)}"`
+  ).join('\n');
+
+  const histText = moveHistory.slice(-20).map(h =>
+    `Step ${h.step}: ${ACTION_NAMES[h.action] || '?'} -> ${h.result_state || '?'}`
+  ).join('\n');
+
+  const summaryPrompt = `You are a game analyst. Given the following game history and agent observations, produce a CONCISE summary (max 300 words) of:
+1. What the game seems to be about (mechanics, objectives)
+2. What actions do what (discovered effects)
+3. Current progress and situation
+4. Key patterns or strategies discovered
+5. What to try next
+
+OBSERVATIONS:
+${obsText}
+
+RECENT HISTORY:
+${histText}
+
+Current levels completed: ${currentState.levels_completed || 0}/${currentState.win_levels || 0}
+
+Respond with ONLY the summary text, no JSON.`;
+
+  try {
+    let summary;
+    if (FEATURES.server_llm) {
+      const data = await fetchJSON('/api/llm/summarize', {
+        prompt: summaryPrompt,
+        session_id: sessionId,
+      });
+      summary = data.summary;
+    } else if (FEATURES.puter_js) {
+      summary = await askLLMPuter(summaryPrompt, 'gpt-4o-mini');
+    }
+    if (summary) {
+      _cachedCompactSummary = `## COMPACT CONTEXT (LLM-summarized game knowledge)\n${summary}`;
+      _compactSummaryAtCall = llmCallCount;
+      return _cachedCompactSummary;
+    }
+  } catch (e) {
+    console.warn('Compact summary LLM call failed, using fallback:', e);
+  }
+  return buildCompactContextFallback();
 }
 
 function getReasoningMode() {
@@ -1130,8 +1203,18 @@ async function askLLM() {
     let resp;
     const inputSettings = getInputSettings();
 
+    llmCallCount++;
     const compact = getCompactSettings();
-    const compactBlock = (compact.enabled && stepCount >= compact.after) ? buildCompactContext() : '';
+    const callTrigger = compact.enabled && llmCallCount >= compact.after;
+    // Also trigger compact if estimated prompt tokens exceed limit
+    const histTokenEst = estimateTokens(JSON.stringify(moveHistory));
+    const tokenTrigger = compact.enabled && histTokenEst > compact.tokenLimit * 0.6;
+    const compactBlock = (callTrigger || tokenTrigger) ? await buildCompactContext() : '';
+
+    // Trim history grids if approaching token limit
+    const historyForLLM = compact.enabled
+      ? trimHistoryForTokens(moveHistory, compact.tokenLimit)
+      : moveHistory;
 
     // Determine if this model uses client-side LLM (Puter.js/BYOK)
     const isPuterModel = modelsData.some(m => m.name === model && m.provider === 'puter');
@@ -1146,7 +1229,7 @@ async function askLLM() {
         levels_completed: currentState.levels_completed,
         win_levels: currentState.win_levels,
         game_id: currentState.game_id,
-        history: moveHistory.slice(-10),
+        history: historyForLLM,
         change_map: currentChangeMap,
         session_id: sessionId,
         compact_context: compactBlock,
@@ -1162,7 +1245,7 @@ async function askLLM() {
       resp = await fetchJSON('/api/llm/ask', payload);
     } else {
       // ── Client-side LLM (online mode: Puter.js or BYOK) ─────────────
-      const prompt = buildClientPrompt(currentState, moveHistory.slice(-10), currentChangeMap, inputSettings, getToolsMode(), compactBlock, getPlanningMode());
+      const prompt = buildClientPrompt(currentState, historyForLLM, currentChangeMap, inputSettings, getToolsMode(), compactBlock, getPlanningMode());
       let rawContent;
       try {
         if (FEATURES.puter_js && !byokActive()) {
@@ -1324,7 +1407,7 @@ async function executePlan(plan, resp, entry) {
       break;
     }
 
-    moveHistory.push({ step: stepCount, action: step.action, result_state: data.state, levels: data.levels_completed });
+    moveHistory.push({ step: stepCount, action: step.action, result_state: data.state, levels: data.levels_completed, grid: data.grid });
     recordStepForPersistence(step.action, step.data || {}, data.grid, data.change_map, i === 0 ? resp : null);
     updateUI(data);
     updateUndoBtn();
@@ -1379,7 +1462,7 @@ async function executeOneAction(resp) {
   if (resp?._clientSide) body.llm_response = resp;
   const data = await fetchJSON('/api/step', body);
   if (data.error) { undoStack.pop(); stepCount--; alert(data.error); return null; }
-  moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed });
+  moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid });
   recordStepForPersistence(p.action, p.data || {}, data.grid, data.change_map, resp);
   updateUI(data);
   updateUndoBtn();
@@ -1683,9 +1766,15 @@ function buildClientPrompt(state, history, changeMap, inputSettings, toolsMode, 
   }
 
   if (history && history.length) {
-    const recent = history.slice(-10);
-    const lines = recent.map(h => `  Step ${h.step || '?'}: ${ACTION_NAMES[h.action] || '?'} -> ${h.result_state || '?'}`);
-    parts.push('## HISTORY (last 10)\n' + lines.join('\n'));
+    const lines = history.map(h => {
+      let line = `  Step ${h.step || '?'}: ${ACTION_NAMES[h.action] || '?'} -> ${h.result_state || '?'}`;
+      if (h.grid) {
+        const rle = h.grid.map((r, i) => `    Row ${i}: ${compressRowJS(r)}`).join('\n');
+        line += `\n${rle}`;
+      }
+      return line;
+    });
+    parts.push(`## HISTORY (${history.length} steps)\n` + lines.join('\n'));
   }
 
   if (inputSettings.diff && changeMap && changeMap.change_count > 0) {
@@ -1957,6 +2046,11 @@ async function loadSessionHistory() {
       return;
     }
     list.innerHTML = '';
+    sessions = sessions.filter(s => (s.steps || 0) >= 20);
+    if (!sessions.length) {
+      list.innerHTML = '<div class="empty-state" style="height:auto;font-size:12px;">No sessions with 20+ steps yet.</div>';
+      return;
+    }
     for (const s of sessions) {
       const div = document.createElement('div');
       const isBranch = !!s.parent_session_id;
