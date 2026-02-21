@@ -70,7 +70,7 @@
     color: var(--text-dim); font-size: 14px; text-align: center; padding: 40px; line-height: 1.8; }
 
   /* ── Right panel ─────────────────────────────────────────────────────── */
-  .right-panel { width: 380px; background: var(--surface); border-left: 1px solid var(--border);
+  .right-panel { width: 760px; background: var(--surface); border-left: 1px solid var(--border);
     display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
 
   /* ── Option sections ─────────────────────────────────────────────────── */
@@ -233,6 +233,31 @@
   .tab-bar button.active { color: var(--accent); border-bottom-color: var(--accent); }
   .tab-pane { display: none; flex-direction: column; flex: 1; overflow: hidden; }
   .tab-pane.active { display: flex; }
+
+  /* ── Subtab bar (within Agent tab) ─────────────────────────────────── */
+  .subtab-bar { display: flex; border-bottom: 1px solid var(--border); background: var(--bg); flex-shrink: 0; }
+  .subtab-bar button { flex: 1; padding: 7px 0; background: none; border: none; color: var(--text-dim);
+    font-family: inherit; font-size: 11px; font-weight: 500; letter-spacing: 0.3px; cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .subtab-bar button:hover { color: var(--text); }
+  .subtab-bar button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .subtab-pane { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .subtab-pane.active { display: flex; }
+
+  /* ── Settings 2-column layout ──────────────────────────────────────── */
+  .settings-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0; flex: 1; overflow-y: auto; }
+  .settings-col { border-right: 1px solid var(--border); overflow-y: auto; }
+  .settings-col:last-child { border-right: none; }
+  .settings-transport { border-top: 1px solid var(--border); padding: 10px 14px; flex-shrink: 0; }
+
+  /* ── Memory subtab ────────────────────────────────────────────────── */
+  .memory-tab { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 10px 14px; gap: 10px; }
+  .memory-tab label { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: 0.3px; margin-bottom: 2px; }
+  .memory-tab textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 4px; font-family: inherit; font-size: 11px; line-height: 1.5; padding: 8px; resize: vertical; }
+  .memory-tab .memory-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .memory-tab .memory-actions .btn { font-size: 11px; padding: 5px 14px; }
 </style>
 </head>
 <body>
@@ -304,198 +329,222 @@
       <!-- ── Right panel ───────────────────────────────────────────── -->
       <div class="right-panel">
 
-        <!-- Tab bar -->
+        <!-- Top tab bar: Agent | History -->
         <div class="tab-bar">
-          <button class="active" onclick="switchTab('settings')">Settings</button>
-          <button onclick="switchTab('reasoning')">
-            Reasoning <span id="llmSpinner" style="display:none;margin-left:4px;"><span class="spinner"></span></span>
-          </button>
-          <button onclick="switchTab('history')">History</button>
+          <button class="active" onclick="switchTopTab('agent')">Agent</button>
+          <button onclick="switchTopTab('history')">History</button>
         </div>
 
-        <!-- ════ SETTINGS TAB ════ -->
-        <div class="tab-pane active" id="tabSettings" style="overflow-y:auto;">
+        <!-- ════ AGENT TAB ════ -->
+        <div class="tab-pane active" id="tabAgent">
 
-          <!-- GAME SOURCE -->
-          <div class="opt-section open" id="secGameSource">
-            <div class="opt-header" onclick="toggleSection('secGameSource')">
-              <span>Game Source</span><span class="chevron">&#9654;</span>
-            </div>
-            <div class="opt-body">
-              <div class="mode-toggle" id="apiModeToggle">
-                <label><input type="radio" name="apiMode" value="local" checked onchange="onApiModeChange('local')">Local</label>
-                <label><input type="radio" name="apiMode" value="official" onchange="onApiModeChange('official')">Official API</label>
-              </div>
-              <div class="api-warning" id="apiWarning">
-                &#9888; This will use the official ARC-AGI-3 API at three.arcprize.org. Your current game will be reset. Results count toward your leaderboard score.
-              </div>
-              <div class="api-key-input" id="apiKeySection">
-                <input type="password" class="text-input" id="arcApiKey" placeholder="ARC-AGI-3 API Key" style="margin-bottom:6px;">
-                <button class="btn btn-primary" onclick="saveArcApiKey()" style="width:100%;font-size:11px;">Save API Key</button>
-              </div>
-            </div>
+          <!-- Subtab bar: Settings | Memory | Reasoning -->
+          <div class="subtab-bar">
+            <button class="active" onclick="switchSubTab('settings')">Settings</button>
+            <button onclick="switchSubTab('memory')">Memory</button>
+            <button onclick="switchSubTab('reasoning')">
+              Reasoning <span id="llmSpinner" style="display:none;margin-left:4px;"><span class="spinner"></span></span>
+            </button>
           </div>
 
-          <!-- GITHUB COPILOT (local only) -->
-          {% if features.copilot %}
-          <div class="opt-section" id="secCopilot">
-            <div class="opt-header" onclick="toggleSection('secCopilot')">
-              <span>GitHub Copilot</span><span class="chevron">&#9654;</span>
-            </div>
-            <div class="opt-body">
-              <div id="copilotNotAuth">
-                <button class="btn btn-primary" onclick="copilotStartAuth()" style="width:100%;font-size:11px;">Connect GitHub Copilot</button>
-                <div id="copilotDeviceCode" style="display:none;">
-                  <div class="copilot-code" id="copilotUserCode">————</div>
-                  <div style="text-align:center;">
-                    <a id="copilotVerifyLink" href="#" target="_blank" class="copilot-link">Open GitHub to enter code</a>
+          <!-- ── Settings subtab ── -->
+          <div class="subtab-pane active" id="subtabSettings" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+            <div class="settings-columns">
+              <!-- LEFT COLUMN: Model, Game Source, Copilot/BYOK -->
+              <div class="settings-col">
+
+                <!-- MODEL -->
+                <div class="opt-section open" id="secModel">
+                  <div class="opt-header" onclick="toggleSection('secModel')">
+                    <span>Model</span><span class="chevron">&#9654;</span>
                   </div>
-                  <div style="font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center;">Waiting for authorization...</div>
+                  <div class="opt-body">
+                    <select id="modelSelect"><option value="">Loading...</option></select>
+                    <div class="model-caps" id="modelCaps"></div>
+                    <div id="testResult" style="display:none; margin-top:4px; padding:4px 8px; border-radius:4px; font-size:11px;"></div>
+                    <input type="text" class="text-input" id="modelCustom" placeholder="Or type model name..." style="margin-top:6px;">
+                  </div>
                 </div>
-              </div>
-              <div id="copilotAuthed" style="display:none;">
-                <div class="copilot-status">
-                  <span class="dot dot-green"></span>
-                  <span style="color:var(--green);font-weight:600;">Connected</span>
+
+                <!-- GAME SOURCE -->
+                <div class="opt-section open" id="secGameSource">
+                  <div class="opt-header" onclick="toggleSection('secGameSource')">
+                    <span>Game Source</span><span class="chevron">&#9654;</span>
+                  </div>
+                  <div class="opt-body">
+                    <div class="mode-toggle" id="apiModeToggle">
+                      <label><input type="radio" name="apiMode" value="local" checked onchange="onApiModeChange('local')">Local</label>
+                      <label><input type="radio" name="apiMode" value="official" onchange="onApiModeChange('official')">Official API</label>
+                    </div>
+                    <div class="api-warning" id="apiWarning">
+                      &#9888; This will use the official ARC-AGI-3 API at three.arcprize.org. Your current game will be reset. Results count toward your leaderboard score.
+                    </div>
+                    <div class="api-key-input" id="apiKeySection">
+                      <input type="password" class="text-input" id="arcApiKey" placeholder="ARC-AGI-3 API Key" style="margin-bottom:6px;">
+                      <button class="btn btn-primary" onclick="saveArcApiKey()" style="width:100%;font-size:11px;">Save API Key</button>
+                    </div>
+                  </div>
                 </div>
-                <div style="font-size:10px;color:var(--text-dim);margin-top:6px;">
-                  Models: gpt-4.1, gpt-4o, gpt-5-mini<span class="tier-badge tier-free">FREE</span><br>
-                  claude-sonnet-4, gemini-2.5-pro<span class="tier-badge tier-premium">PREMIUM</span>
+
+                <!-- GITHUB COPILOT (local only) -->
+                {% if features.copilot %}
+                <div class="opt-section" id="secCopilot">
+                  <div class="opt-header" onclick="toggleSection('secCopilot')">
+                    <span>GitHub Copilot</span><span class="chevron">&#9654;</span>
+                  </div>
+                  <div class="opt-body">
+                    <div id="copilotNotAuth">
+                      <button class="btn btn-primary" onclick="copilotStartAuth()" style="width:100%;font-size:11px;">Connect GitHub Copilot</button>
+                      <div id="copilotDeviceCode" style="display:none;">
+                        <div class="copilot-code" id="copilotUserCode">————</div>
+                        <div style="text-align:center;">
+                          <a id="copilotVerifyLink" href="#" target="_blank" class="copilot-link">Open GitHub to enter code</a>
+                        </div>
+                        <div style="font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center;">Waiting for authorization...</div>
+                      </div>
+                    </div>
+                    <div id="copilotAuthed" style="display:none;">
+                      <div class="copilot-status">
+                        <span class="dot dot-green"></span>
+                        <span style="color:var(--green);font-weight:600;">Connected</span>
+                      </div>
+                      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;">
+                        Models: gpt-4.1, gpt-4o, gpt-5-mini<span class="tier-badge tier-free">FREE</span><br>
+                        claude-sonnet-4, gemini-2.5-pro<span class="tier-badge tier-premium">PREMIUM</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          </div>
-          {% endif %}
+                {% endif %}
 
-          <!-- BYOK — Bring Your Own Key (online only) -->
-          {% if features.byok %}
-          <div class="opt-section" id="secBYOK">
-            <div class="opt-header" onclick="toggleSection('secBYOK')">
-              <span>API Key (BYOK)</span><span class="chevron">&#9654;</span>
-            </div>
-            <div class="opt-body">
-              <div class="opt-row">
-                <span class="opt-label">Provider</span>
-                <select id="byokProvider" style="width:140px;">
-                  <option value="openai">OpenAI</option>
-                  <option value="gemini">Google Gemini</option>
-                </select>
-              </div>
-              <div class="opt-row">
-                <input type="password" class="text-input" id="byokKey" placeholder="Paste API key here...">
-              </div>
-              <button class="btn btn-primary" onclick="saveBYOK()" style="width:100%;font-size:11px;">Save locally</button>
-              <div class="byok-notice">
-                Your key is stored in localStorage only — never sent to our server.<br>
-                Anthropic keys won't work (CORS blocked). Use Puter.js for Claude models.
-              </div>
-            </div>
-          </div>
-          {% endif %}
-
-          <!-- GRAPHICS -->
-          <div class="opt-section open" id="secGraphics">
-            <div class="opt-header" onclick="toggleSection('secGraphics')">
-              <span>Graphics</span><span class="chevron">&#9654;</span>
-            </div>
-            <div class="opt-body">
-              <div class="opt-row">
-                <span class="opt-label">Diff overlay</span>
-                <label class="toggle"><input type="checkbox" id="showChanges" checked><span class="slider"></span></label>
-              </div>
-              <div class="opt-row">
-                <span class="opt-label">Opacity</span>
-                <input type="range" id="changeOpacity" min="0" max="100" value="40" style="width:100px;">
-                <span id="changeOpacityVal" style="font-size:11px;width:28px;color:var(--text-dim);">40%</span>
-              </div>
-              <div class="opt-row">
-                <span class="opt-label">Highlight color</span>
-                <input type="color" id="changeColor" value="#ff0000" style="width:28px;height:20px;border:none;background:none;cursor:pointer;">
-              </div>
-            </div>
-          </div>
-
-          <!-- INPUT -->
-          <div class="opt-section open" id="secInput">
-            <div class="opt-header" onclick="toggleSection('secInput')">
-              <span>Input</span><span class="chevron">&#9654;</span>
-            </div>
-            <div class="opt-body">
-              <div class="opt-row">
-                <span class="opt-label">Diff (change map)</span>
-                <label class="toggle"><input type="checkbox" id="inputDiff" checked><span class="slider"></span></label>
-              </div>
-              <div class="opt-row">
-                <span class="opt-label">Full grid (RLE)</span>
-                <label class="toggle"><input type="checkbox" id="inputGrid" checked><span class="slider"></span></label>
-              </div>
-              <div class="opt-row" id="imageRow">
-                <span class="opt-label">Image <span class="opt-badge badge-img" id="imgBadge">IMG</span></span>
-                <label class="toggle"><input type="checkbox" id="inputImage"><span class="slider"></span></label>
-              </div>
-              <div class="opt-row">
-                <span class="opt-label">Color histogram</span>
-                <label class="toggle"><input type="checkbox" id="inputHistogram"><span class="slider"></span></label>
-              </div>
-            </div>
-          </div>
-
-          <!-- REASONING -->
-          <div class="opt-section open" id="secReasoning">
-            <div class="opt-header" onclick="toggleSection('secReasoning')">
-              <span>Reasoning</span><span class="chevron">&#9654;</span>
-            </div>
-            <div class="opt-body">
-              <div class="opt-row">
-                <span class="opt-label">LLM Mode</span>
-              </div>
-              <div class="opt-row">
-                <div class="triswitch" id="reasoningMode">
-                  <label><input type="radio" name="reasonMode" value="off"><span>Off</span></label>
-                  <label><input type="radio" name="reasonMode" value="on" checked><span>On</span></label>
-                  <label><input type="radio" name="reasonMode" value="adaptive"><span>Adaptive</span></label>
+                <!-- BYOK — Bring Your Own Key (online only) -->
+                {% if features.byok %}
+                <div class="opt-section" id="secBYOK">
+                  <div class="opt-header" onclick="toggleSection('secBYOK')">
+                    <span>API Key (BYOK)</span><span class="chevron">&#9654;</span>
+                  </div>
+                  <div class="opt-body">
+                    <div class="opt-row">
+                      <span class="opt-label">Provider</span>
+                      <select id="byokProvider" style="width:140px;">
+                        <option value="openai">OpenAI</option>
+                        <option value="gemini">Google Gemini</option>
+                      </select>
+                    </div>
+                    <div class="opt-row">
+                      <input type="password" class="text-input" id="byokKey" placeholder="Paste API key here...">
+                    </div>
+                    <button class="btn btn-primary" onclick="saveBYOK()" style="width:100%;font-size:11px;">Save locally</button>
+                    <div class="byok-notice">
+                      Your key is stored in localStorage only — never sent to our server.<br>
+                      Anthropic keys won't work (CORS blocked). Use Puter.js for Claude models.
+                    </div>
+                  </div>
                 </div>
+                {% endif %}
               </div>
-              <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">
-                On = ask every step &nbsp;|&nbsp; Adaptive = when stuck
-              </div>
-              <div class="opt-row">
-                <span class="opt-label">Tool analysis</span>
-              </div>
-              <div class="opt-row">
-                <div class="triswitch" id="toolsMode">
-                  <label><input type="radio" name="toolsMode" value="off"><span>Off</span></label>
-                  <label><input type="radio" name="toolsMode" value="on" checked><span>On</span></label>
-                  <label><input type="radio" name="toolsMode" value="adaptive"><span>Adaptive</span></label>
-                </div>
-              </div>
-              <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">
-                On = histogram + regions &nbsp;|&nbsp; Adaptive = after 10 stuck steps
-              </div>
-              <div class="opt-row">
-                <span class="opt-label">Compact context</span>
-                <label class="toggle"><input type="checkbox" id="compactContext" checked><span class="slider"></span></label>
-              </div>
-              <div class="opt-row">
-                <span class="opt-label">After step</span>
-                <input type="number" id="compactAfter" value="15" min="5" max="200" style="width:55px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
-              </div>
-              <div style="font-size:10px;color:var(--text-dim);">
-                Summarises learned mechanics + goals into a compact block for the LLM
-              </div>
-            </div>
-          </div>
 
-          <!-- MODEL -->
-          <div class="opt-section open" id="secModel">
-            <div class="opt-header" onclick="toggleSection('secModel')">
-              <span>Model</span><span class="chevron">&#9654;</span>
+              <!-- RIGHT COLUMN: Graphics, Input, Reasoning/Tools -->
+              <div class="settings-col">
+
+                <!-- GRAPHICS -->
+                <div class="opt-section open" id="secGraphics">
+                  <div class="opt-header" onclick="toggleSection('secGraphics')">
+                    <span>Graphics</span><span class="chevron">&#9654;</span>
+                  </div>
+                  <div class="opt-body">
+                    <div class="opt-row">
+                      <span class="opt-label">Diff overlay</span>
+                      <label class="toggle"><input type="checkbox" id="showChanges" checked><span class="slider"></span></label>
+                    </div>
+                    <div class="opt-row">
+                      <span class="opt-label">Opacity</span>
+                      <input type="range" id="changeOpacity" min="0" max="100" value="40" style="width:100px;">
+                      <span id="changeOpacityVal" style="font-size:11px;width:28px;color:var(--text-dim);">40%</span>
+                    </div>
+                    <div class="opt-row">
+                      <span class="opt-label">Highlight color</span>
+                      <input type="color" id="changeColor" value="#ff0000" style="width:28px;height:20px;border:none;background:none;cursor:pointer;">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- INPUT -->
+                <div class="opt-section open" id="secInput">
+                  <div class="opt-header" onclick="toggleSection('secInput')">
+                    <span>Input</span><span class="chevron">&#9654;</span>
+                  </div>
+                  <div class="opt-body">
+                    <div class="opt-row">
+                      <span class="opt-label">Diff (change map)</span>
+                      <label class="toggle"><input type="checkbox" id="inputDiff" checked><span class="slider"></span></label>
+                    </div>
+                    <div class="opt-row">
+                      <span class="opt-label">Full grid (RLE)</span>
+                      <label class="toggle"><input type="checkbox" id="inputGrid" checked><span class="slider"></span></label>
+                    </div>
+                    <div class="opt-row" id="imageRow">
+                      <span class="opt-label">Image <span class="opt-badge badge-img" id="imgBadge">IMG</span></span>
+                      <label class="toggle"><input type="checkbox" id="inputImage"><span class="slider"></span></label>
+                    </div>
+                    <div class="opt-row">
+                      <span class="opt-label">Color histogram</span>
+                      <label class="toggle"><input type="checkbox" id="inputHistogram"><span class="slider"></span></label>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- REASONING / TOOLS -->
+                <div class="opt-section open" id="secReasoning">
+                  <div class="opt-header" onclick="toggleSection('secReasoning')">
+                    <span>Reasoning / Tools</span><span class="chevron">&#9654;</span>
+                  </div>
+                  <div class="opt-body">
+                    <div class="opt-row">
+                      <span class="opt-label">LLM Mode</span>
+                    </div>
+                    <div class="opt-row">
+                      <div class="triswitch" id="reasoningMode">
+                        <label><input type="radio" name="reasonMode" value="off"><span>Off</span></label>
+                        <label><input type="radio" name="reasonMode" value="on" checked><span>On</span></label>
+                        <label><input type="radio" name="reasonMode" value="adaptive"><span>Adaptive</span></label>
+                      </div>
+                    </div>
+                    <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">
+                      On = ask every step &nbsp;|&nbsp; Adaptive = when stuck
+                    </div>
+                    <div class="opt-row">
+                      <span class="opt-label">Tool analysis</span>
+                    </div>
+                    <div class="opt-row">
+                      <div class="triswitch" id="toolsMode">
+                        <label><input type="radio" name="toolsMode" value="off"><span>Off</span></label>
+                        <label><input type="radio" name="toolsMode" value="on" checked><span>On</span></label>
+                        <label><input type="radio" name="toolsMode" value="adaptive"><span>Adaptive</span></label>
+                      </div>
+                    </div>
+                    <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">
+                      On = histogram + regions &nbsp;|&nbsp; Adaptive = after 10 stuck steps
+                    </div>
+                    <div class="opt-row">
+                      <span class="opt-label">Compact context</span>
+                      <label class="toggle"><input type="checkbox" id="compactContext" checked><span class="slider"></span></label>
+                    </div>
+                    <div class="opt-row">
+                      <span class="opt-label">After step</span>
+                      <input type="number" id="compactAfter" value="15" min="5" max="200" style="width:55px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
+                    </div>
+                    <div style="font-size:10px;color:var(--text-dim);">
+                      Summarises learned mechanics + goals into a compact block for the LLM
+                    </div>
+                  </div>
+                </div>
+
+              </div>
             </div>
-            <div class="opt-body">
-              <select id="modelSelect"><option value="">Loading...</option></select>
-              <div class="model-caps" id="modelCaps"></div>
-              <div id="testResult" style="display:none; margin-top:4px; padding:4px 8px; border-radius:4px; font-size:11px;"></div>
-              <input type="text" class="text-input" id="modelCustom" placeholder="Or type model name..." style="margin-top:6px;">
+
+            <!-- Transport bar (full-width, below the 2 columns) -->
+            <div class="settings-transport">
               <div class="transport-bar">
                 <button class="btn btn-undo" onclick="undoStep()" id="undoBtn" disabled title="Undo last step">&#9198; Undo</button>
                 <button class="btn btn-step" onclick="stepOnce()" id="stepBtn" title="Ask LLM + execute one step">&#9654; Step</button>
@@ -505,15 +554,36 @@
             </div>
           </div>
 
-        </div>
-
-        <!-- ════ REASONING TAB ════ -->
-        <div class="tab-pane" id="tabReasoning">
-          <div class="reasoning-scroll" id="reasoningContent">
-            <div class="empty-state" style="height:auto;font-size:12px;">
-              Start a game and enable LLM reasoning to see analysis here.
+          <!-- ── Memory subtab ── -->
+          <div class="subtab-pane" id="subtabMemory">
+            <div class="memory-tab">
+              <div style="flex:1;display:flex;flex-direction:column;gap:10px;min-height:0;">
+                <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+                  <label>System Prompt</label>
+                  <textarea id="memorySystemPrompt" style="flex:1;min-height:120px;" placeholder="ARC-AGI-3 description and action mappings..."></textarea>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+                  <label>Agent Memory (hard priors)</label>
+                  <textarea id="memoryHardMemory" style="flex:1;min-height:120px;" placeholder="Agent strategy priors..."></textarea>
+                </div>
+              </div>
+              <div class="memory-actions">
+                <button class="btn btn-primary" onclick="saveMemoryEdits()">Save</button>
+                <button class="btn" onclick="resetMemoryDefaults()">Reset defaults</button>
+                <span id="memorySaveStatus" style="font-size:10px;color:var(--green);display:none;">Saved!</span>
+              </div>
             </div>
           </div>
+
+          <!-- ── Reasoning subtab ── -->
+          <div class="subtab-pane" id="subtabReasoning">
+            <div class="reasoning-scroll" id="reasoningContent">
+              <div class="empty-state" style="height:auto;font-size:12px;">
+                Start a game and enable LLM reasoning to see analysis here.
+              </div>
+            </div>
+          </div>
+
         </div>
 
         <!-- ════ HISTORY TAB ════ -->
@@ -569,16 +639,28 @@ function toggleSection(id) {
   document.getElementById(id).classList.toggle('open');
 }
 
-function switchTab(tab) {
+function switchTopTab(tab) {
   document.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-  const tabMap = { settings: 'tabSettings', reasoning: 'tabReasoning', history: 'tabHistory' };
+  const tabMap = { agent: 'tabAgent', history: 'tabHistory' };
   const buttons = document.querySelectorAll('.tab-bar button');
-  const idx = { settings: 0, reasoning: 1, history: 2 }[tab] || 0;
+  const idx = { agent: 0, history: 1 }[tab] || 0;
   if (buttons[idx]) buttons[idx].classList.add('active');
   const pane = document.getElementById(tabMap[tab]);
   if (pane) pane.classList.add('active');
   if (tab === 'history') loadSessionHistory();
+}
+
+function switchSubTab(tab) {
+  document.querySelectorAll('.subtab-bar button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.subtab-pane').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
+  const tabMap = { settings: 'subtabSettings', memory: 'subtabMemory', reasoning: 'subtabReasoning' };
+  const buttons = document.querySelectorAll('.subtab-bar button');
+  const idx = { settings: 0, memory: 1, reasoning: 2 }[tab] || 0;
+  if (buttons[idx]) buttons[idx].classList.add('active');
+  const pane = document.getElementById(tabMap[tab]);
+  if (pane) { pane.classList.add('active'); pane.style.display = 'flex'; }
+  if (tab === 'memory') loadMemoryContent();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1106,7 +1188,8 @@ async function askLLM() {
     }
 
     content.insertBefore(entry, content.firstChild);
-    switchTab('reasoning');
+    switchTopTab('agent');
+    switchSubTab('reasoning');
     return resp;
   } finally {
     document.getElementById('llmSpinner').style.display = 'none';
@@ -1438,7 +1521,13 @@ function compressRowJS(row) {
 function buildClientPrompt(state, history, changeMap, inputSettings, toolsMode, compactContext) {
   const grid = state.grid || [];
   const parts = [];
-  parts.push(`${ARC_DESCRIPTION}\n\nCOLOR PALETTE: ${COLOR_PALETTE}`);
+  const desc = _customArcDescription || ARC_DESCRIPTION;
+  parts.push(`${desc}\n\nCOLOR PALETTE: ${COLOR_PALETTE}`);
+
+  // Inject hard memory if customized
+  if (_customHardMemory) {
+    parts.push(`## AGENT MEMORY\n${_customHardMemory}`);
+  }
 
   const actions = (state.available_actions || []).map(a => `${a}=${ACTION_NAMES[a] || 'ACTION'+a}`).join(', ');
   parts.push(`## STATE\nGame: ${state.game_id} | State: ${state.state} | Levels: ${state.levels_completed}/${state.win_levels}\nAvailable actions: ${actions}`);
@@ -2095,6 +2184,93 @@ async function branchHere() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// MEMORY TAB (system prompt + hard memory editing)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const MEMORY_DEFAULTS = {
+  system_prompt: `ARC-AGI-3 is an interactive reasoning benchmark. Each game is a 64x64 pixel grid with 16 colors (0-15). You must discover the rules and goals by experimenting.
+Action mappings:
+- ACTION1 = UP, ACTION2 = RIGHT, ACTION3 = DOWN, ACTION4 = LEFT (directional movement)
+- ACTION5 = context-dependent (cycle, toggle, interact — varies by game)
+- ACTION6 = CLICK at (x, y) — for selecting, placing, or interacting with specific cells
+- ACTION7 = context-dependent (secondary interact, rotate, swap — varies by game)
+- ACTION0 = RESET — restarts the current level. Use only as a last resort.
+Key facts:
+- States: NOT_FINISHED (playing), WIN (all levels done), GAME_OVER (failed).
+- Large uniform regions = background/walls. Small shapes = player/items.
+- Edge bars = health/energy/progress meters.`,
+  hard_memory: `- Bar/meter changes along edges tend to be health bars, not real progress.
+- Large uniform regions = background/walls. Small shapes = player/items.
+- ACTION5 often cycles or toggles something context-dependent.
+- ACTION7 is a secondary interact (rotate, swap, etc.).
+- ACTION0 = RESET. Only use as a last resort.
+- Try all directional actions first to understand movement.`,
+};
+
+let memoryLoaded = false;
+
+async function loadMemoryContent() {
+  const spEl = document.getElementById('memorySystemPrompt');
+  const hmEl = document.getElementById('memoryHardMemory');
+  if (memoryLoaded) return; // only load once per session
+
+  if (FEATURES.server_llm) {
+    // Local mode: fetch from server
+    try {
+      const data = await fetchJSON('/api/memory');
+      spEl.value = data.system_prompt || MEMORY_DEFAULTS.system_prompt;
+      hmEl.value = data.hard_memory || MEMORY_DEFAULTS.hard_memory;
+    } catch {
+      spEl.value = MEMORY_DEFAULTS.system_prompt;
+      hmEl.value = MEMORY_DEFAULTS.hard_memory;
+    }
+  } else {
+    // Online mode: load from localStorage
+    spEl.value = localStorage.getItem('arc_system_prompt') || MEMORY_DEFAULTS.system_prompt;
+    hmEl.value = localStorage.getItem('arc_hard_memory') || MEMORY_DEFAULTS.hard_memory;
+  }
+  memoryLoaded = true;
+}
+
+async function saveMemoryEdits() {
+  const sp = document.getElementById('memorySystemPrompt').value;
+  const hm = document.getElementById('memoryHardMemory').value;
+
+  if (FEATURES.server_llm) {
+    // Local mode: POST to server
+    try {
+      await fetchJSON('/api/memory', { system_prompt: sp, hard_memory: hm });
+    } catch (e) {
+      alert('Save failed: ' + e.message);
+      return;
+    }
+  } else {
+    // Online mode: save to localStorage
+    localStorage.setItem('arc_system_prompt', sp);
+    localStorage.setItem('arc_hard_memory', hm);
+  }
+
+  // Update client-side prompt description for buildClientPrompt
+  _customArcDescription = sp;
+  _customHardMemory = hm;
+
+  const status = document.getElementById('memorySaveStatus');
+  status.style.display = 'inline';
+  setTimeout(() => { status.style.display = 'none'; }, 2000);
+}
+
+function resetMemoryDefaults() {
+  document.getElementById('memorySystemPrompt').value = MEMORY_DEFAULTS.system_prompt;
+  document.getElementById('memoryHardMemory').value = MEMORY_DEFAULTS.hard_memory;
+  _customArcDescription = null;
+  _customHardMemory = null;
+}
+
+// Custom memory state for client-side prompt building
+let _customArcDescription = null;
+let _customHardMemory = null;
+
+// ═══════════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2103,6 +2279,14 @@ function initApp() {
   loadModels();
   if (FEATURES.copilot) checkCopilotStatus();
   if (FEATURES.puter_js) puterKvCheckResume();
+
+  // Restore custom memory from localStorage (online mode)
+  if (!FEATURES.server_llm) {
+    const sp = localStorage.getItem('arc_system_prompt');
+    const hm = localStorage.getItem('arc_hard_memory');
+    if (sp) _customArcDescription = sp;
+    if (hm) _customHardMemory = hm;
+  }
 }
 
 // If no Turnstile gate (not configured), init immediately

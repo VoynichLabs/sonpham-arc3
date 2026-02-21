@@ -200,6 +200,10 @@ copilot_token_expiry: float = 0.0  # Unix timestamp when copilot_api_token expir
 copilot_device_code: Optional[str] = None  # Pending device code during auth flow
 copilot_auth_lock = threading.Lock()
 
+# ── Custom memory overrides ──────────────────────────────────────────────
+_custom_system_prompt: Optional[str] = None  # overrides ARC_AGI3_DESCRIPTION when set
+_custom_hard_memory: Optional[str] = None    # extra agent memory injected into prompt
+
 # ── Per-provider throttle ────────────────────────────────────────────────
 # Min seconds between calls per provider (tuned for free tiers)
 PROVIDER_MIN_DELAY: dict[str, float] = {
@@ -789,11 +793,16 @@ def _build_prompt(payload: dict, input_settings: dict, tools_mode: str) -> str:
 
     parts: list[str] = []
 
-    parts.append(f"""{ARC_AGI3_DESCRIPTION}
+    sys_prompt = _custom_system_prompt if _custom_system_prompt else ARC_AGI3_DESCRIPTION
+    parts.append(f"""{sys_prompt}
 
 COLOR PALETTE: 0=White 1=LightGray 2=Gray 3=DarkGray 4=VeryDarkGray 5=Black
                6=Magenta 7=LightMagenta 8=Red 9=Blue 10=LightBlue 11=Yellow
                12=Orange 13=Maroon 14=Green 15=Purple""")
+
+    # ── Hard memory (agent priors) ───────────────────────────────────────
+    if _custom_hard_memory:
+        parts.append(f"## AGENT MEMORY\n{_custom_hard_memory}")
 
     # ── State header ──────────────────────────────────────────────────────
     action_desc = ", ".join(f"{a}={ACTION_NAMES.get(a, f'ACTION{a}')}" for a in available)
@@ -1703,6 +1712,45 @@ def copilot_auth_status():
         "authenticated": authenticated,
         "pending": pending,
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MEMORY ENDPOINTS (local mode only)
+# ═══════════════════════════════════════════════════════════════════════════
+
+HARD_MEMORY_DEFAULT = """\
+- Bar/meter changes along edges tend to be health bars, not real progress.
+- Large uniform regions = background/walls. Small shapes = player/items.
+- ACTION5 often cycles or toggles something context-dependent.
+- ACTION7 is a secondary interact (rotate, swap, etc.).
+- ACTION0 = RESET. Only use as a last resort.
+- Try all directional actions first to understand movement."""
+
+
+@app.route("/api/memory", methods=["GET", "POST"])
+@bot_protection
+def memory_endpoint():
+    """GET/POST custom system prompt and hard memory (local mode only)."""
+    global _custom_system_prompt, _custom_hard_memory
+    if get_mode() != "local":
+        return jsonify({"error": "Memory editing only available in local mode"}), 403
+
+    if request.method == "GET":
+        return jsonify({
+            "system_prompt": _custom_system_prompt or ARC_AGI3_DESCRIPTION,
+            "hard_memory": _custom_hard_memory or HARD_MEMORY_DEFAULT,
+            "system_prompt_default": ARC_AGI3_DESCRIPTION,
+            "hard_memory_default": HARD_MEMORY_DEFAULT,
+        })
+
+    payload = request.get_json(force=True)
+    sp = payload.get("system_prompt")
+    hm = payload.get("hard_memory")
+    if sp is not None:
+        _custom_system_prompt = sp.strip() if sp.strip() != ARC_AGI3_DESCRIPTION.strip() else None
+    if hm is not None:
+        _custom_hard_memory = hm.strip() if hm.strip() != HARD_MEMORY_DEFAULT.strip() else None
+    return jsonify({"status": "ok"})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
