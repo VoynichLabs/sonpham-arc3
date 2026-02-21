@@ -1597,11 +1597,80 @@ async function checkCopilotStatus() {
 
 let replayData = null; // { session, steps }
 
-async function loadSessionHistory() {
+// ═══════════════════════════════════════════════════════════════════════════
+// LOCAL SESSION STORAGE (localStorage-based, per-user)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const LOCAL_SESSIONS_KEY = 'arc_sessions_index';
+const LOCAL_SESSION_PREFIX = 'arc_session_data:';
+const MAX_LOCAL_SESSIONS = 50;
+
+function getLocalSessions() {
   try {
-    const data = await fetchJSON('/api/sessions');
-    const list = document.getElementById('historyList');
-    const sessions = data.sessions || [];
+    return JSON.parse(localStorage.getItem(LOCAL_SESSIONS_KEY) || '[]');
+  } catch { return []; }
+}
+
+function saveLocalSessionIndex(sessions) {
+  // Keep only the most recent MAX_LOCAL_SESSIONS
+  const trimmed = sessions.slice(0, MAX_LOCAL_SESSIONS);
+  localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(trimmed));
+  // Clean up data for sessions that fell off
+  if (sessions.length > MAX_LOCAL_SESSIONS) {
+    for (const s of sessions.slice(MAX_LOCAL_SESSIONS)) {
+      localStorage.removeItem(LOCAL_SESSION_PREFIX + s.id);
+    }
+  }
+}
+
+function saveLocalSession(sessionMeta, steps) {
+  // Update index (newest first)
+  const sessions = getLocalSessions().filter(s => s.id !== sessionMeta.id);
+  sessions.unshift(sessionMeta);
+  saveLocalSessionIndex(sessions);
+  // Save full session data (steps with grids)
+  try {
+    localStorage.setItem(LOCAL_SESSION_PREFIX + sessionMeta.id,
+      JSON.stringify({ session: sessionMeta, steps }));
+  } catch (e) {
+    // localStorage full — remove oldest sessions to make space
+    const idx = getLocalSessions();
+    if (idx.length > 5) {
+      const removed = idx.pop();
+      localStorage.removeItem(LOCAL_SESSION_PREFIX + removed.id);
+      saveLocalSessionIndex(idx);
+      try {
+        localStorage.setItem(LOCAL_SESSION_PREFIX + sessionMeta.id,
+          JSON.stringify({ session: sessionMeta, steps }));
+      } catch {}
+    }
+  }
+}
+
+function getLocalSessionData(sid) {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_SESSION_PREFIX + sid));
+  } catch { return null; }
+}
+
+function deleteLocalSession(sid) {
+  const sessions = getLocalSessions().filter(s => s.id !== sid);
+  saveLocalSessionIndex(sessions);
+  localStorage.removeItem(LOCAL_SESSION_PREFIX + sid);
+}
+
+async function loadSessionHistory() {
+  const list = document.getElementById('historyList');
+  try {
+    let sessions = [];
+    if (MODE === 'online') {
+      // Online mode: load from localStorage (per-user)
+      sessions = getLocalSessions();
+    } else {
+      // Local mode: load from server DB
+      const data = await fetchJSON('/api/sessions');
+      sessions = data.sessions || [];
+    }
     if (!sessions.length) {
       list.innerHTML = '<div class="empty-state" style="height:auto;font-size:12px;">No sessions yet. Play a game!</div>';
       return;
@@ -1611,7 +1680,7 @@ async function loadSessionHistory() {
       const div = document.createElement('div');
       const isBranch = !!s.parent_session_id;
       div.className = 'history-item' + (isBranch ? ' branched' : '');
-      const date = new Date(s.created_at * 1000).toLocaleString();
+      const date = new Date((s.created_at || 0) * 1000).toLocaleString();
       const resultClass = `h-result-${s.result || 'NOT_FINISHED'}`;
       const branchLabel = isBranch
         ? `<span class="branch-indicator">&#8627; from step ${s.branch_at_step}</span>`
@@ -1626,15 +1695,21 @@ async function loadSessionHistory() {
       list.appendChild(div);
     }
   } catch (e) {
-    document.getElementById('historyList').innerHTML =
+    list.innerHTML =
       `<div class="empty-state" style="height:auto;font-size:12px;">Error loading sessions: ${e.message}</div>`;
   }
 }
 
-async function loadReplay(sessionId) {
+async function loadReplay(sid) {
   try {
-    const data = await fetchJSON(`/api/sessions/${sessionId}`);
-    if (data.error) { alert(data.error); return; }
+    let data;
+    if (MODE === 'online') {
+      data = getLocalSessionData(sid);
+      if (!data) { alert('Session data not found locally.'); return; }
+    } else {
+      data = await fetchJSON(`/api/sessions/${sid}`);
+      if (data.error) { alert(data.error); return; }
+    }
     replayData = data;
 
     // Show the replay bar in the canvas area
@@ -1808,6 +1883,12 @@ function recordStepForPersistence(actionId, actionData, grid, changeMap, llmResp
   sessionStepsBuffer.push(stepEntry);
   syncStepCounter++;
 
+  // Save to localStorage periodically (online mode — per-user local history)
+  if (MODE === 'online' && (syncStepCounter % 5 === 0 || stepCount <= 1)) {
+    const payload = buildSessionPayload();
+    if (payload) saveLocalSession(payload.session, payload.steps);
+  }
+
   // Fire-and-forget puter.kv write
   if (FEATURES.puter_js && typeof puter !== 'undefined' && puter.kv) {
     const payload = buildSessionPayload();
@@ -1843,7 +1924,12 @@ function checkSessionEndAndUpload() {
   if (!sessionId) return;
   const st = currentState.state;
   if (st === 'WIN' || st === 'GAME_OVER') {
-    // Auto-upload completed session
+    // Final save to localStorage (online mode)
+    if (MODE === 'online') {
+      const payload = buildSessionPayload();
+      if (payload) saveLocalSession(payload.session, payload.steps);
+    }
+    // Auto-upload completed session to server
     autoUploadSession().then(() => {
       // Clean up puter.kv entry on success
       if (FEATURES.puter_js && typeof puter !== 'undefined' && puter.kv) {
