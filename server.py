@@ -38,7 +38,7 @@ app.logger.setLevel(logging.INFO)
 FEATURES = {
     "copilot":       {"local": True,  "online": False},
     "server_llm":    {"local": True,  "online": False},
-    "puter_js":      {"local": False, "online": True},
+    "puter_js":      {"local": True,  "online": True},
     "byok":          {"local": False, "online": True},
     "session_db":    {"local": True,  "online": True},
     "memory_md":     {"local": True,  "online": False},
@@ -140,6 +140,8 @@ def _verify_turnstile_token(token: str, ip: str) -> bool:
 
 
 def _is_turnstile_verified() -> bool:
+    if get_mode() == "local":
+        return True  # skip Turnstile in local mode
     if not TURNSTILE_SITE_KEY or not TURNSTILE_SECRET_KEY:
         return True  # skip if not configured
     token_hash = request.cookies.get("ts_verified", "")
@@ -1192,8 +1194,9 @@ def _route_model_call(model_key: str, prompt: str, image_b64: str | None = None)
 def index():
     mode = get_mode()
     features = get_enabled_features()
+    ts_key = TURNSTILE_SITE_KEY if mode == "online" else ""
     return render_template("index.html", color_map=COLOR_MAP,
-                           turnstile_site_key=TURNSTILE_SITE_KEY,
+                           turnstile_site_key=ts_key,
                            mode=mode, features=features)
 
 
@@ -1660,7 +1663,7 @@ def copilot_auth_start():
         resp = httpx.post(
             "https://github.com/login/device/code",
             headers={"Accept": "application/json"},
-            data={"client_id": COPILOT_CLIENT_ID, "scope": "read:user"},
+            data={"client_id": COPILOT_CLIENT_ID, "scope": ""},
             timeout=30.0,
         )
         resp.raise_for_status()

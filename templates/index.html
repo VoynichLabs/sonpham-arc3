@@ -1133,7 +1133,11 @@ async function askLLM() {
     const compact = getCompactSettings();
     const compactBlock = (compact.enabled && stepCount >= compact.after) ? buildCompactContext() : '';
 
-    if (FEATURES.server_llm) {
+    // Determine if this model uses client-side LLM (Puter.js/BYOK)
+    const isPuterModel = modelsData.some(m => m.name === model && m.provider === 'puter');
+    const useServerLLM = FEATURES.server_llm && !isPuterModel;
+
+    if (useServerLLM) {
       // ── Server-side LLM (local mode) ─────────────────────────────────
       const payload = {
         grid: currentState.grid,
@@ -1182,7 +1186,7 @@ async function askLLM() {
         }
       }
       // Always set prompt_length for token estimation (even on error)
-      if (resp) resp.prompt_length = prompt.length;
+      if (resp) { resp.prompt_length = prompt.length; resp._clientSide = true; }
     }
 
     // Collect observation for compact context
@@ -1308,7 +1312,7 @@ async function executePlan(plan, resp, entry) {
 
     stepCount++;
     const body = { session_id: sessionId, action: step.action, data: step.data || {} };
-    if (!FEATURES.server_llm && resp) body.llm_response = (i === 0) ? resp : null;
+    if (resp?._clientSide) body.llm_response = (i === 0) ? resp : null;
     const data = await fetchJSON('/api/step', body);
 
     if (data.error) {
@@ -1372,7 +1376,7 @@ async function executeOneAction(resp) {
 
   stepCount++;
   const body = { session_id: sessionId, action: p.action, data: p.data || {} };
-  if (!FEATURES.server_llm && resp) body.llm_response = resp;
+  if (resp?._clientSide) body.llm_response = resp;
   const data = await fetchJSON('/api/step', body);
   if (data.error) { undoStack.pop(); stepCount--; alert(data.error); return null; }
   moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed });
@@ -1582,34 +1586,33 @@ async function loadModels() {
     sel.appendChild(grp);
   }
 
-  // Online mode: add Puter.js and BYOK model groups (client-side only)
-  if (MODE === 'online') {
-    if (FEATURES.puter_js) {
-      const grp = document.createElement('optgroup');
-      grp.label = 'Puter.js (free)';
-      for (const m of ['gpt-4o-mini', 'gpt-4o', 'claude-3.5-sonnet', 'mistral-large-latest']) {
-        const opt = document.createElement('option');
-        opt.value = m; opt.textContent = `${m} — Free (Puter.js)`;
-        grp.appendChild(opt);
-        modelsData.push({ name: m, provider: 'puter', price: 'Free', capabilities: { image: false, reasoning: false, tools: false }, available: true });
-      }
-      sel.appendChild(grp);
+  // Puter.js models (available in both local and online modes)
+  if (FEATURES.puter_js) {
+    const grp = document.createElement('optgroup');
+    grp.label = 'Puter.js (free)';
+    for (const m of ['gpt-4o-mini', 'gpt-4o', 'claude-3.5-sonnet', 'mistral-large-latest']) {
+      const opt = document.createElement('option');
+      opt.value = m; opt.textContent = `${m} — Free (Puter.js)`;
+      grp.appendChild(opt);
+      modelsData.push({ name: m, provider: 'puter', price: 'Free', capabilities: { image: false, reasoning: false, tools: false }, available: true });
     }
-    if (FEATURES.byok && byokActive()) {
-      const provider = localStorage.getItem('byok_provider') || 'openai';
-      const grp = document.createElement('optgroup');
-      grp.label = `BYOK (${provider})`;
-      const byokModels = provider === 'openai'
-        ? ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1-mini']
-        : ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
-      for (const m of byokModels) {
-        const opt = document.createElement('option');
-        opt.value = m; opt.textContent = `${m} — BYOK`;
-        grp.appendChild(opt);
-        modelsData.push({ name: m, provider: 'byok', price: 'BYOK', capabilities: { image: false, reasoning: false, tools: false }, available: true });
-      }
-      sel.appendChild(grp);
+    sel.appendChild(grp);
+  }
+  // BYOK models (online mode only)
+  if (MODE === 'online' && FEATURES.byok && byokActive()) {
+    const provider = localStorage.getItem('byok_provider') || 'openai';
+    const grp = document.createElement('optgroup');
+    grp.label = `BYOK (${provider})`;
+    const byokModels = provider === 'openai'
+      ? ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1-mini']
+      : ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'];
+    for (const m of byokModels) {
+      const opt = document.createElement('option');
+      opt.value = m; opt.textContent = `${m} — BYOK`;
+      grp.appendChild(opt);
+      modelsData.push({ name: m, provider: 'byok', price: 'BYOK', capabilities: { image: false, reasoning: false, tools: false }, available: true });
     }
+    sel.appendChild(grp);
   }
 
   // Unavailable models (greyed out)
