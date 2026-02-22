@@ -545,28 +545,29 @@
                       On = histogram + regions &nbsp;|&nbsp; Adaptive = after 10 stuck steps
                     </div>
                     <div class="opt-row">
-                      <span class="opt-label">Compact context</span>
+                      <span class="opt-label">Compact history</span>
                       <label class="toggle"><input type="checkbox" id="compactContext" checked><span class="slider"></span></label>
                     </div>
                     <div class="opt-row">
-                      <span class="opt-label">After call #</span>
-                      <input type="number" id="compactAfter" value="15" min="1" max="200" style="width:55px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
+                      <span class="opt-label">After call # (optional)</span>
+                      <input type="number" id="compactAfter" placeholder="—" min="1" max="200" style="width:55px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
                     </div>
                     <div class="opt-row">
-                      <span class="opt-label">Token limit</span>
-                      <input type="number" id="compactTokenLimit" value="30000" min="1000" max="500000" step="1000" style="width:75px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
+                      <span class="opt-label">Context % limit</span>
+                      <input type="number" id="compactContextPct" value="60" min="10" max="95" style="width:55px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
+                      <span style="font-size:10px;color:var(--text-dim);">%</span>
                     </div>
                     <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">
-                      Compacts history after N calls OR when prompt exceeds token limit (whichever first). Drops old grid snapshots to save tokens.
+                      Compacts history when prompt exceeds N% of the selected model's context window. Optional: also after N calls.
                     </div>
                     <div class="opt-row">
                       <span class="opt-label">Planning horizon</span>
                     </div>
                     <div class="opt-row">
                       <div class="triswitch" id="planningMode">
-                        <label><input type="radio" name="planMode" value="off" checked><span>Off</span></label>
+                        <label><input type="radio" name="planMode" value="off"><span>Off</span></label>
                         <label><input type="radio" name="planMode" value="5"><span>5</span></label>
-                        <label><input type="radio" name="planMode" value="10"><span>10</span></label>
+                        <label><input type="radio" name="planMode" value="10" checked><span>10</span></label>
                         <label><input type="radio" name="planMode" value="20"><span>20</span></label>
                       </div>
                     </div>
@@ -583,6 +584,7 @@
             <div class="settings-transport">
               <div class="transport-bar">
                 <button class="btn btn-undo" onclick="undoStep()" id="undoBtn" disabled title="Undo last step">&#9198; Undo</button>
+                <button class="btn" onclick="resetSession()" id="resetBtn" title="Restart current game from scratch" style="border-color:var(--red);color:var(--red);">&#8635; Reset</button>
                 <button class="btn btn-step" onclick="stepOnce()" id="stepBtn" title="Ask LLM + execute one step">&#9654; Step</button>
                 <button class="btn btn-auto" onclick="toggleAutoPlay()" id="autoPlayBtn" title="Auto-play continuously">&#9193; Auto</button>
                 <button class="btn" onclick="testModel()" id="testBtn" title="Test model connectivity + latency" style="background:#445;">&#128267; Test</button>
@@ -917,7 +919,7 @@ async function doAction(actionId, isClick) {
   });
   stepCount++;
   const prevGrid = currentState.grid ? JSON.stringify(currentState.grid) : null;
-  const data = await fetchJSON('/api/step', { session_id: sessionId, action: actionId, data: {} });
+  const data = await fetchJSON('/api/step', { session_id: sessionId, action: actionId, data: {}, session_cost: sessionTotalTokens.cost });
   if (data.error) { undoStack.pop(); alert(data.error); return; }
   moveHistory.push({ step: stepCount, action: actionId, result_state: data.state, levels: data.levels_completed, grid: data.grid });
   recordStepForPersistence(actionId, {}, data.grid, data.change_map, null);
@@ -942,7 +944,7 @@ canvas.addEventListener('click', async (e) => {
   });
   stepCount++;
   const prevGrid = currentState.grid ? JSON.stringify(currentState.grid) : null;
-  const data = await fetchJSON('/api/step', { session_id: sessionId, action: 6, data: { x, y } });
+  const data = await fetchJSON('/api/step', { session_id: sessionId, action: 6, data: { x, y }, session_cost: sessionTotalTokens.cost });
   if (data.error) { undoStack.pop(); alert(data.error); return; }
   moveHistory.push({ step: stepCount, action: 6, result_state: data.state, x, y, levels: data.levels_completed, grid: data.grid });
   recordStepForPersistence(6, { x, y }, data.grid, data.change_map, null);
@@ -967,9 +969,16 @@ document.addEventListener('keydown', (e) => {
 
 function getCompactSettings() {
   const enabled = document.getElementById('compactContext').checked;
-  const after = parseInt(document.getElementById('compactAfter').value) || 15;
-  const tokenLimit = parseInt(document.getElementById('compactTokenLimit').value) || 30000;
-  return { enabled, after, tokenLimit };
+  const afterVal = document.getElementById('compactAfter').value;
+  const after = afterVal ? parseInt(afterVal) : null;  // null = disabled
+  const contextPct = parseInt(document.getElementById('compactContextPct').value) || 60;
+  return { enabled, after, contextPct };
+}
+
+function getSelectedModelContextWindow() {
+  const model = getSelectedModel();
+  const info = modelsData.find(m => m.name === model);
+  return (info && info.context_window) || 128000;
 }
 
 function estimateTokens(text) {
@@ -977,9 +986,9 @@ function estimateTokens(text) {
   return Math.ceil((text || '').length / 4);
 }
 
-function trimHistoryForTokens(history, tokenLimit) {
-  // Build full history text and check if it exceeds limit.
-  // If so, drop grid snapshots from older steps, keeping last 5 with grids.
+function trimHistoryForTokens(history, maxTokens) {
+  // If history fits within budget, return as-is.
+  // Otherwise drop grid snapshots from older steps, keeping last 5 with grids.
   const KEEP_GRIDS = 5;
   if (!history || history.length <= KEEP_GRIDS) return history;
 
@@ -990,7 +999,7 @@ function trimHistoryForTokens(history, tokenLimit) {
     if (h.grid) totalChars += h.grid.length * 30; // rough RLE per row
   }
   const est = Math.ceil(totalChars / 4);
-  if (est <= tokenLimit * 0.6) return history; // history alone under 60% of limit, keep all
+  if (est <= maxTokens) return history; // fits, keep all
 
   // Strip grids from older entries, keep last KEEP_GRIDS with grids
   return history.map((h, i) => {
@@ -1205,15 +1214,17 @@ async function askLLM() {
 
     llmCallCount++;
     const compact = getCompactSettings();
-    const callTrigger = compact.enabled && llmCallCount >= compact.after;
-    // Also trigger compact if estimated prompt tokens exceed limit
+    const contextWindow = getSelectedModelContextWindow();
+    const maxHistTokens = Math.floor(contextWindow * compact.contextPct / 100);
+    const callTrigger = compact.enabled && compact.after && llmCallCount >= compact.after;
+    // Also trigger compact if estimated history tokens exceed % of model context
     const histTokenEst = estimateTokens(JSON.stringify(moveHistory));
-    const tokenTrigger = compact.enabled && histTokenEst > compact.tokenLimit * 0.6;
+    const tokenTrigger = compact.enabled && histTokenEst > maxHistTokens;
     const compactBlock = (callTrigger || tokenTrigger) ? await buildCompactContext() : '';
 
-    // Trim history grids if approaching token limit
+    // Trim history grids if approaching context limit
     const historyForLLM = compact.enabled
-      ? trimHistoryForTokens(moveHistory, compact.tokenLimit)
+      ? trimHistoryForTokens(moveHistory, maxHistTokens)
       : moveHistory;
 
     // Determine if this model uses client-side LLM (Puter.js/BYOK)
@@ -1305,33 +1316,26 @@ async function askLLM() {
         `${tc.output ? `<div class="tool-output" style="border-left-color:var(--green);">${tc.output}</div>` : ''}</div>`
       ).join('');
 
-      if (p.plan && Array.isArray(p.plan)) {
-        // Plan mode: show plan steps with action buttons
-        const planHtml = p.plan.map((s, i) => {
-          const aName = ACTION_NAMES[s.action] || `ACTION${s.action}`;
-          const dataStr = s.data?.x !== undefined ? ` (${s.data.x},${s.data.y})` : '';
-          return `<div class="plan-step" data-plan-idx="${i}">${i + 1}. <span class="action-btn">${aName}</span>${dataStr}</div>`;
-        }).join('');
-        entry.innerHTML = `
-          <div class="step-label">Steps ${stepCount + 1}-${stepCount + p.plan.length} — ${resp.model} [PLAN]${toolsBadge}${compactBadge}${planBadge}</div>
-          ${tokensHtml}${ci}
-          <div class="observation"><strong>Obs:</strong> ${p.observation || '—'}</div>
-          <div style="margin-top:4px;"><strong>Reasoning:</strong> ${p.reasoning || '—'}</div>
-          ${analysisHtml}${toolCallsHtml}
-          <div class="plan-progress">${planHtml}</div>
-          ${thinkHtml}`;
-      } else {
-        // Single action mode
-        entry.innerHTML = `
-          <div class="step-label">Step ${stepCount} — ${resp.model}${toolsBadge}${compactBadge}</div>
-          ${tokensHtml}${ci}
-          <div class="observation"><strong>Obs:</strong> ${p.observation || '—'}</div>
-          <div style="margin-top:4px;"><strong>Plan:</strong> ${p.reasoning || '—'}</div>
-          ${analysisHtml}${toolCallsHtml}
-          <div class="action-rec">→ <span class="action-btn" style="background:var(--accent);color:#000;border-color:var(--accent);">${ACTION_NAMES[p.action] || '?'}</span> Action ${p.action ?? '?'}${
-            p.data?.x !== undefined ? ` at (${p.data.x}, ${p.data.y})` : ''}</div>
-          ${thinkHtml}`;
-      }
+      // Normalize to plan format: single actions become a 1-step plan
+      const steps = (p.plan && Array.isArray(p.plan))
+        ? p.plan
+        : [{ action: p.action, data: p.data || {} }];
+      const planHtml = steps.map((s, i) => {
+        const aName = ACTION_NAMES[s.action] || `ACTION${s.action}`;
+        const dataStr = s.data?.x !== undefined ? ` (${s.data.x},${s.data.y})` : '';
+        return `<div class="plan-step" data-plan-idx="${i}">${i + 1}. <span class="action-btn">${aName}</span>${dataStr}</div>`;
+      }).join('');
+      const stepLabel = steps.length > 1
+        ? `Steps ${stepCount + 1}-${stepCount + steps.length}`
+        : `Step ${stepCount + 1}`;
+      entry.innerHTML = `
+        <div class="step-label">${stepLabel} — ${resp.model} [PLAN]${toolsBadge}${compactBadge}${planBadge}</div>
+        ${tokensHtml}${ci}
+        <div class="observation"><strong>Obs:</strong> ${p.observation || '—'}</div>
+        <div style="margin-top:4px;"><strong>Reasoning:</strong> ${p.reasoning || '—'}</div>
+        ${analysisHtml}${toolCallsHtml}
+        <div class="plan-progress">${planHtml}</div>
+        ${thinkHtml}`;
     } else {
       entry.innerHTML = `<div class="step-label">Step ${stepCount} — ${resp.model}</div>
         <div style="white-space:pre-wrap;font-size:11px;">${resp.raw || 'No response'}</div>`;
@@ -1394,7 +1398,7 @@ async function executePlan(plan, resp, entry) {
     });
 
     stepCount++;
-    const body = { session_id: sessionId, action: step.action, data: step.data || {} };
+    const body = { session_id: sessionId, action: step.action, data: step.data || {}, session_cost: sessionTotalTokens.cost };
     if (resp?._clientSide) body.llm_response = (i === 0) ? resp : null;
     const data = await fetchJSON('/api/step', body);
 
@@ -1458,7 +1462,7 @@ async function executeOneAction(resp) {
   });
 
   stepCount++;
-  const body = { session_id: sessionId, action: p.action, data: p.data || {} };
+  const body = { session_id: sessionId, action: p.action, data: p.data || {}, session_cost: sessionTotalTokens.cost };
   if (resp?._clientSide) body.llm_response = resp;
   const data = await fetchJSON('/api/step', body);
   if (data.error) { undoStack.pop(); stepCount--; alert(data.error); return null; }
@@ -1478,15 +1482,16 @@ async function stepOnce() {
   if (!resp || resp.error || !resp.parsed) return;
   const p = resp.parsed;
 
-  // Plan mode: execute multi-step plan
-  if (p.plan && Array.isArray(p.plan) && p.plan.length > 0) {
-    const entry = document.querySelector('#reasoningContent .reasoning-entry');
-    return await executePlan(p.plan, resp, entry);
-  }
+  // Normalize: single action becomes a 1-step plan
+  const plan = (p.plan && Array.isArray(p.plan) && p.plan.length > 0)
+    ? p.plan
+    : (p.action !== undefined && p.action !== null)
+      ? [{ action: p.action, data: p.data || {} }]
+      : null;
+  if (!plan) return;
 
-  // Single action mode
-  if (p.action === undefined || p.action === null) return;
-  return await executeOneAction(resp);
+  const entry = document.querySelector('#reasoningContent .reasoning-entry');
+  return await executePlan(plan, resp, entry);
 }
 
 async function toggleAutoPlay() {
@@ -1507,22 +1512,19 @@ async function toggleAutoPlay() {
     if (!resp || resp.error || !resp.parsed) { autoPlaying = false; break; }
     const p = resp.parsed;
 
-    // Plan mode: execute the full plan
-    if (p.plan && Array.isArray(p.plan) && p.plan.length > 0) {
-      const entry = document.querySelector('#reasoningContent .reasoning-entry');
-      const result = await executePlan(p.plan, resp, entry);
-      if (!result || result.interrupted) {
-        // Plan was interrupted — re-plan on next iteration
-        await new Promise(r => setTimeout(r, 200));
-      }
-      continue;
+    // Normalize: single action becomes a 1-step plan
+    const plan = (p.plan && Array.isArray(p.plan) && p.plan.length > 0)
+      ? p.plan
+      : (p.action !== undefined && p.action !== null)
+        ? [{ action: p.action, data: p.data || {} }]
+        : null;
+    if (!plan) { autoPlaying = false; break; }
+
+    const entry = document.querySelector('#reasoningContent .reasoning-entry');
+    const result = await executePlan(plan, resp, entry);
+    if (!result || result.interrupted) {
+      await new Promise(r => setTimeout(r, 200));
     }
-
-    // Single action mode
-    if (p.action === undefined || p.action === null) { autoPlaying = false; break; }
-
-    const data = await executeOneAction(resp);
-    if (!data) { autoPlaying = false; break; }
 
     // If game is still going, brief pause so user can see the grid update
     if (autoPlaying && currentState.state === 'NOT_FINISHED') {
@@ -1531,6 +1533,13 @@ async function toggleAutoPlay() {
   }
   autoPlaying = false;
   updateAutoBtn();
+}
+
+async function resetSession() {
+  if (!currentState.game_id) return;
+  if (!confirm('Reset this game? Current progress will be saved as a session.')) return;
+  if (autoPlaying) toggleAutoPlay();
+  await startGame(currentState.game_id);
 }
 
 async function undoStep() {
@@ -1677,7 +1686,7 @@ async function loadModels() {
       const opt = document.createElement('option');
       opt.value = m; opt.textContent = `${m} — Free (Puter.js)`;
       grp.appendChild(opt);
-      modelsData.push({ name: m, provider: 'puter', price: 'Free', capabilities: { image: false, reasoning: false, tools: false }, available: true });
+      modelsData.push({ name: m, provider: 'puter', price: 'Free', context_window: 128000, capabilities: { image: false, reasoning: false, tools: false }, available: true });
     }
     sel.appendChild(grp);
   }
@@ -1693,7 +1702,7 @@ async function loadModels() {
       const opt = document.createElement('option');
       opt.value = m; opt.textContent = `${m} — BYOK`;
       grp.appendChild(opt);
-      modelsData.push({ name: m, provider: 'byok', price: 'BYOK', capabilities: { image: false, reasoning: false, tools: false }, available: true });
+      modelsData.push({ name: m, provider: 'byok', price: 'BYOK', context_window: 128000, capabilities: { image: false, reasoning: false, tools: false }, available: true });
     }
     sel.appendChild(grp);
   }
@@ -1722,7 +1731,7 @@ async function loadModels() {
 
 const ARC_DESCRIPTION = `ARC-AGI-3 is an interactive reasoning benchmark. Each game is a 64x64 pixel grid with 16 colors (0-15). You must discover the rules and goals by experimenting.
 Action mappings:
-- ACTION1 = UP, ACTION2 = RIGHT, ACTION3 = DOWN, ACTION4 = LEFT (directional movement)
+- ACTION1 = UP, ACTION2 = DOWN, ACTION3 = LEFT, ACTION4 = RIGHT (directional movement)
 - ACTION5 = context-dependent (cycle, toggle, interact — varies by game)
 - ACTION6 = CLICK at (x, y) — for selecting, placing, or interacting with specific cells
 - ACTION7 = context-dependent (secondary interact, rotate, swap — varies by game)
@@ -2064,8 +2073,9 @@ async function loadSessionHistory() {
         ${branchLabel}
         <span class="h-game">${s.game_id}</span>
         <span class="h-result ${resultClass}">${s.result || '?'}</span>
-        <span class="h-meta">${s.steps || 0} steps | ${s.model || '?'}</span>
-        <span class="h-meta">${date}</span>`;
+        <span class="h-meta">${s.steps || 0} steps | ${s.model || '?'}${s.total_cost ? ` | $${s.total_cost.toFixed(4)}` : ''}</span>
+        <span class="h-meta">${date}</span>
+`;
       div.onclick = () => loadReplay(s.id);
       list.appendChild(div);
     }
@@ -2447,7 +2457,7 @@ async function branchHere() {
 const MEMORY_DEFAULTS = {
   system_prompt: `ARC-AGI-3 is an interactive reasoning benchmark. Each game is a 64x64 pixel grid with 16 colors (0-15). You must discover the rules and goals by experimenting.
 Action mappings:
-- ACTION1 = UP, ACTION2 = RIGHT, ACTION3 = DOWN, ACTION4 = LEFT (directional movement)
+- ACTION1 = UP, ACTION2 = DOWN, ACTION3 = LEFT, ACTION4 = RIGHT (directional movement)
 - ACTION5 = context-dependent (cycle, toggle, interact — varies by game)
 - ACTION6 = CLICK at (x, y) — for selecting, placing, or interacting with specific cells
 - ACTION7 = context-dependent (secondary interact, rotate, swap — varies by game)

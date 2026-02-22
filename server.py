@@ -279,9 +279,10 @@ def _init_db():
             FOREIGN KEY (session_id) REFERENCES sessions(id)
         );
     """)
-    # Schema migration: add branch columns (idempotent)
+    # Schema migration: add columns (idempotent)
     for col, defn in [("parent_session_id", "TEXT DEFAULT NULL"),
-                      ("branch_at_step", "INTEGER DEFAULT NULL")]:
+                      ("branch_at_step", "INTEGER DEFAULT NULL"),
+                      ("total_cost", "REAL DEFAULT 0")]:
         try:
             conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {defn}")
         except sqlite3.OperationalError:
@@ -448,7 +449,7 @@ grid with 16 colors (0-15).  There are NO instructions — you must discover the
 rules and goals by experimenting.
 
 Action mappings:
-- ACTION1 = UP, ACTION2 = RIGHT, ACTION3 = DOWN, ACTION4 = LEFT (directional movement)
+- ACTION1 = UP, ACTION2 = DOWN, ACTION3 = LEFT, ACTION4 = RIGHT (directional movement)
 - ACTION5 = context-dependent (cycle, toggle, interact — varies by game)
 - ACTION6 = CLICK at (x, y) — for selecting, placing, or interacting with specific cells
 - ACTION7 = context-dependent (secondary interact, rotate, swap — varies by game)
@@ -474,48 +475,56 @@ MODEL_REGISTRY: dict[str, dict] = {
         "provider": "gemini", "api_model": "gemini-3.1-pro-preview",
         "env_key": "GEMINI_API_KEY",
         "price": "$2/$12 per 1M tok (no free tier)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "gemini-3-pro": {
         "provider": "gemini", "api_model": "gemini-3-pro-preview",
         "env_key": "GEMINI_API_KEY",
         "price": "$2/$12 per 1M tok (no free tier)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "gemini-3-flash": {
         "provider": "gemini", "api_model": "gemini-3-flash-preview",
         "env_key": "GEMINI_API_KEY",
         "price": "$0.50/$3 per 1M tok (free tier)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "gemini-2.5-pro": {
         "provider": "gemini", "api_model": "gemini-2.5-pro",
         "env_key": "GEMINI_API_KEY",
         "price": "$1.25/$10 per 1M tok (free tier)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "gemini-2.5-flash": {
         "provider": "gemini", "api_model": "gemini-2.5-flash",
         "env_key": "GEMINI_API_KEY",
         "price": "$0.30/$2.50 per 1M tok (free tier)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "gemini-2.5-flash-lite": {
         "provider": "gemini", "api_model": "gemini-2.5-flash-lite",
         "env_key": "GEMINI_API_KEY",
         "price": "$0.10/$0.40 per 1M tok (free tier)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": False, "tools": False},
     },
     "gemini-2.0-flash": {
         "provider": "gemini", "api_model": "gemini-2.0-flash",
         "env_key": "GEMINI_API_KEY",
         "price": "$0.10/$0.40 per 1M tok (free tier)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": False, "tools": True},
     },
     "gemini-2.0-flash-lite": {
         "provider": "gemini", "api_model": "gemini-2.0-flash-lite",
         "env_key": "GEMINI_API_KEY",
         "price": "$0.075/$0.30 per 1M tok (free tier)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": False, "tools": False},
     },
     # ── Anthropic ─────────────────────────────────────────────────────────
@@ -523,18 +532,21 @@ MODEL_REGISTRY: dict[str, dict] = {
         "provider": "anthropic", "api_model": "claude-sonnet-4-6",
         "env_key": "ANTHROPIC_API_KEY",
         "price": "$3/$15 per 1M tok",
+        "context_window": 200000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "claude-sonnet-4-5": {
         "provider": "anthropic", "api_model": "claude-sonnet-4-5-20241022",
         "env_key": "ANTHROPIC_API_KEY",
         "price": "$3/$15 per 1M tok",
+        "context_window": 200000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "claude-haiku-4-5": {
         "provider": "anthropic", "api_model": "claude-haiku-4-5-20251001",
         "env_key": "ANTHROPIC_API_KEY",
         "price": "$0.80/$4 per 1M tok",
+        "context_window": 200000,
         "capabilities": {"image": True, "reasoning": False, "tools": True},
     },
     # ── Groq (free tier) ──────────────────────────────────────────────────
@@ -543,6 +555,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "env_key": "GROQ_API_KEY",
         "url": "https://api.groq.com/openai/v1/chat/completions",
         "price": "Free tier",
+        "context_window": 128000,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     "groq/gemma2-9b-it": {
@@ -550,6 +563,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "env_key": "GROQ_API_KEY",
         "url": "https://api.groq.com/openai/v1/chat/completions",
         "price": "Free tier",
+        "context_window": 8192,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     "groq/mixtral-8x7b-32768": {
@@ -557,6 +571,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "env_key": "GROQ_API_KEY",
         "url": "https://api.groq.com/openai/v1/chat/completions",
         "price": "Free tier",
+        "context_window": 32768,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     # ── Mistral (free tier) ───────────────────────────────────────────────
@@ -565,6 +580,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "env_key": "MISTRAL_API_KEY",
         "url": "https://api.mistral.ai/v1/chat/completions",
         "price": "Free tier",
+        "context_window": 128000,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     "mistral/open-mistral-nemo": {
@@ -572,6 +588,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "env_key": "MISTRAL_API_KEY",
         "url": "https://api.mistral.ai/v1/chat/completions",
         "price": "Free tier",
+        "context_window": 128000,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     # ── HuggingFace ───────────────────────────────────────────────────────
@@ -580,6 +597,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "env_key": "HUGGINGFACE_API_KEY",
         "url": "https://router.huggingface.co/v1/chat/completions",
         "price": "Free tier",
+        "context_window": 128000,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     "hf/llama-3.1-70b-instruct": {
@@ -587,6 +605,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "env_key": "HUGGINGFACE_API_KEY",
         "url": "https://router.huggingface.co/v1/chat/completions",
         "price": "Free tier",
+        "context_window": 128000,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     # ── Cloudflare Workers AI ────────────────────────────────────────────
@@ -594,48 +613,56 @@ MODEL_REGISTRY: dict[str, dict] = {
         "provider": "cloudflare", "api_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
         "env_key": "CLOUDFLARE_API_KEY",
         "price": "Free (10k neurons/day)",
+        "context_window": 128000,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     "cf/llama-3.1-8b-instruct": {
         "provider": "cloudflare", "api_model": "@cf/meta/llama-3.1-8b-instruct-fast",
         "env_key": "CLOUDFLARE_API_KEY",
         "price": "Free (10k neurons/day)",
+        "context_window": 128000,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     "cf/llama-4-scout-17b": {
         "provider": "cloudflare", "api_model": "@cf/meta/llama-4-scout-17b-16e-instruct",
         "env_key": "CLOUDFLARE_API_KEY",
         "price": "Free (10k neurons/day)",
+        "context_window": 128000,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     "cf/qwen3-30b": {
         "provider": "cloudflare", "api_model": "@cf/qwen/qwen3-30b-a3b-fp8",
         "env_key": "CLOUDFLARE_API_KEY",
         "price": "Free (10k neurons/day)",
+        "context_window": 32768,
         "capabilities": {"image": False, "reasoning": True, "tools": False},
     },
     "cf/qwq-32b": {
         "provider": "cloudflare", "api_model": "@cf/qwen/qwq-32b",
         "env_key": "CLOUDFLARE_API_KEY",
         "price": "Free (10k neurons/day)",
+        "context_window": 32768,
         "capabilities": {"image": False, "reasoning": True, "tools": False},
     },
     "cf/deepseek-r1-distill-32b": {
         "provider": "cloudflare", "api_model": "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
         "env_key": "CLOUDFLARE_API_KEY",
         "price": "Free (10k neurons/day)",
+        "context_window": 32768,
         "capabilities": {"image": False, "reasoning": True, "tools": False},
     },
     "cf/mistral-small-3.1-24b": {
         "provider": "cloudflare", "api_model": "@cf/mistralai/mistral-small-3.1-24b-instruct",
         "env_key": "CLOUDFLARE_API_KEY",
         "price": "Free (10k neurons/day)",
+        "context_window": 128000,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
     },
     "cf/llama-3.2-11b-vision": {
         "provider": "cloudflare", "api_model": "@cf/meta/llama-3.2-11b-vision-instruct",
         "env_key": "CLOUDFLARE_API_KEY",
         "price": "Free (10k neurons/day)",
+        "context_window": 128000,
         "capabilities": {"image": True, "reasoning": False, "tools": False},
     },
     # ── GitHub Copilot (local only, requires OAuth) ──────────────────────
@@ -643,30 +670,35 @@ MODEL_REGISTRY: dict[str, dict] = {
         "provider": "copilot", "api_model": "gpt-4.1",
         "env_key": "",  # no env key — auth via OAuth
         "price": "Free (unlimited)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": False, "tools": True},
     },
     "copilot/gpt-4o": {
         "provider": "copilot", "api_model": "gpt-4o",
         "env_key": "",
         "price": "Free (unlimited)",
+        "context_window": 128000,
         "capabilities": {"image": True, "reasoning": False, "tools": True},
     },
     "copilot/gpt-5-mini": {
         "provider": "copilot", "api_model": "gpt-5-mini",
         "env_key": "",
         "price": "Free (unlimited)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "copilot/claude-sonnet-4": {
         "provider": "copilot", "api_model": "claude-sonnet-4",
         "env_key": "",
         "price": "Premium (300/mo)",
+        "context_window": 200000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
     "copilot/gemini-2.5-pro": {
         "provider": "copilot", "api_model": "gemini-2.5-pro",
         "env_key": "",
         "price": "Premium (300/mo)",
+        "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
 }
@@ -1382,11 +1414,14 @@ def step_game():
             session_id, step_num, int(action_id), action_data or {},
             curr_grid, change_map, llm_resp,
         )
-        _db_update_session(
-            session_id,
+        update_kwargs = dict(
             result=state.get("state", "NOT_FINISHED"),
             levels=state.get("levels_completed", 0),
         )
+        session_cost = payload.get("session_cost")
+        if session_cost is not None:
+            update_kwargs["total_cost"] = float(session_cost)
+        _db_update_session(session_id, **update_kwargs)
 
     return jsonify(state)
 
@@ -1439,6 +1474,7 @@ def llm_models():
             "name": key,
             "provider": provider,
             "price": info.get("price", "?"),
+            "context_window": info.get("context_window", 128000),
             "capabilities": info.get("capabilities", {}),
             "available": available,
         })
@@ -1989,7 +2025,7 @@ def list_sessions():
         conn = _get_db()
         rows = conn.execute(
             "SELECT id, game_id, model, mode, created_at, result, steps, levels, "
-            "parent_session_id, branch_at_step "
+            "parent_session_id, branch_at_step, total_cost "
             "FROM sessions ORDER BY created_at DESC LIMIT 100"
         ).fetchall()
         conn.close()
