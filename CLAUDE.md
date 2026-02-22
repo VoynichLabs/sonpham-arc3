@@ -17,3 +17,20 @@ When updating reasoning rendering in one place, update ALL others to match. Key 
 - Human actions show separately in yellow
 - Both pages must use the same grouping logic (check `llm_response.parsed` for plan leader, absorb followers by plan capacity)
 - Branched sessions must show parent reasoning up to the branch point (trace back via `parent_session_id` / `branch_at_step`)
+
+## Turso (Remote DB) Upload
+
+To upload local sessions to Turso, you must source `.env` first since `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are not set in the shell by default:
+
+```bash
+set -a && source .env && set +a
+```
+
+Then use `libsql_experimental` to connect and write directly. The server's `_turso_import_session()` won't work from a standalone script because env vars are read at module import time. Instead, connect directly:
+
+```python
+import libsql_experimental as libsql
+conn = libsql.connect("turso_replica.db", sync_url=url, auth_token=token)
+```
+
+Upload sessions with >5 steps to avoid cluttering Turso with empty/trivial sessions.

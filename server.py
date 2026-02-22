@@ -2954,7 +2954,13 @@ def share_session(session_id):
             ).fetchone()
             if not sess_row:
                 conn.close()
-                return "<h1>Session not found</h1><p>This session does not exist.</p>", 404
+                return """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Session Not Found</title>
+<style>body{background:#0d1117;color:#c9d1d9;font-family:'Courier New',monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}
+.box{text-align:center;padding:40px;border:1px solid #30363d;border-radius:12px;background:#161b22;max-width:400px;}
+h1{color:#f85149;font-size:24px;margin-bottom:12px;}p{color:#8b949e;margin-bottom:20px;}
+a{color:#58a6ff;text-decoration:none;}a:hover{text-decoration:underline;}</style></head>
+<body><div class="box"><h1>Session Not Found</h1><p>This session doesn't exist or hasn't been shared yet.</p>
+<a href="/">&#9654; Play ARC-AGI-3</a></div></body></html>""", 404
             sess = dict(sess_row)
             steps_rows = conn.execute(
                 "SELECT * FROM session_steps WHERE session_id = ? ORDER BY step_num",
