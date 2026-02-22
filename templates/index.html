@@ -112,6 +112,13 @@
   .triswitch input { display: none; }
   .triswitch input:checked + span { background: var(--accent); color: #000; font-weight: 600; }
   .triswitch label:has(input:checked) { background: var(--accent); color: #000; font-weight: 600; }
+  .quadswitch { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .quadswitch label { padding: 3px 8px; font-size: 11px; cursor: pointer; background: var(--bg);
+    color: var(--text-dim); transition: all 0.15s; text-align: center; border-right: 1px solid var(--border); flex: 1; }
+  .quadswitch label:last-child { border-right: none; }
+  .quadswitch input { display: none; }
+  .quadswitch input:checked + span { background: var(--accent); color: #000; font-weight: 600; }
+  .quadswitch label:has(input:checked) { background: var(--accent); color: #000; font-weight: 600; }
 
   /* Model select */
   select, .text-input { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
@@ -142,11 +149,28 @@
   .plan-step.executing .action-btn { background: var(--accent); color: #000; border-color: var(--accent); }
   .plan-step.done .action-btn { background: var(--green); color: #000; border-color: var(--green); }
 
-  /* Tool call display in reasoning */
+  /* Tool call display in reasoning — collapsible */
+  .tool-calls-wrap { margin: 4px 0; }
+  .tool-calls-wrap > summary { cursor: pointer; font-size: 10px; color: var(--purple); font-weight: 600;
+    list-style: none; display: flex; align-items: center; gap: 4px; }
+  .tool-calls-wrap > summary::-webkit-details-marker { display: none; }
+  .tool-calls-wrap > summary::before { content: '▶'; font-size: 8px; transition: transform 0.15s; }
+  .tool-calls-wrap[open] > summary::before { transform: rotate(90deg); }
   .tool-call { margin: 4px 0; padding: 4px 8px; background: var(--surface2); border-left: 2px solid var(--purple);
     border-radius: 0 4px 4px 0; font-size: 11px; }
-  .tool-call .tool-name { color: var(--purple); font-weight: 600; }
-  .tool-call .tool-output { color: var(--text-dim); margin-top: 2px; white-space: pre-wrap; max-height: 80px; overflow-y: auto; }
+  .tool-call .tool-name { color: var(--purple); font-weight: 600; font-size: 10px; }
+  .tool-call .tool-input { color: var(--text-dim); margin-top: 2px; white-space: pre-wrap; max-height: 120px;
+    overflow-y: auto; font-family: monospace; font-size: 10px; border-left: 2px solid var(--border); padding-left: 6px; }
+  .tool-call .tool-output { color: var(--green); margin-top: 2px; white-space: pre-wrap; max-height: 120px;
+    overflow-y: auto; font-family: monospace; font-size: 10px; border-left: 2px solid var(--green); padding-left: 6px; }
+  /* Collapsible analysis/input */
+  .analysis-wrap { margin-top: 4px; }
+  .analysis-wrap > summary { cursor: pointer; font-size: 10px; color: var(--purple); font-weight: 600;
+    list-style: none; display: flex; align-items: center; gap: 4px; }
+  .analysis-wrap > summary::-webkit-details-marker { display: none; }
+  .analysis-wrap > summary::before { content: '▶'; font-size: 8px; transition: transform 0.15s; }
+  .analysis-wrap[open] > summary::before { transform: rotate(90deg); }
+  .analysis-wrap .analysis-content { font-size: 11px; color: var(--text-dim); margin-top: 4px; white-space: pre-wrap; }
 
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border);
     border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
@@ -519,17 +543,18 @@
                   </div>
                   <div class="opt-body">
                     <div class="opt-row">
-                      <span class="opt-label">LLM Mode</span>
+                      <span class="opt-label">Thinking</span>
                     </div>
                     <div class="opt-row">
-                      <div class="triswitch" id="reasoningMode">
-                        <label><input type="radio" name="reasonMode" value="off"><span>Off</span></label>
-                        <label><input type="radio" name="reasonMode" value="on" checked><span>On</span></label>
-                        <label><input type="radio" name="reasonMode" value="adaptive"><span>Adaptive</span></label>
+                      <div class="quadswitch" id="thinkingLevel">
+                        <label><input type="radio" name="thinkingLevel" value="off"><span>Off</span></label>
+                        <label><input type="radio" name="thinkingLevel" value="low" checked><span>Low</span></label>
+                        <label><input type="radio" name="thinkingLevel" value="med"><span>Med</span></label>
+                        <label><input type="radio" name="thinkingLevel" value="high"><span>High</span></label>
                       </div>
                     </div>
                     <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">
-                      On = ask every step &nbsp;|&nbsp; Adaptive = when stuck
+                      Thinking token budget (models that support it)
                     </div>
                     <div class="opt-row">
                       <span class="opt-label">Tool calls</span>
@@ -542,7 +567,7 @@
                       </div>
                     </div>
                     <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">
-                      On = Python sandbox (Pyodide, ~10MB) &nbsp;|&nbsp; Adaptive = after 10 stuck steps
+                      On = Python sandbox{% if mode == 'online' %} (Pyodide, ~10MB){% endif %} &nbsp;|&nbsp; Adaptive = after 10 stuck steps
                     </div>
                     <div class="opt-row">
                       <span class="opt-label">Compact history</span>
@@ -804,23 +829,24 @@ async function runPyodide(code, grid, prev_grid) {
   });
 }
 
-// ── Tools mode confirmation ──────────────────────────────────────────────
+// ── Tools mode confirmation (online = Pyodide, local = server sandbox) ───
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('input[name="toolsMode"]').forEach(radio => {
     radio.addEventListener('change', async (e) => {
       if (e.target.value === 'off') return;
-      if (_pyodideReady) return; // already loaded
+      // Local mode: server-side sandbox, no download needed
+      if (FEATURES.server_llm) return;
+      // Online mode: need Pyodide
+      if (_pyodideReady) return;
       const ok = confirm(
         'Tool calls require Pyodide (Python in WebAssembly).\n\n' +
         'This will download ~10 MB on first use (cached after).\n' +
         'Load Pyodide now?'
       );
       if (!ok) {
-        // Revert to off
         document.querySelector('input[name="toolsMode"][value="off"]').checked = true;
         return;
       }
-      // Show loading indicator
       e.target.closest('.triswitch').style.opacity = '0.5';
       try {
         await ensurePyodide();
@@ -832,6 +858,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+
+// Execute code via server-side sandbox (local mode)
+async function runServerSandbox(code, grid, prev_grid) {
+  const resp = await fetchJSON('/api/tools/execute', {
+    code, grid, prev_grid, session_id: sessionId || 'anonymous',
+  });
+  return resp.output || resp.error || '(no output)';
+}
 
 // Extract ```python code blocks from LLM response text
 function extractPythonBlocks(text) {
@@ -848,10 +882,14 @@ function extractPythonBlocks(text) {
 async function executeToolBlocks(text, grid, prev_grid) {
   const blocks = extractPythonBlocks(text);
   if (!blocks.length) return [];
-  if (!_pyodideReady) return [];
+  // Local mode: use server sandbox; Online mode: use Pyodide
+  const canExecute = FEATURES.server_llm || _pyodideReady;
+  if (!canExecute) return [];
   const toolCalls = [];
   for (const code of blocks) {
-    const output = await runPyodide(code, grid, prev_grid);
+    const output = FEATURES.server_llm
+      ? await runServerSandbox(code, grid, prev_grid)
+      : await runPyodide(code, grid, prev_grid);
     toolCalls.push({name: 'run_python', arguments: {code}, output});
   }
   return toolCalls;
@@ -1295,8 +1333,8 @@ Respond with ONLY the summary text, no JSON.`;
   return buildCompactContextFallback();
 }
 
-function getReasoningMode() {
-  return document.querySelector('input[name="reasonMode"]:checked')?.value || 'on';
+function getThinkingLevel() {
+  return document.querySelector('input[name="thinkingLevel"]:checked')?.value || 'low';
 }
 function getToolsMode() {
   return document.querySelector('input[name="toolsMode"]:checked')?.value || 'off';
@@ -1392,6 +1430,28 @@ function formatTokenInfo(resp) {
     `${inputTok.toLocaleString()} in + ${outputTok.toLocaleString()} out = ${totalTok.toLocaleString()} tok${costStr}</div>`;
 }
 
+// Render tool calls as collapsible HTML (reused in reasoning + replay)
+function renderToolCallsHtml(toolCalls) {
+  if (!toolCalls || !toolCalls.length) return '';
+  const items = toolCalls.map(tc => {
+    const name = tc.name || tc.function?.name || '?';
+    const args = tc.arguments || tc.function?.arguments;
+    const code = typeof args === 'object' ? (args.code || JSON.stringify(args, null, 1)) : (args || '');
+    const output = tc.output || '';
+    return `<div class="tool-call">` +
+      `<span class="tool-name">${name}</span>` +
+      (code ? `<div class="tool-input">${escapeHtml(code)}</div>` : '') +
+      (output ? `<div class="tool-output">${escapeHtml(output)}</div>` : '') +
+      `</div>`;
+  }).join('');
+  const label = toolCalls.length === 1 ? '1 tool call' : `${toolCalls.length} tool calls`;
+  return `<details class="tool-calls-wrap"><summary>${label}</summary>${items}</details>`;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 async function askLLM() {
   if (!currentState.grid) return;
   const model = getSelectedModel();
@@ -1439,15 +1499,15 @@ async function askLLM() {
         settings: {
           model: model,
           input: inputSettings,
-          reasoning_mode: getReasoningMode(),
+          thinking_level: getThinkingLevel(),
           tools_mode: getToolsMode(),
           planning_mode: getPlanningMode(),
         },
       };
       if (inputSettings.image) payload.image_b64 = getCanvasScreenshotB64();
       resp = await fetchJSON('/api/llm/ask', payload);
-      // For non-Gemini server models: extract code blocks from response and run via Pyodide
-      if (resp && !resp.error && resp.tools_active && !resp.tool_calls?.length && _pyodideReady && resp.raw) {
+      // For non-Gemini server models: extract code blocks and run via server sandbox
+      if (resp && !resp.error && resp.tools_active && !resp.tool_calls?.length && resp.raw) {
         const toolCalls = await executeToolBlocks(resp.raw, currentState.grid, previousGrid);
         if (toolCalls.length) resp.tool_calls = toolCalls;
       }
@@ -1470,8 +1530,8 @@ async function askLLM() {
       if (rawContent) {
         resp = parseClientLLMResponse(rawContent, model);
         resp.tools_active = getToolsMode() === 'on';
-        // Execute Python code blocks via Pyodide if tools are on
-        if (resp.tools_active && _pyodideReady && rawContent) {
+        // Execute Python code blocks if tools are on (Pyodide online, server local)
+        if (resp.tools_active && (FEATURES.server_llm || _pyodideReady) && rawContent) {
           const toolCalls = await executeToolBlocks(rawContent, currentState.grid, previousGrid);
           if (toolCalls.length) {
             resp.tool_calls = toolCalls;
@@ -1505,21 +1565,20 @@ async function askLLM() {
         ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--text-dim);font-size:10px;">Thinking...</summary>
            <div style="color:var(--text-dim);font-size:11px;margin-top:4px;white-space:pre-wrap;">${resp.thinking}</div></details>` : '';
       const toolsBadge = resp.tools_active ? '<span class="tools-badge">TOOLS</span>' : '';
+      const thinkLevel = resp.thinking_level || getThinkingLevel();
+      const thinkBadge = thinkLevel && thinkLevel !== 'off'
+        ? `<span class="tools-badge" style="background:#58a6ff22;color:var(--accent);">${thinkLevel.toUpperCase()}</span>` : '';
       const cacheBadge = resp.cache_active ? '<span class="tools-badge" style="background:#e3b34133;color:var(--yellow);">CACHED</span>' : '';
       const compactBadge = compactBlock ? '<span class="tools-badge" style="background:#bc8cff33;color:var(--purple);">COMPACT</span>' : '';
       const planBadge = p.plan ? '<span class="tools-badge" style="background:#58a6ff33;color:var(--accent);">PLAN</span>' : '';
       const analysisHtml = p.analysis
-        ? `<div style="margin-top:4px;font-size:11px;color:var(--purple);"><strong>Analysis:</strong> ${p.analysis}</div>` : '';
+        ? `<details class="analysis-wrap"><summary>Analysis</summary><div class="analysis-content">${p.analysis}</div></details>` : '';
       const ci = currentChangeMap?.change_count > 0
         ? `<div style="font-size:11px;color:var(--yellow);">${currentChangeMap.change_count} cells changed</div>` : '';
       const tokensHtml = formatTokenInfo(resp);
 
-      // Tool calls display
-      const toolCallsHtml = (resp.tool_calls || p.tool_calls || []).map(tc =>
-        `<div class="tool-call"><span class="tool-name">${tc.name || tc.function?.name || '?'}</span>` +
-        `${tc.arguments || tc.function?.arguments ? `<div class="tool-output">${JSON.stringify(tc.arguments || tc.function?.arguments, null, 1)}</div>` : ''}` +
-        `${tc.output ? `<div class="tool-output" style="border-left-color:var(--green);">${tc.output}</div>` : ''}</div>`
-      ).join('');
+      // Tool calls display (collapsible)
+      const toolCallsHtml = renderToolCallsHtml(resp.tool_calls || p.tool_calls || []);
 
       // Normalize to plan format: single actions become a 1-step plan
       const steps = (p.plan && Array.isArray(p.plan))
@@ -1534,7 +1593,7 @@ async function askLLM() {
         ? `Steps ${stepCount + 1}-${stepCount + steps.length}`
         : `Step ${stepCount + 1}`;
       entry.innerHTML = `
-        <div class="step-label">${stepLabel} — ${resp.model} [PLAN]${toolsBadge}${cacheBadge}${compactBadge}${planBadge}</div>
+        <div class="step-label">${stepLabel} — ${resp.model}${thinkBadge}${toolsBadge}${cacheBadge}${compactBadge}${planBadge}</div>
         ${tokensHtml}${ci}
         <div class="observation"><strong>Obs:</strong> ${p.observation || '—'}</div>
         <div style="margin-top:4px;"><strong>Reasoning:</strong> ${p.reasoning || '—'}</div>
@@ -2369,10 +2428,16 @@ function showReplayStep(stepIdx) {
     const fromParent = step.from_parent ? '<span style="color:var(--purple);font-size:10px;">[parent]</span> ' : '';
     const llm = step.llm_response;
     if (llm && llm.parsed) {
+      const replayToolCalls = renderToolCallsHtml(llm.tool_calls || llm.parsed.tool_calls || []);
+      const replayAnalysis = llm.parsed.analysis
+        ? `<details class="analysis-wrap"><summary>Analysis</summary><div class="analysis-content">${llm.parsed.analysis}</div></details>` : '';
+      const replayInput = llm.prompt_length
+        ? `<details class="analysis-wrap"><summary>Input (${llm.prompt_length.toLocaleString()} chars)</summary><div class="analysis-content">${llm.raw ? escapeHtml(llm.raw.substring(0, 500)) + (llm.raw.length > 500 ? '...' : '') : '—'}</div></details>` : '';
       rDiv.innerHTML = `${fromParent}<strong>Action ${step.action} (${ACTION_NAMES[step.action] || '?'})</strong>\n` +
         `<strong>Obs:</strong> ${llm.parsed.observation || '—'}\n` +
         `<strong>Plan:</strong> ${llm.parsed.reasoning || '—'}\n` +
-        (llm.thinking ? `<details><summary>Thinking</summary>${llm.thinking}</details>` : '');
+        replayAnalysis + replayToolCalls + replayInput +
+        (llm.thinking ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--text-dim);font-size:10px;">Thinking</summary><div style="color:var(--text-dim);font-size:11px;white-space:pre-wrap;">${llm.thinking}</div></details>` : '');
     } else {
       rDiv.innerHTML = `${fromParent}Action ${step.action} (${ACTION_NAMES[step.action] || '?'})`;
     }

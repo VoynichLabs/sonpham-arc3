@@ -1409,10 +1409,20 @@ def _extract_json(text: str) -> dict | None:
     return None
 
 
+THINKING_BUDGETS = {
+    "off": 0,
+    "low": 1024,
+    "med": 4096,
+    "high": 8192,
+    "max": 24576,
+}
+
+
 def _call_gemini(model_name: str, prompt: str, image_b64: str | None = None,
                   tools_enabled: bool = False, session_id: str | None = None,
                   grid=None, prev_grid=None,
-                  cached_content_name: str | None = None) -> dict | str:
+                  cached_content_name: str | None = None,
+                  thinking_level: str = "low") -> dict | str:
     """Call Gemini API. When tools_enabled, runs a multi-turn function-calling loop.
 
     Returns dict {"text": str, "tool_calls": list, "usage": dict, "cache_active": bool}
@@ -1431,14 +1441,16 @@ def _call_gemini(model_name: str, prompt: str, image_b64: str | None = None,
     parts.append(genai.types.Part.from_text(f"{SYSTEM_MSG}\n\n{prompt}"))
     contents = [genai.types.Content(role="user", parts=parts)]
 
-    is_thinking = any(x in model_name for x in ("2.5", "3-pro", "3-flash", "3.1"))
+    is_thinking_model = any(x in model_name for x in ("2.5", "3-pro", "3-flash", "3.1"))
+    budget = THINKING_BUDGETS.get(thinking_level, 1024)
+    use_thinking = is_thinking_model and budget > 0
     config = genai.types.GenerateContentConfig(
         temperature=0.3,
-        max_output_tokens=16384 if is_thinking else 2048,
+        max_output_tokens=16384 if use_thinking else 2048,
     )
-    if is_thinking:
+    if is_thinking_model:
         config.thinking_config = genai.types.ThinkingConfig(
-            thinking_budget=8192,
+            thinking_budget=budget,
         )
     if tools_enabled:
         config.tools = [_get_tool_declarations()]
@@ -1706,7 +1718,8 @@ def _throttle_provider(provider: str):
 def _route_model_call(model_key: str, prompt: str, image_b64: str | None = None,
                       tools_enabled: bool = False, session_id: str | None = None,
                       grid=None, prev_grid=None,
-                      cached_content_name: str | None = None) -> str | dict:
+                      cached_content_name: str | None = None,
+                      thinking_level: str = "low") -> str | dict:
     """Route to the correct provider, passing image if available.
 
     Returns dict when Gemini tools are active, str otherwise.
@@ -1731,7 +1744,8 @@ def _route_model_call(model_key: str, prompt: str, image_b64: str | None = None,
                             tools_enabled=tools_enabled,
                             session_id=session_id,
                             grid=grid, prev_grid=prev_grid,
-                            cached_content_name=cached_content_name)
+                            cached_content_name=cached_content_name,
+                            thinking_level=thinking_level)
     if provider == "anthropic":
         return _call_anthropic(api_model, prompt, img)
     if provider == "cloudflare":
@@ -2017,7 +2031,7 @@ def llm_ask():
     Body includes:
       - standard game state fields (grid, state, available_actions, etc.)
       - settings.input: {diff, full_grid, image, color_histogram}
-      - settings.reasoning_mode: "on" | "off" | "adaptive"
+      - settings.thinking_level: "off" | "low" | "med" | "high"
       - settings.tools_mode: "on" | "off" | "adaptive"
       - settings.model: model key
       - image_b64: base64-encoded PNG screenshot (optional)
@@ -2050,6 +2064,7 @@ def llm_ask():
             tools_mode = "off"
 
     planning_mode = settings.get("planning_mode", "off")
+    thinking_level = settings.get("thinking_level", "low")
     prompt = _build_prompt(payload, input_settings, tools_mode, planning_mode)
 
     # Get image if the input setting is on and data was provided
@@ -2085,6 +2100,7 @@ def llm_ask():
             session_id=session_id,
             grid=grid, prev_grid=prev_grid,
             cached_content_name=cached_content_name,
+            thinking_level=thinking_level,
         )
 
         # Handle dict return (Gemini w/ tools) vs str return (others)
@@ -2099,6 +2115,7 @@ def llm_ask():
             result = _parse_llm_response(content, model_key)
 
         result["tools_active"] = tools_mode == "on"
+        result["thinking_level"] = thinking_level
         result["prompt_length"] = len(prompt)
 
         # Stash LLM response for session DB persistence
@@ -2111,6 +2128,28 @@ def llm_ask():
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e), "model": model_key}), 500
+
+
+@app.route("/api/tools/execute", methods=["POST"])
+@bot_protection
+@turnstile_required
+def tools_execute():
+    """Execute Python code in the server-side sandbox (local mode only).
+
+    Body: {"code": str, "session_id": str, "grid": list, "prev_grid": list|null}
+    Returns: {"output": str}
+    """
+    if not feature_enabled("server_llm"):
+        return jsonify({"error": "Not available in online mode"}), 403
+    payload = request.get_json(force=True)
+    code = payload.get("code", "")
+    if not code:
+        return jsonify({"error": "code required"}), 400
+    session_id = payload.get("session_id", "anonymous")
+    grid = payload.get("grid", [[]])
+    prev_grid = payload.get("prev_grid")
+    output = _execute_python(session_id, code, grid, prev_grid)
+    return jsonify({"output": output})
 
 
 @app.route("/api/llm/test", methods=["POST"])
