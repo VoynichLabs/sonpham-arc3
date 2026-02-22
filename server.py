@@ -2093,41 +2093,60 @@ def llm_ask():
         cached_content_name = _get_or_create_gemini_cache(
             model_info.get("api_model", ""), static_content)
 
-    try:
-        content = _route_model_call(
-            model_key, prompt, image_b64,
-            tools_enabled=real_tools,
-            session_id=session_id,
-            grid=grid, prev_grid=prev_grid,
-            cached_content_name=cached_content_name,
-            thinking_level=thinking_level,
-        )
+    max_retries = 3
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            content = _route_model_call(
+                model_key, prompt, image_b64,
+                tools_enabled=real_tools,
+                session_id=session_id,
+                grid=grid, prev_grid=prev_grid,
+                cached_content_name=cached_content_name,
+                thinking_level=thinking_level,
+            )
 
-        # Handle dict return (Gemini w/ tools) vs str return (others)
-        if isinstance(content, dict):
-            text = content.get("text", "")
-            result = _parse_llm_response(text, model_key)
-            result["tool_calls"] = content.get("tool_calls", [])
-            result["cache_active"] = content.get("cache_active", False)
-            if content.get("usage"):
-                result["usage"] = content["usage"]
-        else:
-            result = _parse_llm_response(content, model_key)
+            # Handle dict return (Gemini w/ tools) vs str return (others)
+            if isinstance(content, dict):
+                text = content.get("text", "")
+                result = _parse_llm_response(text, model_key)
+                result["tool_calls"] = content.get("tool_calls", [])
+                result["cache_active"] = content.get("cache_active", False)
+                if content.get("usage"):
+                    result["usage"] = content["usage"]
+            else:
+                result = _parse_llm_response(content, model_key)
 
-        result["tools_active"] = tools_mode == "on"
-        result["thinking_level"] = thinking_level
-        result["prompt_length"] = len(prompt)
+            # Retry if no parseable response (empty or unparseable)
+            if not result.get("parsed") and attempt < max_retries - 1:
+                app.logger.warning(
+                    f"LLM returned no parsed response (attempt {attempt + 1}/{max_retries}), retrying..."
+                )
+                continue
 
-        # Stash LLM response for session DB persistence
-        if session_id and feature_enabled("session_db"):
-            with session_lock:
-                session_last_llm[session_id] = result
-                # Also update the model on the session record
-            _db_update_session(session_id, model=model_key)
+            result["tools_active"] = tools_mode == "on"
+            result["thinking_level"] = thinking_level
+            result["prompt_length"] = len(prompt)
+            if attempt > 0:
+                result["retries"] = attempt
 
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e), "model": model_key}), 500
+            # Stash LLM response for session DB persistence
+            if session_id and feature_enabled("session_db"):
+                with session_lock:
+                    session_last_llm[session_id] = result
+                _db_update_session(session_id, model=model_key)
+
+            return jsonify(result)
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                app.logger.warning(
+                    f"LLM call failed (attempt {attempt + 1}/{max_retries}): {e}, retrying..."
+                )
+                continue
+            return jsonify({"error": str(e), "model": model_key}), 500
+
+    return jsonify({"error": str(last_error or "No response after retries"), "model": model_key}), 500
 
 
 @app.route("/api/tools/execute", methods=["POST"])
