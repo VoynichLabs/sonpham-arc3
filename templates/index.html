@@ -500,6 +500,20 @@
       <span id="stepCounter" class="step-counter"></span>
       <span style="flex:1;"></span>
       <span id="topSpinner" style="display:none;"><span class="spinner"></span></span>
+      <div id="gameSourceToggle" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);">
+        <span>Source:</span>
+        <div class="mode-toggle" id="apiModeToggle" style="margin:0;">
+          <label style="font-size:11px;padding:2px 8px;"><input type="radio" name="apiMode" value="local" checked onchange="onApiModeChange('local')">Local</label>
+          <label style="font-size:11px;padding:2px 8px;"><input type="radio" name="apiMode" value="official" onchange="onApiModeChange('official')">Official API</label>
+        </div>
+      </div>
+    </div>
+    <div class="api-warning" id="apiWarning" style="display:none;padding:4px 12px;font-size:10px;background:var(--surface);border-bottom:1px solid var(--border);">
+      &#9888; Using official ARC-AGI-3 API at three.arcprize.org. Results count toward your leaderboard score.
+    </div>
+    <div class="api-key-input" id="apiKeySection" style="display:none;padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);">
+      <input type="password" class="text-input" id="arcApiKey" placeholder="ARC-AGI-3 API Key" style="margin-bottom:4px;font-size:11px;">
+      <button class="btn btn-primary" onclick="saveArcApiKey()" style="width:100%;font-size:10px;">Save API Key</button>
     </div>
 
     <div class="game-area">
@@ -570,9 +584,10 @@
       <!-- ── Right panel ───────────────────────────────────────────── -->
       <div class="right-panel">
 
-          <!-- Tab bar: Settings | Memory | Reasoning -->
+          <!-- Tab bar: Agent Setting | Graphics | Memory | Reasoning -->
           <div class="subtab-bar">
-            <button class="active" onclick="switchSubTab('settings')">Settings</button>
+            <button class="active" onclick="switchSubTab('settings')">Agent Setting</button>
+            <button onclick="switchSubTab('graphics')">Graphics</button>
             <button onclick="switchSubTab('memory')">Memory</button>
             <button onclick="switchSubTab('reasoning')">
               Reasoning <span id="llmSpinner" style="display:none;margin-left:4px;"><span class="spinner"></span></span>
@@ -724,28 +739,8 @@
 
               </div>
 
-              <!-- RIGHT COLUMN: Game Source, Copilot/BYOK, Graphics -->
+              <!-- RIGHT COLUMN: Copilot -->
               <div class="settings-col">
-
-                <!-- GAME SOURCE -->
-                <div class="opt-section open" id="secGameSource">
-                  <div class="opt-header" onclick="toggleSection('secGameSource')">
-                    <span>Game Source</span><span class="chevron">&#9654;</span>
-                  </div>
-                  <div class="opt-body">
-                    <div class="mode-toggle" id="apiModeToggle">
-                      <label><input type="radio" name="apiMode" value="local" checked onchange="onApiModeChange('local')">Local</label>
-                      <label><input type="radio" name="apiMode" value="official" onchange="onApiModeChange('official')">Official API</label>
-                    </div>
-                    <div class="api-warning" id="apiWarning">
-                      &#9888; This will use the official ARC-AGI-3 API at three.arcprize.org. Your current game will be reset. Results count toward your leaderboard score.
-                    </div>
-                    <div class="api-key-input" id="apiKeySection">
-                      <input type="password" class="text-input" id="arcApiKey" placeholder="ARC-AGI-3 API Key" style="margin-bottom:6px;">
-                      <button class="btn btn-primary" onclick="saveArcApiKey()" style="width:100%;font-size:11px;">Save API Key</button>
-                    </div>
-                  </div>
-                </div>
 
                 <!-- GITHUB COPILOT (local only) -->
                 {% if features.copilot %}
@@ -778,34 +773,27 @@
                 </div>
                 {% endif %}
 
-                <!-- BYOK section removed — API key prompt now inline under model selector -->
-
-                <!-- GRAPHICS -->
-                <div class="opt-section open" id="secGraphics">
-                  <div class="opt-header" onclick="toggleSection('secGraphics')">
-                    <span>Graphics</span><span class="chevron">&#9654;</span>
-                  </div>
-                  <div class="opt-body">
-                    <div class="opt-row">
-                      <span class="opt-label">Diff overlay</span>
-                      <label class="toggle"><input type="checkbox" id="showChanges" checked><span class="slider"></span></label>
-                    </div>
-                    <div class="opt-row">
-                      <span class="opt-label">Opacity</span>
-                      <input type="range" id="changeOpacity" min="0" max="100" value="40" style="width:100px;">
-                      <span id="changeOpacityVal" style="font-size:11px;width:28px;color:var(--text-dim);">40%</span>
-                    </div>
-                    <div class="opt-row">
-                      <span class="opt-label">Highlight color</span>
-                      <input type="color" id="changeColor" value="#ff0000" style="width:28px;height:20px;border:none;background:none;cursor:pointer;">
-                    </div>
-                  </div>
-                </div>
-
               </div>
             </div>
 
             <!-- Transport bar moved to canvas panel -->
+          </div>
+
+          <!-- ── Graphics subtab ── -->
+          <div class="subtab-pane" id="subtabGraphics" style="padding:14px;">
+            <div class="opt-row">
+              <span class="opt-label">Diff overlay</span>
+              <label class="toggle"><input type="checkbox" id="showChanges" checked><span class="slider"></span></label>
+            </div>
+            <div class="opt-row">
+              <span class="opt-label">Opacity</span>
+              <input type="range" id="changeOpacity" min="0" max="100" value="40" style="width:100px;">
+              <span id="changeOpacityVal" style="font-size:11px;width:28px;color:var(--text-dim);">40%</span>
+            </div>
+            <div class="opt-row">
+              <span class="opt-label">Highlight color</span>
+              <input type="color" id="changeColor" value="#ff0000" style="width:28px;height:20px;border:none;background:none;cursor:pointer;">
+            </div>
           </div>
 
           <!-- ── Memory subtab ── -->
@@ -1274,9 +1262,9 @@ function switchTopTab(tab) {
 function switchSubTab(tab) {
   document.querySelectorAll('.subtab-bar button').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.subtab-pane').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
-  const tabMap = { settings: 'subtabSettings', memory: 'subtabMemory', reasoning: 'subtabReasoning' };
+  const tabMap = { settings: 'subtabSettings', graphics: 'subtabGraphics', memory: 'subtabMemory', reasoning: 'subtabReasoning' };
   const buttons = document.querySelectorAll('.subtab-bar button');
-  const idx = { settings: 0, memory: 1, reasoning: 2 }[tab] || 0;
+  const idx = { settings: 0, graphics: 1, memory: 2, reasoning: 3 }[tab] || 0;
   if (buttons[idx]) buttons[idx].classList.add('active');
   const pane = document.getElementById(tabMap[tab]);
   if (pane) { pane.classList.add('active'); pane.style.display = 'flex'; }
