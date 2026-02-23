@@ -1682,18 +1682,30 @@ async function startGame(gameId) {
   document.getElementById('reasoningContent').innerHTML =
     '<div class="empty-state" style="height:auto;font-size:12px;">Game started. Press Agent Autoplay to let the agent play, or use the controls to play yourself.</div>';
 
-  // ── Multi-session: register or swap pending → real ID ──
-  if (activeSessionId && activeSessionId.startsWith('pending_') && sessions.has(activeSessionId)) {
-    const pendingState = sessions.get(activeSessionId);
-    sessions.delete(activeSessionId);
-    pendingState.sessionId = data.session_id;
-    pendingState.gameId = gameShortName(gameId);
-    pendingState.status = data.state || 'NOT_FINISHED';
-    pendingState.createdAt = Date.now() / 1000;
-    sessions.set(data.session_id, pendingState);
+  // ── Multi-session: reuse current tab when switching games (no moves yet) ──
+  const curSession = getActiveSession();
+  if (curSession && curSession.stepCount === 0) {
+    // Reuse the current tab — just swap the session ID
+    const oldId = activeSessionId;
+    sessions.delete(oldId);
+    curSession.sessionId = data.session_id;
+    curSession.gameId = gameShortName(gameId);
+    curSession.status = data.state || 'NOT_FINISHED';
+    curSession.createdAt = Date.now() / 1000;
+    curSession.callDurations = [];
+    curSession._tabNameGenerated = false;
+    sessions.set(data.session_id, curSession);
     activeSessionId = data.session_id;
+  } else if (!curSession) {
+    // No active session at all (first load)
+    const s = new SessionState(data.session_id);
+    s.gameId = gameShortName(gameId);
+    s.status = data.state || 'NOT_FINISHED';
+    s.createdAt = Date.now() / 1000;
+    registerSession(data.session_id, s);
   } else {
-    // Starting a new game outside of a pending session (e.g., first load)
+    // Active session has moves — create a new tab
+    saveSessionToState();
     const s = new SessionState(data.session_id);
     s.gameId = gameShortName(gameId);
     s.status = data.state || 'NOT_FINISHED';
