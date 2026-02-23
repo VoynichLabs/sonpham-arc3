@@ -934,8 +934,8 @@ class SessionState {
     this.callDurations = [];
     this.countdownInterval = null;
     this.countdownTarget = null;
-    // Tab name lock (set after autoplay generates model·game·rand name)
-    this._tabNameGenerated = false;
+    // Tab label: once set by autoplay, never overwritten
+    this.tabLabel = '';
   }
   get avgCallDuration() {
     if (!this.callDurations.length) return 5000; // default 5s
@@ -974,7 +974,7 @@ function saveSessionToState() {
   const rc = document.getElementById('reasoningContent');
   if (rc) s.reasoningHTML = rc.innerHTML;
   // Update metadata
-  if (!s._tabNameGenerated) s.gameId = gameShortName(currentState.game_id) || s.gameId;
+  s.gameId = gameShortName(currentState.game_id) || s.gameId;
   s.model = getSelectedModel() || s.model;
   s.status = currentState.state || s.status;
 }
@@ -1747,7 +1747,7 @@ async function startGame(gameId) {
     curSession.status = data.state || 'NOT_FINISHED';
     curSession.createdAt = Date.now() / 1000;
     curSession.callDurations = [];
-    curSession._tabNameGenerated = false;
+    curSession.tabLabel = '';
     sessions.set(data.session_id, curSession);
     activeSessionId = data.session_id;
   } else if (!curSession) {
@@ -2671,13 +2671,12 @@ async function toggleAutoPlay() {
   if (s) {
     s.autoPlaying = true;
     // Generate session tab name on first autoplay: model + task + random
-    if (!s._tabNameGenerated) {
+    if (!s.tabLabel) {
       const model = (getSelectedModel() || 'agent').split('/').pop().split('-').slice(0, 2).join('-');
       const game = (currentState.game_id || 'game').split('-')[0];
       const rand = Math.random().toString(36).slice(2, 5);
-      s.gameId = `${model} · ${game} · ${rand}`;
+      s.tabLabel = `${model} · ${game} · ${rand}`;
       s.model = getSelectedModel() || '';
-      s._tabNameGenerated = true;
     }
   }
   renderSessionTabs();
@@ -4593,7 +4592,7 @@ function renderSessionTabs() {
   for (const [id, s] of sessions) {
     const tab = document.createElement('div');
     tab.className = 'session-tab' + (id === activeSessionId ? ' active' : '');
-    const label = s.gameId || (id.startsWith('pending_') ? 'New Session' : id.slice(0, 8));
+    const label = s.tabLabel || s.gameId || (id.startsWith('pending_') ? 'New Session' : id.slice(0, 8));
     const dotClass = getTabDotClass(s);
     tab.innerHTML = `
       <span class="tab-dot ${dotClass}"></span>
@@ -4796,6 +4795,7 @@ function saveSessionIndex() {
       index.push({
         id: s.sessionId || id,
         gameId: s.gameId || '',
+        tabLabel: s.tabLabel || '',
         model: s.model || '',
         status: s.status || 'NOT_PLAYED',
         steps: s.stepCount || 0,
@@ -4820,12 +4820,12 @@ function restoreSessionsFromLocalStorage() {
     if (sessions.has(meta.id)) continue;
     const s = new SessionState(meta.id);
     s.gameId = meta.gameId || '';
+    s.tabLabel = meta.tabLabel || '';
     s.model = meta.model || '';
     s.status = meta.status || 'NOT_PLAYED';
     s.stepCount = meta.steps || 0;
     s.sessionTotalTokens = { input: 0, output: 0, cost: meta.cost || 0 };
     s.createdAt = meta.createdAt || 0;
-    s._tabNameGenerated = !!meta.gameId; // preserve tab name
     sessions.set(meta.id, s);
   }
   if (sessions.size > 0 && !activeSessionId) {
