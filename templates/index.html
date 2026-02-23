@@ -500,25 +500,25 @@
       <span id="stepCounter" class="step-counter"></span>
       <span style="flex:1;"></span>
       <span id="topSpinner" style="display:none;"><span class="spinner"></span></span>
-      <div id="gameSourceToggle" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);">
-        <span>Source:</span>
-        <div class="mode-toggle" id="apiModeToggle" style="margin:0;">
-          <label style="font-size:11px;padding:2px 8px;"><input type="radio" name="apiMode" value="local" checked onchange="onApiModeChange('local')">Local</label>
-          <label style="font-size:11px;padding:2px 8px;"><input type="radio" name="apiMode" value="official" onchange="onApiModeChange('official')">Official API</label>
-        </div>
-      </div>
-    </div>
-    <div class="api-warning" id="apiWarning" style="display:none;padding:4px 12px;font-size:10px;background:var(--surface);border-bottom:1px solid var(--border);">
-      &#9888; Using official ARC-AGI-3 API at three.arcprize.org. Results count toward your leaderboard score.
-    </div>
-    <div class="api-key-input" id="apiKeySection" style="display:none;padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);">
-      <input type="password" class="text-input" id="arcApiKey" placeholder="ARC-AGI-3 API Key" style="margin-bottom:4px;font-size:11px;">
-      <button class="btn btn-primary" onclick="saveArcApiKey()" style="width:100%;font-size:10px;">Save API Key</button>
     </div>
 
     <div class="game-area">
       <!-- Canvas -->
       <div class="canvas-panel">
+        <div id="gameSourceBar" style="display:flex;align-items:center;justify-content:flex-end;width:100%;padding:4px 0;gap:6px;font-size:11px;color:var(--dim);">
+          <span>Source:</span>
+          <div class="mode-toggle" id="apiModeToggle" style="margin:0;">
+            <label style="font-size:11px;padding:3px 10px;white-space:nowrap;"><input type="radio" name="apiMode" value="local" checked onchange="onApiModeChange('local')">Local</label>
+            <label style="font-size:11px;padding:3px 10px;white-space:nowrap;"><input type="radio" name="apiMode" value="official" onchange="onApiModeChange('official')">Official ARC Prize API</label>
+          </div>
+        </div>
+        <div class="api-warning" id="apiWarning" style="display:none;width:100%;padding:4px 8px;font-size:10px;background:var(--surface);border:1px solid var(--border);border-radius:4px;margin-bottom:4px;">
+          &#9888; Using official ARC Prize API at three.arcprize.org. Results count toward your leaderboard score.
+        </div>
+        <div class="api-key-input" id="apiKeySection" style="display:none;width:100%;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;margin-bottom:4px;">
+          <input type="password" class="text-input" id="arcApiKey" placeholder="ARC-AGI-3 API Key" style="margin-bottom:4px;font-size:11px;">
+          <button class="btn btn-primary" onclick="saveArcApiKey()" style="width:100%;font-size:10px;">Save API Key</button>
+        </div>
         <div id="emptyState" class="empty-state">
           Select a game from the sidebar to start.<br>
           Use keyboard arrows or click the grid.<br>
