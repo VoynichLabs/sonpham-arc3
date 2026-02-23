@@ -975,7 +975,7 @@ function saveSessionToState() {
   const rc = document.getElementById('reasoningContent');
   if (rc) s.reasoningHTML = rc.innerHTML;
   // Update metadata
-  s.gameId = currentState.game_id || s.gameId;
+  s.gameId = gameShortName(currentState.game_id) || s.gameId;
   s.model = getSelectedModel() || s.model;
   s.status = currentState.state || s.status;
 }
@@ -1022,7 +1022,7 @@ function restoreSessionFromState(s) {
   }
 
   // Update UI elements
-  document.getElementById('gameTitle').textContent = currentState.game_id || 'No game selected';
+  document.getElementById('gameTitle').textContent = gameShortName(currentState.game_id) || 'No game selected';
   const statusEl = document.getElementById('gameStatus');
   statusEl.textContent = currentState.state || '—';
   statusEl.className = 'status status-' + (currentState.state || 'NOT_PLAYED');
@@ -1616,16 +1616,22 @@ async function loadGames() {
   games.forEach(g => {
     const div = document.createElement('div');
     div.className = 'game-card';
-    div.innerHTML = `<div class="title">${g.title}</div><div class="meta">${g.game_id}</div>`;
+    const shortName = g.title || g.game_id.split('-')[0].toUpperCase();
+    div.innerHTML = `<div class="title">${shortName}</div><div class="meta">ARC Prize Foundation</div>`;
+    div.dataset.gameId = g.game_id;
     div.onclick = () => startGame(g.game_id);
     el.appendChild(div);
   });
 }
 
+function gameShortName(gameId) {
+  return (gameId || '').split('-')[0].toUpperCase();
+}
+
 async function startGame(gameId) {
   document.querySelectorAll('.game-card').forEach(c => c.classList.remove('active'));
   document.querySelectorAll('.game-card').forEach(c => {
-    if (c.querySelector('.meta').textContent.includes(gameId.split('-')[0])) c.classList.add('active');
+    if (c.dataset.gameId === gameId) c.classList.add('active');
   });
   const data = await fetchJSON('/api/start', { game_id: gameId });
   if (data.error) { alert(data.error); return; }
@@ -1659,7 +1665,7 @@ async function startGame(gameId) {
     const pendingState = sessions.get(activeSessionId);
     sessions.delete(activeSessionId);
     pendingState.sessionId = data.session_id;
-    pendingState.gameId = gameId;
+    pendingState.gameId = gameShortName(gameId);
     pendingState.status = data.state || 'NOT_FINISHED';
     pendingState.createdAt = Date.now() / 1000;
     sessions.set(data.session_id, pendingState);
@@ -1667,7 +1673,7 @@ async function startGame(gameId) {
   } else {
     // Starting a new game outside of a pending session (e.g., first load)
     const s = new SessionState(data.session_id);
-    s.gameId = gameId;
+    s.gameId = gameShortName(gameId);
     s.status = data.state || 'NOT_FINISHED';
     s.createdAt = Date.now() / 1000;
     registerSession(data.session_id, s);
@@ -1692,7 +1698,7 @@ function updateUI(data) {
   } else {
     renderGrid(data.grid);
   }
-  document.getElementById('gameTitle').textContent = data.game_id || 'Game';
+  document.getElementById('gameTitle').textContent = gameShortName(data.game_id) || 'Game';
   const statusEl = document.getElementById('gameStatus');
   statusEl.textContent = data.state; statusEl.className = 'status status-' + data.state;
   document.getElementById('levelInfo').textContent = `Level ${data.levels_completed}/${data.win_levels}`;
@@ -3253,7 +3259,7 @@ async function loadSessionHistory() {
         : '';
       div.innerHTML = `
         ${branchLabel}
-        <span class="h-game">${s.game_id}</span>
+        <span class="h-game">${gameShortName(s.game_id)}</span>
         <span class="h-result ${resultClass}">${s.result || '?'}</span>
         <span class="h-meta">${s.steps || 0} steps | ${s.model || '?'} | $${(s.total_cost || 0).toFixed(4)}${s.duration ? ` | ${formatDuration(s.duration)}` : ''}</span>
         <span class="h-meta">${date}</span>
@@ -3309,13 +3315,13 @@ async function loadReplay(sid) {
     scrubber.max = Math.max(totalSteps - 1, 0);
     scrubber.value = 0;
     document.getElementById('replayInfo').textContent =
-      `Replay: ${data.session.game_id} — Step 0 / ${totalSteps}`;
+      `Replay: ${gameShortName(data.session.game_id)} — Step 0 / ${totalSteps}`;
 
     // Render full reasoning in the Reasoning tab (same format as live/resumed sessions)
     const sess = data.session || {};
     const resultLabel = sess.result || 'REPLAY';
     renderRestoredReasoning(data.steps || [],
-      `Replay: ${sess.game_id || '?'} — ${totalSteps} steps — ${resultLabel}`, 'var(--accent)', { replay: true });
+      `Replay: ${gameShortName(sess.game_id) || '?'} — ${totalSteps} steps — ${resultLabel}`, 'var(--accent)', { replay: true });
     // Switch to Agent tab so user sees the reasoning
     switchTopTab('agent');
     switchSubTab('reasoning');
@@ -3332,7 +3338,7 @@ function showReplayStep(stepIdx) {
   if (!replayData || !replayData.steps) return;
   const total = replayData.steps.length;
   const info = document.getElementById('replayInfo');
-  info.textContent = `Replay: ${replayData.session.game_id} — Step ${stepIdx + 1} / ${total}`;
+  info.textContent = `Replay: ${gameShortName(replayData.session.game_id)} — Step ${stepIdx + 1} / ${total}`;
 
   document.getElementById('replayScrubber').value = stepIdx;
 
@@ -3612,7 +3618,7 @@ async function puterKvCheckResume() {
     banner.className = 'resume-banner';
     banner.id = 'resumeBanner';
     banner.innerHTML = `
-      <span>Resume session <strong>${data.session.game_id}</strong> (${data.steps?.length || 0} steps)?</span>
+      <span>Resume session <strong>${gameShortName(data.session.game_id)}</strong> (${data.steps?.length || 0} steps)?</span>
       <button class="btn btn-primary" onclick="resumeFromPuterKv('${arcKeys[arcKeys.length - 1]}')">Resume</button>
       <button class="btn" onclick="dismissResumeBanner('${arcKeys[arcKeys.length - 1]}')">Dismiss</button>`;
     document.body.appendChild(banner);
@@ -4298,7 +4304,8 @@ async function loadBrowseByGame() {
     for (const g of games) {
       const div = document.createElement('div');
       div.className = 'game-card' + (_browseGameFilter === g.game_id ? ' active' : '');
-      div.innerHTML = `<div class="title">${g.title}</div><div class="meta">${g.game_id}</div>`;
+      const shortName = g.title || g.game_id.split('-')[0].toUpperCase();
+      div.innerHTML = `<div class="title">${shortName}</div><div class="meta">ARC Prize Foundation</div>`;
       div.onclick = () => loadGameSessions(g.game_id);
       listEl.appendChild(div);
     }
@@ -4310,7 +4317,7 @@ async function loadGameSessions(gameId) {
   // Highlight active game
   document.querySelectorAll('#browseGameList .game-card').forEach(c => c.classList.remove('active'));
   document.querySelectorAll('#browseGameList .game-card').forEach(c => {
-    if (c.querySelector('.meta')?.textContent?.includes(gameId.split('-')[0])) c.classList.add('active');
+    if (c.querySelector('.title')?.textContent === gameShortName(gameId)) c.classList.add('active');
   });
   const el = document.getElementById('browseGameSessions');
   el.innerHTML = '<div class="browse-empty">Loading sessions...</div>';
@@ -4319,7 +4326,7 @@ async function loadGameSessions(gameId) {
     const allSessions = await fetchAllSessions();
     const gameSessions = allSessions.filter(s => s.game_id === gameId);
     if (!gameSessions.length) {
-      el.innerHTML = `<div class="browse-empty">No sessions for ${gameId} yet.</div>`;
+      el.innerHTML = `<div class="browse-empty">No sessions for ${gameShortName(gameId)} yet.</div>`;
       return;
     }
     el.innerHTML = '';
@@ -4408,7 +4415,7 @@ function buildSessionRow(s, isLocal) {
 
   div.innerHTML = `
     ${branchHtml}
-    <span class="s-game">${s.game_id || '?'}</span>
+    <span class="s-game">${gameShortName(s.game_id) || '?'}</span>
     <span class="s-result ${resultClass}">${result}</span>
     <span class="s-model">${s.model || '—'}</span>
     <span class="s-meta">${metaParts}</span>
