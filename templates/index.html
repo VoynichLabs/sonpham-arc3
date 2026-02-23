@@ -4538,8 +4538,7 @@ function buildSessionRow(s, isLocal) {
     <span class="s-model">${s.model || '—'}</span>
     <span class="s-meta">${metaParts}</span>
     <span class="s-actions">
-      <button class="btn" onclick="event.stopPropagation(); window.open('/share/${s.id}','_blank');">Share</button>
-      <button class="btn" onclick="event.stopPropagation(); browseReplay('${s.id}');">Replay</button>
+      <button class="btn" onclick="event.stopPropagation(); window.open('/share/${s.id}','_blank');">Shareable Replay</button>
       ${result === 'NOT_FINISHED' ? `<button class="btn btn-primary" onclick="event.stopPropagation(); browseResume('${s.id}');">&#9654; Resume playing</button>` : ''}
       ${isLocal ? `<button class="btn btn-danger" onclick="event.stopPropagation(); browseDeleteLocal('${s.id}', this);">Delete</button>` : ''}
     </span>`;
