@@ -30,7 +30,7 @@
   .spin-wrap .spin-btn:hover { background: var(--border); }
   body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace; font-size: 13px; }
 
-  .layout { display: flex; height: 100vh; }
+  .layout { display: flex; }
 
   /* ── Sidebar ─────────────────────────────────────────────────────────── */
   .sidebar { width: 260px; background: var(--surface); border-right: 1px solid var(--border);
@@ -285,6 +285,9 @@
   .transport-bar .btn:disabled:hover { background: var(--surface); }
   .btn-pause { background: var(--yellow) !important; border-color: var(--yellow) !important; color: #000 !important; }
   .btn-pause:hover { background: #b8860b !important; }
+  .btn-blink { animation: btnBlink 0.5s ease-in-out 3 forwards; }
+  @keyframes btnBlink { 0%, 100% { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+    50% { background: var(--accent); border-color: var(--accent); color: #000; } }
   .transport-desc { font-size: 10px; color: var(--dim); text-align: center; margin-top: 4px;
     min-height: 14px; }
 
@@ -300,15 +303,7 @@
     font-size: 11px; color: var(--yellow); margin-top: 8px; line-height: 1.5; display: none; }
   .api-key-input { margin-top: 8px; display: none; }
 
-  /* ── Right panel tabs ────────────────────────────────────────────────── */
-  .tab-bar { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
-  .tab-bar button { flex: 1; padding: 10px 0; background: none; border: none; color: var(--text-dim);
-    font-family: inherit; font-size: 12px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.5px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
-  .tab-bar button:hover { color: var(--text); }
-  .tab-bar button.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-pane { display: none; flex-direction: column; flex: 1; overflow: hidden; }
-  .tab-pane.active { display: flex; }
+  /* ── Right panel tabs (removed Agent|History, kept for compat) ────── */
 
   /* ── Subtab bar (within Agent tab) ─────────────────────────────────── */
   .subtab-bar { display: flex; border-bottom: 1px solid var(--border); background: var(--bg); flex-shrink: 0; }
@@ -334,6 +329,99 @@
     border-radius: 4px; font-family: inherit; font-size: 11px; line-height: 1.5; padding: 8px; resize: vertical; }
   .memory-tab .memory-actions { display: flex; gap: 6px; flex-shrink: 0; }
   .memory-tab .memory-actions .btn { font-size: 11px; padding: 5px 14px; }
+
+  /* ── Multi-session: App container + top nav + tab bar ───────────────── */
+  .app-container { display: flex; flex-direction: column; height: 100vh; }
+  .layout { flex: 1; min-height: 0; }
+
+  .top-nav { display: flex; align-items: center; gap: 16px; padding: 10px 20px;
+    background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .top-nav .app-title { font-size: 14px; font-weight: 700; color: var(--accent);
+    letter-spacing: 0.5px; text-transform: uppercase; }
+  .top-nav .nav-link { font-size: 12px; color: var(--text-dim); cursor: pointer;
+    padding: 5px 12px; border-radius: 4px; transition: all 0.15s; font-weight: 500; }
+  .top-nav .nav-link:hover { color: var(--text); background: var(--border); }
+  .top-nav .nav-link.active { color: var(--accent); background: #58a6ff18; }
+
+  .session-tab-bar { display: flex; align-items: center; gap: 4px; padding: 6px 10px;
+    background: var(--bg); border-bottom: 1px solid var(--border); flex-shrink: 0;
+    overflow-x: auto; min-height: 42px; }
+  .session-tab { display: flex; align-items: center; gap: 8px; padding: 7px 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    max-width: 280px; min-width: 0; }
+  .session-tab:hover { background: var(--surface2); border-color: var(--accent); }
+  .session-tab.active { background: var(--surface2); border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent); }
+  .session-tab .tab-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .tab-dot-idle { background: var(--text-dim); }
+  .tab-dot-running { background: var(--yellow); animation: pulse 1.5s ease-in-out infinite; }
+  .tab-dot-win { background: var(--green); }
+  .tab-dot-gameover { background: var(--red); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .session-tab .tab-label { overflow: hidden; text-overflow: ellipsis; }
+  .session-tab .tab-countdown { font-size: 10px; color: var(--yellow); font-weight: 600; }
+  .session-tab .tab-close { background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 14px; padding: 0 4px; line-height: 1; flex-shrink: 0; }
+  .session-tab .tab-close:hover { color: var(--red); }
+  .session-tab-new { display: flex; align-items: center; gap: 4px; padding: 7px 14px;
+    background: none; border: 1px dashed var(--border); border-radius: 6px;
+    font-size: 12px; cursor: pointer; color: var(--text-dim); transition: all 0.15s; }
+  .session-tab-new:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Sidebar lock (game running) ─────────────────────────────────────── */
+  .sidebar.locked { pointer-events: none; opacity: 0.4; transition: all 0.3s; }
+
+  /* ── Empty app state ────────────────────────────────────────────────── */
+  #emptyAppState { display: none; flex: 1; align-items: center; justify-content: center;
+    font-size: 16px; color: var(--text-dim); }
+  #emptyAppState .new-session-hero { padding: 40px 60px; border: 2px dashed var(--border);
+    border-radius: 12px; text-align: center; cursor: pointer; transition: all 0.2s; }
+  #emptyAppState .new-session-hero:hover { border-color: var(--accent); color: var(--accent); }
+  #emptyAppState .new-session-hero .hero-icon { font-size: 32px; margin-bottom: 8px; }
+
+  /* ── Countdown display in reasoning ─────────────────────────────────── */
+  #countdownDisplay { text-align: center; padding: 6px; font-size: 12px; color: var(--yellow);
+    font-weight: 600; display: none; }
+
+  /* ── Browse Sessions view ──────────────────────────────────────────── */
+  #browseView { display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
+  .browse-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+  .browse-tabs button { flex: 1; padding: 10px 0; background: none; border: none; color: var(--text-dim);
+    font-family: inherit; font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .browse-tabs button:hover { color: var(--text); }
+  .browse-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .browse-pane { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+  .browse-pane.active { display: flex; }
+  .browse-content { flex: 1; overflow-y: auto; padding: 12px 20px; }
+
+  /* Game browser */
+  .game-browser { display: flex; flex: 1; overflow: hidden; }
+  .game-browser-list { width: 260px; border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
+  .game-browser-list .game-card { padding: 10px 16px; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background 0.15s; font-size: 12px; }
+  .game-browser-list .game-card:hover { background: var(--border); }
+  .game-browser-list .game-card.active { background: #1f6feb22; border-left: 3px solid var(--accent); }
+  .game-browser-sessions { flex: 1; overflow-y: auto; padding: 12px 20px; }
+
+  /* Session list items */
+  .session-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+    border-bottom: 1px solid var(--border); font-size: 12px; transition: background 0.15s; }
+  .session-row:hover { background: var(--surface2); }
+  .session-row .s-game { font-weight: 600; min-width: 100px; color: var(--text); }
+  .session-row .s-model { color: var(--text-dim); min-width: 120px; }
+  .session-row .s-result { font-size: 10px; padding: 2px 8px; border-radius: 8px; font-weight: 600; }
+  .s-result-WIN { background: #3fb95033; color: var(--green); }
+  .s-result-GAME_OVER { background: #f8514933; color: var(--red); }
+  .s-result-NOT_FINISHED { background: #d2992233; color: var(--yellow); }
+  .session-row .s-meta { color: var(--text-dim); font-size: 11px; }
+  .session-row .s-actions { display: flex; gap: 4px; margin-left: auto; }
+  .session-row .s-actions .btn { padding: 3px 10px; font-size: 10px; }
+  .session-row .s-branch { color: var(--purple); font-size: 10px; }
+  .browse-header { font-size: 11px; color: var(--text-dim); padding: 8px 14px; border-bottom: 1px solid var(--border);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; background: var(--surface); flex-shrink: 0; }
+  .browse-empty { padding: 40px; text-align: center; color: var(--text-dim); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -345,9 +433,58 @@
   <div class="error" id="turnstileError">Verification failed. Please try again.</div>
 </div>
 {% endif %}
-<div class="layout">
+<div class="app-container">
+  <!-- ── Top navigation ──────────────────────────────────────────────── -->
+  <div class="top-nav">
+    <span class="app-title">ARC-AGI-3 Player</span>
+    <span class="nav-link active" onclick="showAppView('play')">Play</span>
+    <span class="nav-link" onclick="showAppView('browse')">Browse Sessions</span>
+  </div>
+  <!-- ── Session tab bar ─────────────────────────────────────────────── -->
+  <div class="session-tab-bar" id="sessionTabBar">
+    <button class="session-tab-new" onclick="createNewSession()">+ New Session</button>
+  </div>
+  <!-- ── Empty app state (no sessions) ───────────────────────────────── -->
+  <div id="emptyAppState">
+    <div class="new-session-hero" onclick="createNewSession()">
+      <div class="hero-icon">+</div>
+      <div>New Session</div>
+    </div>
+  </div>
+  <!-- ── Browse Sessions view ────────────────────────────────────────── -->
+  <div id="browseView">
+    <div class="browse-tabs">
+      <button class="active" onclick="switchBrowseTab('byGame')">By Game</button>
+      <button onclick="switchBrowseTab('global')">Global Sessions</button>
+      <button onclick="switchBrowseTab('local')">Local Sessions</button>
+    </div>
+    <!-- By Game -->
+    <div class="browse-pane active" id="browseByGame">
+      <div class="game-browser">
+        <div class="game-browser-list" id="browseGameList"></div>
+        <div class="game-browser-sessions" id="browseGameSessions">
+          <div class="browse-empty">Select a game to view its sessions.</div>
+        </div>
+      </div>
+    </div>
+    <!-- Global Sessions -->
+    <div class="browse-pane" id="browseGlobal">
+      <div class="browse-header" id="browseGlobalHeader">All sessions from server</div>
+      <div class="browse-content" id="browseGlobalList">
+        <div class="browse-empty">Loading...</div>
+      </div>
+    </div>
+    <!-- Local Sessions -->
+    <div class="browse-pane" id="browseLocal">
+      <div class="browse-header" id="browseLocalHeader">Sessions stored in this browser</div>
+      <div class="browse-content" id="browseLocalList">
+        <div class="browse-empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+<div class="layout" id="mainLayout">
   <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
-  <div class="sidebar">
+  <div class="sidebar" id="gameSidebar">
     <h2>Games</h2>
     <div id="gameList"><div class="empty-state" style="height:auto;padding:20px;">Loading...</div></div>
   </div>
@@ -431,16 +568,7 @@
       <!-- ── Right panel ───────────────────────────────────────────── -->
       <div class="right-panel">
 
-        <!-- Top tab bar: Agent | History -->
-        <div class="tab-bar">
-          <button class="active" onclick="switchTopTab('agent')">Agent</button>
-          <button onclick="switchTopTab('history')">History</button>
-        </div>
-
-        <!-- ════ AGENT TAB ════ -->
-        <div class="tab-pane active" id="tabAgent">
-
-          <!-- Subtab bar: Settings | Memory | Reasoning -->
+          <!-- Tab bar: Settings | Memory | Reasoning -->
           <div class="subtab-bar">
             <button class="active" onclick="switchSubTab('settings')">Settings</button>
             <button onclick="switchSubTab('memory')">Memory</button>
@@ -699,6 +827,7 @@
 
           <!-- ── Reasoning subtab ── -->
           <div class="subtab-pane" id="subtabReasoning">
+            <div id="countdownDisplay"></div>
             <div class="reasoning-scroll" id="reasoningContent">
               <div class="empty-state" style="height:auto;font-size:12px;">
                 Start a game and enable LLM reasoning to see analysis here.
@@ -721,17 +850,10 @@
             </div>
           </div>
 
-        </div>
-
-        <!-- ════ HISTORY TAB ════ -->
-        <div class="tab-pane" id="tabHistory">
-          <div class="history-list" id="historyList">
-            <div class="empty-state" style="height:auto;font-size:12px;">Loading sessions...</div>
-          </div>
-          <div class="replay-reasoning-panel" id="replayReasoningPanel" style="display:none;padding:10px 14px;border-top:1px solid var(--border);">
-            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Replay — LLM Reasoning</div>
-            <div class="replay-reasoning" id="replayReasoning"></div>
-          </div>
+        <!-- Hidden history elements (used by replay JS) -->
+        <div id="historyList" style="display:none;"></div>
+        <div id="replayReasoningPanel" style="display:none;">
+          <div class="replay-reasoning" id="replayReasoning"></div>
         </div>
 
       </div>
@@ -739,6 +861,7 @@
     </div>
   </div>
 </div>
+</div><!-- /app-container -->
 
 <script>
 // ═══════════════════════════════════════════════════════════════════════════
@@ -769,6 +892,159 @@ const clientId = 'client_' + Math.random().toString(36).slice(2, 10);
 
 // Compact context: accumulate LLM observations across the session
 let llmObservations = []; // [{step, observation, reasoning, action, analysis}]
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MULTI-SESSION: SessionState class + registry
+// ═══════════════════════════════════════════════════════════════════════════
+
+class SessionState {
+  constructor(id) {
+    this.sessionId = id;
+    // Game state
+    this.currentGrid = null;
+    this.previousGrid = null;
+    this.currentChangeMap = null;
+    this.currentState = {};
+    // Counters
+    this.stepCount = 0;
+    this.llmCallCount = 0;
+    // History
+    this.moveHistory = [];
+    this.undoStack = [];
+    this.llmObservations = [];
+    // Agent
+    this.autoPlaying = false;
+    this.action6Mode = false;
+    // Compact context
+    this._cachedCompactSummary = '';
+    this._compactSummaryAtCall = 0;
+    this._lastCompactPrompt = '';
+    // Cost
+    this.sessionTotalTokens = { input: 0, output: 0, cost: 0 };
+    // Persistence
+    this.sessionStepsBuffer = [];
+    this.sessionStartTime = null;
+    this.syncStepCounter = 0;
+    // UI
+    this.reasoningHTML = '';
+    this.gameId = '';
+    this.model = '';
+    this.status = 'NOT_PLAYED';
+    this.createdAt = Date.now() / 1000;
+    // Countdown
+    this.callDurations = [];
+    this.countdownInterval = null;
+    this.countdownTarget = null;
+    // Lazy resume flag
+    this._needsResume = false;
+  }
+  get avgCallDuration() {
+    if (!this.callDurations.length) return 5000; // default 5s
+    return this.callDurations.reduce((a, b) => a + b, 0) / this.callDurations.length;
+  }
+}
+
+const sessions = new Map();  // sessionId -> SessionState
+let activeSessionId = null;
+function getActiveSession() { return sessions.get(activeSessionId) || null; }
+
+// ── Bridge: save globals → SessionState ──────────────────────────────────
+function saveSessionToState() {
+  const s = getActiveSession();
+  if (!s) return;
+  s.sessionId = sessionId;
+  s.currentGrid = currentGrid;
+  s.previousGrid = previousGrid;
+  s.currentChangeMap = currentChangeMap;
+  s.currentState = currentState;
+  s.stepCount = stepCount;
+  s.llmCallCount = llmCallCount;
+  s.moveHistory = moveHistory;
+  s.undoStack = undoStack;
+  s.llmObservations = llmObservations;
+  s.autoPlaying = autoPlaying;
+  s.action6Mode = action6Mode;
+  s.sessionTotalTokens = sessionTotalTokens;
+  s.sessionStepsBuffer = sessionStepsBuffer;
+  s.sessionStartTime = sessionStartTime;
+  s.syncStepCounter = syncStepCounter;
+  s._cachedCompactSummary = _cachedCompactSummary;
+  s._compactSummaryAtCall = _compactSummaryAtCall;
+  s._lastCompactPrompt = _lastCompactPrompt;
+  // Save reasoning HTML
+  const rc = document.getElementById('reasoningContent');
+  if (rc) s.reasoningHTML = rc.innerHTML;
+  // Update metadata
+  s.gameId = currentState.game_id || s.gameId;
+  s.model = getSelectedModel() || s.model;
+  s.status = currentState.state || s.status;
+}
+
+// ── Bridge: restore SessionState → globals ───────────────────────────────
+function restoreSessionFromState(s) {
+  if (!s) return;
+  sessionId = s.sessionId;
+  currentGrid = s.currentGrid;
+  previousGrid = s.previousGrid;
+  currentChangeMap = s.currentChangeMap;
+  currentState = s.currentState;
+  stepCount = s.stepCount;
+  llmCallCount = s.llmCallCount;
+  moveHistory = s.moveHistory;
+  undoStack = s.undoStack;
+  llmObservations = s.llmObservations;
+  autoPlaying = s.autoPlaying;
+  action6Mode = s.action6Mode;
+  sessionTotalTokens = s.sessionTotalTokens;
+  sessionStepsBuffer = s.sessionStepsBuffer;
+  sessionStartTime = s.sessionStartTime;
+  syncStepCounter = s.syncStepCounter;
+  _cachedCompactSummary = s._cachedCompactSummary;
+  _compactSummaryAtCall = s._compactSummaryAtCall;
+  _lastCompactPrompt = s._lastCompactPrompt;
+
+  // Restore reasoning HTML
+  const rc = document.getElementById('reasoningContent');
+  if (rc) rc.innerHTML = s.reasoningHTML || '<div class="empty-state" style="height:auto;font-size:12px;">No reasoning yet.</div>';
+
+  // Re-render grid
+  if (currentGrid) {
+    canvas.style.display = 'block';
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('controls').style.display = 'flex';
+    document.getElementById('transportBar').style.display = 'block';
+    renderGrid(currentGrid);
+  } else {
+    canvas.style.display = 'none';
+    document.getElementById('emptyState').style.display = '';
+    document.getElementById('controls').style.display = 'none';
+    document.getElementById('transportBar').style.display = 'none';
+  }
+
+  // Update UI elements
+  document.getElementById('gameTitle').textContent = currentState.game_id || 'No game selected';
+  const statusEl = document.getElementById('gameStatus');
+  statusEl.textContent = currentState.state || '—';
+  statusEl.className = 'status status-' + (currentState.state || 'NOT_PLAYED');
+  document.getElementById('levelInfo').textContent = currentState.levels_completed !== undefined
+    ? `Level ${currentState.levels_completed}/${currentState.win_levels || '?'}` : '';
+  document.getElementById('stepCounter').textContent = stepCount ? `Step ${stepCount}` : '';
+  updateUndoBtn();
+  updateAutoBtn();
+  updatePanelBlur();
+  updateGameListLock();
+
+  if (action6Mode) canvas.style.cursor = 'crosshair';
+  else canvas.style.cursor = 'default';
+}
+
+// ── Register a SessionState in the registry ──────────────────────────────
+function registerSession(id, state) {
+  sessions.set(id, state);
+  activeSessionId = id;
+  renderSessionTabs();
+  saveSessionIndex();
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PYODIDE — Client-side Python sandbox (Web Worker)
@@ -979,15 +1255,8 @@ function toggleSection(id) {
 }
 
 function switchTopTab(tab) {
-  document.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-  const tabMap = { agent: 'tabAgent', history: 'tabHistory' };
-  const buttons = document.querySelectorAll('.tab-bar button');
-  const idx = { agent: 0, history: 1 }[tab] || 0;
-  if (buttons[idx]) buttons[idx].classList.add('active');
-  const pane = document.getElementById(tabMap[tab]);
-  if (pane) pane.classList.add('active');
-  if (tab === 'history') loadSessionHistory();
+  // History tab removed — this is now a no-op kept for compat with resume/branch code
+  if (tab === 'agent') switchSubTab('reasoning');
 }
 
 function switchSubTab(tab) {
@@ -1339,7 +1608,9 @@ async function fetchJSON(url, body) {
 }
 
 async function loadGames() {
-  const games = await fetchJSON('/api/games');
+  let games = await fetchJSON('/api/games');
+  // Hide "Find the Difference" on the online/global server for now
+  if (MODE === 'online') games = games.filter(g => g.game_id !== 'fd01-00000001');
   const el = document.getElementById('gameList');
   el.innerHTML = '';
   games.forEach(g => {
@@ -1381,9 +1652,34 @@ async function startGame(gameId) {
   document.getElementById('controls').style.display = 'flex';
   document.getElementById('transportBar').style.display = 'block';
   document.getElementById('reasoningContent').innerHTML =
-    '<div class="empty-state" style="height:auto;font-size:12px;">Game started, click a move or press Step or Auto Play.</div>';
+    '<div class="empty-state" style="height:auto;font-size:12px;">Game started. Press Agent Autoplay to let the agent play, or use the controls to play yourself.</div>';
 
-  // LLM calls are triggered manually via Step / Auto buttons only.
+  // ── Multi-session: register or swap pending → real ID ──
+  if (activeSessionId && activeSessionId.startsWith('pending_') && sessions.has(activeSessionId)) {
+    const pendingState = sessions.get(activeSessionId);
+    sessions.delete(activeSessionId);
+    pendingState.sessionId = data.session_id;
+    pendingState.gameId = gameId;
+    pendingState.status = data.state || 'NOT_FINISHED';
+    pendingState.createdAt = Date.now() / 1000;
+    sessions.set(data.session_id, pendingState);
+    activeSessionId = data.session_id;
+  } else {
+    // Starting a new game outside of a pending session (e.g., first load)
+    const s = new SessionState(data.session_id);
+    s.gameId = gameId;
+    s.status = data.state || 'NOT_FINISHED';
+    s.createdAt = Date.now() / 1000;
+    registerSession(data.session_id, s);
+  }
+  renderSessionTabs();
+  saveSessionIndex();
+  updatePanelBlur();
+  updateGameListLock();
+
+  // Blink the Agent Autoplay button to guide the user
+  const autoBtn = document.getElementById('autoPlayBtn');
+  if (autoBtn) autoBtn.classList.add('btn-blink');
 }
 
 function updateUI(data) {
@@ -2241,6 +2537,9 @@ async function executeOneAction(resp) {
 async function stepOnce() {
   if (!sessionId) { alert('Start a game first'); return; }
   if (currentState.state !== 'NOT_FINISHED') return;
+  // Stop blink guide
+  const _ab = document.getElementById('autoPlayBtn');
+  if (_ab) _ab.classList.remove('btn-blink');
 
   const resp = await askLLM();
   if (!resp || resp.error || !resp.parsed) return;
@@ -2262,17 +2561,50 @@ async function toggleAutoPlay() {
   if (autoPlaying) {
     autoPlaying = false;
     updateAutoBtn();
+    const s = getActiveSession();
+    if (s) { s.autoPlaying = false; stopCountdown(s); }
+    renderSessionTabs();
     return;
   }
   if (!sessionId) { alert('Start a game first'); return; }
 
+  // Stop the blink guide
+  const autoBtn = document.getElementById('autoPlayBtn');
+  if (autoBtn) autoBtn.classList.remove('btn-blink');
+
+  const mySessionId = sessionId; // capture for guard
   autoPlaying = true;
   updateAutoBtn();
+  const s = getActiveSession();
+  if (s) {
+    s.autoPlaying = true;
+    // Generate session tab name on first autoplay: model + task + random
+    if (!s._tabNameGenerated) {
+      const model = (getSelectedModel() || 'agent').split('/').pop().split('-').slice(0, 2).join('-');
+      const game = (currentState.game_id || 'game').split('-')[0];
+      const rand = Math.random().toString(36).slice(2, 5);
+      s.gameId = `${model} · ${game} · ${rand}`;
+      s.model = getSelectedModel() || '';
+      s._tabNameGenerated = true;
+    }
+  }
+  renderSessionTabs();
 
   while (autoPlaying && currentState.state === 'NOT_FINISHED') {
+    // Guard: stop if user switched away from this session
+    if (activeSessionId !== mySessionId) { autoPlaying = false; break; }
+
+    // Start countdown before LLM call
+    if (s) startCountdown(s);
+    const _callStart = performance.now();
     const resp = await askLLM();
+    if (s) {
+      stopCountdown(s);
+      if (resp && resp.call_duration_ms) s.callDurations.push(resp.call_duration_ms);
+    }
 
     if (!autoPlaying) break;
+    if (activeSessionId !== mySessionId) { autoPlaying = false; break; }
     if (!resp || resp.error || !resp.parsed) { autoPlaying = false; break; }
     const p = resp.parsed;
 
@@ -2290,13 +2622,20 @@ async function toggleAutoPlay() {
       await new Promise(r => setTimeout(r, 200));
     }
 
+    // Update session tabs to reflect progress
+    if (s) { s.stepCount = stepCount; s.status = currentState.state; }
+    renderSessionTabs();
+    saveSessionIndex();
+
     // If game is still going, brief pause so user can see the grid update
     if (autoPlaying && currentState.state === 'NOT_FINISHED') {
       await new Promise(r => setTimeout(r, 200));
     }
   }
   autoPlaying = false;
+  if (s) { s.autoPlaying = false; stopCountdown(s); }
   updateAutoBtn();
+  renderSessionTabs();
 }
 
 async function resetSession() {
@@ -3196,6 +3535,11 @@ async function autoUploadSession() {
 function checkSessionEndAndUpload() {
   if (!sessionId) return;
   const st = currentState.state;
+  // Update multi-session state
+  const ms = getActiveSession();
+  if (ms) { ms.status = st; ms.stepCount = stepCount; }
+  saveSessionIndex();
+  renderSessionTabs();
   if (st === 'WIN' || st === 'GAME_OVER') {
     // Final save to localStorage (online mode)
     if (MODE === 'online') {
@@ -3577,6 +3921,18 @@ async function resumeSession(sid) {
 
     // Rebuild reasoning panel
     renderRestoredReasoning(steps, `Session resumed at step ${stepCount} (${llmCallCount} prior LLM calls, ${sessionTotalTokens.input + sessionTotalTokens.output} tokens restored)`, 'var(--green)');
+
+    // ── Multi-session: register resumed session ──
+    if (!sessions.has(sid)) {
+      const s = new SessionState(sid);
+      registerSession(sid, s);
+    }
+    activeSessionId = sid;
+    saveSessionToState();
+    renderSessionTabs();
+    saveSessionIndex();
+    updatePanelBlur();
+    updateGameListLock();
   } catch (e) {
     alert('Resume failed: ' + e.message);
   }
@@ -3671,6 +4027,17 @@ async function branchFromStep(stepNum) {
     renderRestoredReasoning(steps,
       `Branched from step ${stepNum} (${llmCallCount} prior LLM calls, $${sessionTotalTokens.cost.toFixed(3)} cost)`,
       'var(--purple)');
+
+    // ── Multi-session: register branch session ──
+    const bs = new SessionState(data.session_id);
+    bs.gameId = data.game_id || currentState.game_id || '';
+    bs.status = data.state || 'NOT_FINISHED';
+    registerSession(data.session_id, bs);
+    saveSessionToState();
+    renderSessionTabs();
+    saveSessionIndex();
+    updatePanelBlur();
+    updateGameListLock();
   } catch (e) {
     alert('Branch failed: ' + e.message);
   }
@@ -3760,6 +4127,17 @@ async function branchHere() {
     renderRestoredReasoning(steps,
       `Branched from replay at step ${stepNum} (${llmCallCount} prior LLM calls)`,
       'var(--purple)');
+
+    // ── Multi-session: register branch session ──
+    const bs = new SessionState(data.session_id);
+    bs.gameId = data.game_id || '';
+    bs.status = data.state || 'NOT_FINISHED';
+    registerSession(data.session_id, bs);
+    saveSessionToState();
+    renderSessionTabs();
+    saveSessionIndex();
+    updatePanelBlur();
+    updateGameListLock();
   } catch (e) {
     alert('Branch failed: ' + e.message);
   }
@@ -3853,6 +4231,496 @@ let _customArcDescription = null;
 let _customHardMemory = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// BROWSE SESSIONS VIEW
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _browseActive = false;
+let _browseGlobalCache = null;  // cache server sessions
+let _browseGameFilter = null;   // currently selected game in By Game tab
+
+function showAppView(view) {
+  document.querySelectorAll('.top-nav .nav-link').forEach(l => l.classList.remove('active'));
+  const links = document.querySelectorAll('.top-nav .nav-link');
+  const browseView = document.getElementById('browseView');
+  const mainLayout = document.getElementById('mainLayout');
+  const tabBar = document.getElementById('sessionTabBar');
+  const emptyApp = document.getElementById('emptyAppState');
+
+  if (view === 'browse') {
+    links[1]?.classList.add('active');
+    _browseActive = true;
+    browseView.style.display = 'flex';
+    mainLayout.style.display = 'none';
+    tabBar.style.display = 'none';
+    emptyApp.style.display = 'none';
+    loadBrowseView();
+  } else {
+    links[0]?.classList.add('active');
+    _browseActive = false;
+    browseView.style.display = 'none';
+    tabBar.style.display = 'flex';
+    updateEmptyAppState();
+    if (sessions.size > 0) mainLayout.style.display = 'flex';
+  }
+}
+
+function switchBrowseTab(tab) {
+  document.querySelectorAll('.browse-tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.browse-pane').forEach(p => p.classList.remove('active'));
+  const idx = { byGame: 0, global: 1, local: 2 }[tab] || 0;
+  const btns = document.querySelectorAll('.browse-tabs button');
+  if (btns[idx]) btns[idx].classList.add('active');
+  const paneMap = { byGame: 'browseByGame', global: 'browseGlobal', local: 'browseLocal' };
+  const pane = document.getElementById(paneMap[tab]);
+  if (pane) pane.classList.add('active');
+  if (tab === 'global') loadBrowseGlobal();
+  if (tab === 'local') loadBrowseLocal();
+  if (tab === 'byGame') loadBrowseByGame();
+}
+
+function loadBrowseView() {
+  // Load whichever tab is active
+  const activeBtn = document.querySelector('.browse-tabs button.active');
+  const tab = activeBtn?.textContent?.trim();
+  if (tab === 'Global Sessions') loadBrowseGlobal();
+  else if (tab === 'Local Sessions') loadBrowseLocal();
+  else loadBrowseByGame();
+}
+
+// ── By Game tab ──────────────────────────────────────────────────────────
+
+async function loadBrowseByGame() {
+  const listEl = document.getElementById('browseGameList');
+  // Populate game list
+  try {
+    const games = await fetchJSON('/api/games');
+    listEl.innerHTML = '';
+    for (const g of games) {
+      const div = document.createElement('div');
+      div.className = 'game-card' + (_browseGameFilter === g.game_id ? ' active' : '');
+      div.innerHTML = `<div class="title">${g.title}</div><div class="meta">${g.game_id}</div>`;
+      div.onclick = () => loadGameSessions(g.game_id);
+      listEl.appendChild(div);
+    }
+  } catch { listEl.innerHTML = '<div class="browse-empty">Failed to load games.</div>'; }
+}
+
+async function loadGameSessions(gameId) {
+  _browseGameFilter = gameId;
+  // Highlight active game
+  document.querySelectorAll('#browseGameList .game-card').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('#browseGameList .game-card').forEach(c => {
+    if (c.querySelector('.meta')?.textContent?.includes(gameId.split('-')[0])) c.classList.add('active');
+  });
+  const el = document.getElementById('browseGameSessions');
+  el.innerHTML = '<div class="browse-empty">Loading sessions...</div>';
+  try {
+    // Fetch all sessions then filter by game
+    const allSessions = await fetchAllSessions();
+    const gameSessions = allSessions.filter(s => s.game_id === gameId);
+    if (!gameSessions.length) {
+      el.innerHTML = `<div class="browse-empty">No sessions for ${gameId} yet.</div>`;
+      return;
+    }
+    el.innerHTML = '';
+    for (const s of gameSessions) el.appendChild(buildSessionRow(s));
+  } catch (e) {
+    el.innerHTML = `<div class="browse-empty">Error: ${e.message}</div>`;
+  }
+}
+
+// ── Global Sessions tab ──────────────────────────────────────────────────
+
+async function loadBrowseGlobal() {
+  const el = document.getElementById('browseGlobalList');
+  el.innerHTML = '<div class="browse-empty">Loading...</div>';
+  try {
+    const allSessions = await fetchAllSessions(true);
+    const filtered = allSessions.filter(s => (s.steps || 0) >= 20);
+    const header = document.getElementById('browseGlobalHeader');
+    header.textContent = `All sessions from server (${filtered.length} with 20+ steps)`;
+    if (!filtered.length) {
+      el.innerHTML = '<div class="browse-empty">No sessions with 20+ steps found.</div>';
+      return;
+    }
+    el.innerHTML = '';
+    for (const s of filtered) el.appendChild(buildSessionRow(s));
+  } catch (e) {
+    el.innerHTML = `<div class="browse-empty">Error: ${e.message}</div>`;
+  }
+}
+
+// ── Local Sessions tab ───────────────────────────────────────────────────
+
+function loadBrowseLocal() {
+  const el = document.getElementById('browseLocalList');
+  const localSessions = getLocalSessions();
+  const header = document.getElementById('browseLocalHeader');
+  header.textContent = `Sessions stored in this browser (${localSessions.length})`;
+  if (!localSessions.length) {
+    el.innerHTML = '<div class="browse-empty">No local sessions saved yet. Play a game to see sessions here.</div>';
+    return;
+  }
+  el.innerHTML = '';
+  for (const s of localSessions) {
+    el.appendChild(buildSessionRow(s, true));
+  }
+}
+
+// ── Shared helpers ───────────────────────────────────────────────────────
+
+async function fetchAllSessions(forceRefresh) {
+  if (_browseGlobalCache && !forceRefresh) return _browseGlobalCache;
+  const data = await fetchJSON('/api/sessions');
+  let serverSessions = data.sessions || [];
+  // Merge localStorage sessions (dedup)
+  if (MODE === 'online') {
+    const byId = {};
+    for (const s of serverSessions) byId[s.id] = s;
+    for (const s of getLocalSessions()) { if (!byId[s.id]) byId[s.id] = s; }
+    serverSessions = Object.values(byId);
+  }
+  serverSessions.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  _browseGlobalCache = serverSessions;
+  return serverSessions;
+}
+
+function buildSessionRow(s, isLocal) {
+  const div = document.createElement('div');
+  div.className = 'session-row';
+  const date = new Date((s.created_at || 0) * 1000);
+  const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    + ' ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const result = s.result || 'NOT_FINISHED';
+  const resultClass = `s-result-${result}`;
+  const branchHtml = s.parent_session_id
+    ? `<span class="s-branch">&#8627; branch@${s.branch_at_step || '?'}</span>` : '';
+  const costStr = (s.total_cost || s.cost || 0) > 0
+    ? `$${(s.total_cost || s.cost || 0).toFixed(4)}` : '';
+  const durationStr = s.duration ? formatDuration(s.duration) : '';
+  const metaParts = [
+    `${s.steps || 0} steps`,
+    s.model || '',
+    costStr,
+    durationStr,
+    dateStr,
+  ].filter(Boolean).join(' · ');
+
+  div.innerHTML = `
+    ${branchHtml}
+    <span class="s-game">${s.game_id || '?'}</span>
+    <span class="s-result ${resultClass}">${result}</span>
+    <span class="s-model">${s.model || '—'}</span>
+    <span class="s-meta">${metaParts}</span>
+    <span class="s-actions">
+      <button class="btn" onclick="event.stopPropagation(); window.open('/share/${s.id}','_blank');">Share</button>
+      <button class="btn" onclick="event.stopPropagation(); browseReplay('${s.id}');">Replay</button>
+      ${result === 'NOT_FINISHED' ? `<button class="btn btn-primary" onclick="event.stopPropagation(); browseResume('${s.id}');">&#9654; Resume playing</button>` : ''}
+      ${isLocal ? `<button class="btn btn-danger" onclick="event.stopPropagation(); browseDeleteLocal('${s.id}', this);">Delete</button>` : ''}
+    </span>`;
+  return div;
+}
+
+function browseReplay(sid) {
+  showAppView('play');
+  loadReplay(sid);
+}
+
+function browseResume(sid) {
+  showAppView('play');
+  // Create a new session tab for this resume
+  if (!sessions.has(sid)) {
+    const s = new SessionState(sid);
+    s._needsResume = false; // we'll resume directly
+    sessions.set(sid, s);
+    activeSessionId = sid;
+    renderSessionTabs();
+  }
+  resumeSession(sid);
+}
+
+function browseDeleteLocal(sid, btn) {
+  if (!confirm('Delete this local session?')) return;
+  deleteLocalSession(sid);
+  const row = btn.closest('.session-row');
+  if (row) row.remove();
+  // Update header count
+  const header = document.getElementById('browseLocalHeader');
+  const count = getLocalSessions().length;
+  header.textContent = `Sessions stored in this browser (${count})`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MULTI-SESSION: Tab rendering, switching, creation, closing
+// ═══════════════════════════════════════════════════════════════════════════
+
+function getTabDotClass(s) {
+  if (s.status === 'WIN') return 'tab-dot-win';
+  if (s.status === 'GAME_OVER') return 'tab-dot-gameover';
+  if (s.autoPlaying && s.status === 'NOT_FINISHED') return 'tab-dot-running';
+  return 'tab-dot-idle';
+}
+
+function renderSessionTabs() {
+  const bar = document.getElementById('sessionTabBar');
+  if (!bar) return;
+  bar.innerHTML = '';
+  for (const [id, s] of sessions) {
+    const tab = document.createElement('div');
+    tab.className = 'session-tab' + (id === activeSessionId ? ' active' : '');
+    const label = s.gameId || (id.startsWith('pending_') ? 'New Session' : id.slice(0, 8));
+    const dotClass = getTabDotClass(s);
+    tab.innerHTML = `
+      <span class="tab-dot ${dotClass}"></span>
+      <span class="tab-label">${label}</span>
+      <span class="tab-countdown" id="tabCountdown_${id}"></span>
+      <button class="tab-close" onclick="event.stopPropagation(); closeSession('${id}');">&times;</button>`;
+    tab.title = `${s.gameId || 'No game'} | ${s.stepCount} steps | $${(s.sessionTotalTokens?.cost || 0).toFixed(3)}`;
+    tab.onclick = () => switchSession(id);
+    bar.appendChild(tab);
+  }
+  const newBtn = document.createElement('button');
+  newBtn.className = 'session-tab-new';
+  newBtn.textContent = '+ New Session';
+  newBtn.onclick = createNewSession;
+  bar.appendChild(newBtn);
+  updateEmptyAppState();
+}
+
+function createNewSession() {
+  // Save current session state if one exists
+  if (activeSessionId && sessions.has(activeSessionId)) {
+    if (autoPlaying) { autoPlaying = false; updateAutoBtn(); }
+    saveSessionToState();
+  }
+  // Create a pending session
+  const pendingId = 'pending_' + Math.random().toString(36).slice(2, 10);
+  const s = new SessionState(pendingId);
+  sessions.set(pendingId, s);
+  activeSessionId = pendingId;
+  // Reset globals to blank
+  sessionId = null;
+  currentGrid = null;
+  previousGrid = null;
+  currentChangeMap = null;
+  currentState = {};
+  stepCount = 0;
+  llmCallCount = 0;
+  moveHistory = [];
+  undoStack = [];
+  llmObservations = [];
+  autoPlaying = false;
+  action6Mode = false;
+  sessionTotalTokens = { input: 0, output: 0, cost: 0 };
+  sessionStepsBuffer = [];
+  sessionStartTime = null;
+  syncStepCounter = 0;
+  _cachedCompactSummary = '';
+  _compactSummaryAtCall = 0;
+  _lastCompactPrompt = '';
+  // Reset UI
+  canvas.style.display = 'none';
+  document.getElementById('emptyState').style.display = '';
+  document.getElementById('controls').style.display = 'none';
+  document.getElementById('transportBar').style.display = 'none';
+  document.getElementById('gameTitle').textContent = 'No game selected';
+  const statusEl = document.getElementById('gameStatus');
+  statusEl.textContent = '—';
+  statusEl.className = 'status status-NOT_PLAYED';
+  document.getElementById('levelInfo').textContent = '';
+  document.getElementById('stepCounter').textContent = '';
+  document.getElementById('reasoningContent').innerHTML =
+    '<div class="empty-state" style="height:auto;font-size:12px;">Select a game from the sidebar to start.</div>';
+  // Unlock sidebar for game selection
+  updatePanelBlur();
+  updateGameListLock();
+  renderSessionTabs();
+  saveSessionIndex();
+}
+
+function switchSession(targetId) {
+  if (targetId === activeSessionId) return;
+  const target = sessions.get(targetId);
+  if (!target) return;
+
+  // Handle lazy resume for stale sessions
+  if (target._needsResume) {
+    target._needsResume = false;
+    // Save current session
+    if (activeSessionId && sessions.has(activeSessionId)) {
+      if (autoPlaying) { autoPlaying = false; updateAutoBtn(); }
+      saveSessionToState();
+    }
+    activeSessionId = targetId;
+    renderSessionTabs();
+    // Trigger resume from server
+    resumeSession(targetId);
+    return;
+  }
+
+  // Stop autoplay on current session
+  if (autoPlaying) { autoPlaying = false; updateAutoBtn(); }
+  // Close replay if open
+  closeReplay();
+  // Save current session
+  if (activeSessionId && sessions.has(activeSessionId)) {
+    saveSessionToState();
+  }
+  // Switch
+  activeSessionId = targetId;
+  restoreSessionFromState(target);
+  renderSessionTabs();
+}
+
+function closeSession(id) {
+  const s = sessions.get(id);
+  if (!s) return;
+  // Stop autoplay if running
+  if (s.autoPlaying) { s.autoPlaying = false; }
+  if (id === activeSessionId && autoPlaying) { autoPlaying = false; updateAutoBtn(); }
+  // Clear countdown
+  if (s.countdownInterval) { clearInterval(s.countdownInterval); s.countdownInterval = null; }
+  sessions.delete(id);
+  // Switch to another session or show empty
+  if (id === activeSessionId) {
+    const remaining = [...sessions.keys()];
+    if (remaining.length > 0) {
+      switchSession(remaining[remaining.length - 1]);
+    } else {
+      activeSessionId = null;
+      sessionId = null;
+      currentGrid = null;
+      currentState = {};
+      canvas.style.display = 'none';
+      document.getElementById('emptyState').style.display = '';
+      document.getElementById('controls').style.display = 'none';
+      document.getElementById('transportBar').style.display = 'none';
+    }
+  }
+  renderSessionTabs();
+  saveSessionIndex();
+}
+
+function updatePanelBlur() {
+  // Don't blur the right panel — only blur after a game has started and ended,
+  // not before. Keep it always visible so users can configure settings first.
+}
+
+function updateGameListLock() {
+  const sidebar = document.getElementById('gameSidebar');
+  if (sidebar) {
+    // Lock the sidebar only after moves have been made (stepCount > 0)
+    const shouldLock = sessionId && stepCount > 0 && currentState.state === 'NOT_FINISHED';
+    sidebar.classList.toggle('locked', shouldLock);
+  }
+}
+
+function updateEmptyAppState() {
+  const empty = document.getElementById('emptyAppState');
+  const layout = document.getElementById('mainLayout');
+  if (!empty || !layout) return;
+  if (_browseActive) return; // browse view handles its own display
+  if (sessions.size === 0) {
+    empty.style.display = 'flex';
+    layout.style.display = 'none';
+  } else {
+    empty.style.display = 'none';
+    layout.style.display = 'flex';
+  }
+}
+
+// ── Countdown timer functions ────────────────────────────────────────────
+
+function startCountdown(s) {
+  stopCountdown(s);
+  const est = s.avgCallDuration;
+  s.countdownTarget = performance.now() + est;
+  const update = () => {
+    const remaining = Math.max(0, s.countdownTarget - performance.now());
+    const sec = (remaining / 1000).toFixed(1);
+    // Update tab countdown
+    const tabEl = document.getElementById('tabCountdown_' + (s.sessionId || activeSessionId));
+    if (tabEl) tabEl.textContent = remaining > 0 ? `${sec}s` : '';
+    // Update reasoning countdown (only for active session)
+    if ((s.sessionId || activeSessionId) === activeSessionId) {
+      const cdEl = document.getElementById('countdownDisplay');
+      if (cdEl) {
+        if (remaining > 0) {
+          cdEl.textContent = `Waiting for LLM response... ~${sec}s`;
+          cdEl.style.display = 'block';
+        } else {
+          cdEl.textContent = 'Waiting for LLM response...';
+        }
+      }
+    }
+  };
+  update();
+  s.countdownInterval = setInterval(update, 200);
+}
+
+function stopCountdown(s) {
+  if (s.countdownInterval) {
+    clearInterval(s.countdownInterval);
+    s.countdownInterval = null;
+  }
+  const tabEl = document.getElementById('tabCountdown_' + (s.sessionId || activeSessionId));
+  if (tabEl) tabEl.textContent = '';
+  const cdEl = document.getElementById('countdownDisplay');
+  if (cdEl) { cdEl.textContent = ''; cdEl.style.display = 'none'; }
+}
+
+// ── localStorage session index ───────────────────────────────────────────
+
+const MULTI_SESSION_KEY = 'arc_multi_sessions';
+
+function saveSessionIndex() {
+  try {
+    const index = [];
+    for (const [id, s] of sessions) {
+      if (id.startsWith('pending_') && !s.gameId) continue; // skip truly empty pending
+      index.push({
+        id: s.sessionId || id,
+        gameId: s.gameId || '',
+        model: s.model || '',
+        status: s.status || 'NOT_PLAYED',
+        steps: s.stepCount || 0,
+        cost: s.sessionTotalTokens?.cost || 0,
+        createdAt: s.createdAt || 0,
+      });
+    }
+    localStorage.setItem(MULTI_SESSION_KEY, JSON.stringify(index));
+  } catch {}
+}
+
+function loadSessionIndex() {
+  try {
+    return JSON.parse(localStorage.getItem(MULTI_SESSION_KEY)) || [];
+  } catch { return []; }
+}
+
+function restoreSessionsFromLocalStorage() {
+  const index = loadSessionIndex();
+  if (!index.length) return;
+  for (const meta of index) {
+    if (sessions.has(meta.id)) continue;
+    const s = new SessionState(meta.id);
+    s.gameId = meta.gameId || '';
+    s.model = meta.model || '';
+    s.status = meta.status || 'NOT_PLAYED';
+    s.stepCount = meta.steps || 0;
+    s.sessionTotalTokens = { input: 0, output: 0, cost: meta.cost || 0 };
+    s.createdAt = meta.createdAt || 0;
+    s._needsResume = true; // needs server reload on click
+    sessions.set(meta.id, s);
+  }
+  // Set first session as active (but don't restore it yet — it's lazy)
+  if (sessions.size > 0 && !activeSessionId) {
+    activeSessionId = [...sessions.keys()][0];
+  }
+  renderSessionTabs();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -3869,6 +4737,10 @@ function initApp() {
     if (sp) _customArcDescription = sp;
     if (hm) _customHardMemory = hm;
   }
+
+  // Restore saved sessions from localStorage
+  restoreSessionsFromLocalStorage();
+  updateEmptyAppState();
 }
 
 // If no Turnstile gate (not configured), init immediately
