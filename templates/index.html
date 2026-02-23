@@ -591,13 +591,23 @@
                     <span>Model</span><span class="chevron">&#9654;</span>
                   </div>
                   <div class="opt-body">
-                    <select id="modelSelect"><option value="">Loading...</option></select>
-                    <div class="model-caps" id="modelCaps"></div>
-                    <div id="modelEta" style="display:none; margin-top:4px; font-size:11px; color:var(--dim);"></div>
-                    <div id="testResult" style="display:none; margin-top:4px; padding:4px 8px; border-radius:4px; font-size:11px;"></div>
-                    <div id="byokPrompt" style="display:none;margin-top:6px;">
-                      <input type="password" class="text-input" id="byokKeyInline" placeholder="Paste API key here..." style="margin-bottom:4px;">
-                      <div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only — never sent to our server.</div>
+                    <div style="margin-bottom:8px;">
+                      <div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Reasoning model</div>
+                      <select id="modelSelect"><option value="">Loading...</option></select>
+                      <div class="model-caps" id="modelCaps"></div>
+                      <div id="modelEta" style="display:none; margin-top:4px; font-size:11px; color:var(--dim);"></div>
+                      <div id="testResult" style="display:none; margin-top:4px; padding:4px 8px; border-radius:4px; font-size:11px;"></div>
+                      <div id="byokPrompt" style="display:none;margin-top:6px;">
+                        <input type="password" class="text-input" id="byokKeyInline" placeholder="Paste API key here..." style="margin-bottom:4px;">
+                        <div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only — never sent to our server.</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Compact model</div>
+                      <select id="compactModelSelectTop" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-family:inherit;font-size:12px;">
+                        <option value="auto">Auto (cheapest available)</option>
+                      </select>
+                      <div style="font-size:9px;color:var(--dim);margin-top:3px;">Used to summarize game history when context gets long.</div>
                     </div>
                   </div>
                 </div>
@@ -683,12 +693,6 @@
                     </div>
                     <div style="font-size:10px;color:var(--text-dim);margin-bottom:10px;">
                       Compacts history when prompt exceeds limit (% of context window, or token count). Optional: also after N calls.
-                    </div>
-                    <div class="opt-row">
-                      <span class="opt-label">Compact model</span>
-                      <select id="compactModelSelect" style="width:140px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 4px;font-family:inherit;font-size:11px;">
-                        <option value="auto">Auto (cheapest)</option>
-                      </select>
                     </div>
                     <div class="opt-row">
                       <span class="opt-label">Compact on new level</span>
@@ -1999,7 +2003,7 @@ Write ONLY the briefing text. Be specific and actionable — vague summaries are
   _syncCompactPromptToMemoryTab();
 
   // Determine compact model
-  const compactModelSel = document.getElementById('compactModelSelect').value;
+  const compactModelSel = document.getElementById('compactModelSelectTop').value;
   const agentModel = getSelectedModel();
   const compactModel = compactModelSel === 'same' ? agentModel : (compactModelSel !== 'auto' ? compactModelSel : null);
 
@@ -2839,7 +2843,7 @@ async function loadModels() {
   if (!sel.options.length) sel.innerHTML = '<option value="">No models</option>';
 
   // Populate compact model selector with same available models
-  const csel = document.getElementById('compactModelSelect');
+  const csel = document.getElementById('compactModelSelectTop');
   const autoOpt = csel.querySelector('option[value="auto"]');
   csel.innerHTML = '';
   csel.appendChild(autoOpt);
