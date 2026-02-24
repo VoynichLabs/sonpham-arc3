@@ -479,7 +479,7 @@ def _get_turso_db():
     if not libsql or not TURSO_DATABASE_URL or not TURSO_AUTH_TOKEN:
         return None
     try:
-        conn = libsql.connect("turso_replica.db",
+        conn = libsql.connect("db/turso_replica.db",
                               sync_url=TURSO_DATABASE_URL,
                               auth_token=TURSO_AUTH_TOKEN)
         conn.sync()

@@ -1963,11 +1963,14 @@ function lockHumanControls() {
 function lockSettings() {
   const body = document.getElementById('subtabSettings');
   if (body) { body.style.opacity = '0.5'; body.style.pointerEvents = 'none'; }
+  const sidebar = document.getElementById('gameSidebar');
+  if (sidebar) sidebar.classList.add('locked');
 }
 
 function unlockSettings() {
   const body = document.getElementById('subtabSettings');
   if (body) { body.style.opacity = ''; body.style.pointerEvents = ''; }
+  updateGameListLock();  // re-evaluate — may stay locked if session in progress
 }
 
 function logHumanAction(actionId, actionData, changeMap, turnId) {
@@ -2537,6 +2540,21 @@ async function askLLM() {
   document.getElementById('topSpinner').style.display = 'inline';
   if (_callSession) { _callSession.waitingForLLM = true; renderSessionTabs(); }
 
+  // Show waiting indicator in reasoning tab
+  const _waitEl = document.createElement('div');
+  _waitEl.className = 'reasoning-entry llm-waiting';
+  _waitEl.innerHTML = `<div class="step-label" style="color:var(--dim);"><span class="spinner" style="margin-right:6px;"></span>Waiting for model response... <span class="wait-timer">0s</span></div>`;
+  const _reasoningContent = document.getElementById('reasoningContent');
+  if (_reasoningContent.querySelector('.empty-state')) _reasoningContent.innerHTML = '';
+  _reasoningContent.insertBefore(_waitEl, _reasoningContent.firstChild);
+  switchTopTab('agent');
+  switchSubTab('reasoning');
+  const _waitStart = performance.now();
+  const _waitInterval = setInterval(() => {
+    const el = _waitEl.querySelector('.wait-timer');
+    if (el) el.textContent = ((performance.now() - _waitStart) / 1000).toFixed(1) + 's';
+  }, 100);
+
   try {
     let resp;
     const inputSettings = getInputSettings();
@@ -2752,6 +2770,8 @@ async function askLLM() {
     switchSubTab('reasoning');
     return resp;
   } finally {
+    clearInterval(_waitInterval);
+    _waitEl.remove();
     document.getElementById('llmSpinner').style.display = 'none';
     document.getElementById('topSpinner').style.display = 'none';
     if (_callSession) { _callSession.waitingForLLM = false; renderSessionTabs(); }

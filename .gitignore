@@ -19,6 +19,9 @@ Thumbs.db
 
 # Data (sessions DB)
 data/
+db/
+*.db
+*.db-*
 
 # Claude
 .claude/
