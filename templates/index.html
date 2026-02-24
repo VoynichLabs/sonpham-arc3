@@ -610,7 +610,7 @@
 
           <!-- Tab bar: Agent Setting | Graphics | Memory | Reasoning -->
           <div class="subtab-bar">
-            <button class="active" onclick="switchSubTab('settings')">Agent Setting</button>
+            <button class="active" onclick="switchSubTab('settings')">Agent Settings</button>
             <button onclick="switchSubTab('graphics')">Graphics</button>
             <button onclick="switchSubTab('memory')">Prompt</button>
             <button onclick="switchSubTab('reasoning')">
@@ -1395,6 +1395,9 @@ function updateByokPrompt() {
     keyInput.value = saved;
     keyInput.dataset.provider = info.provider;
     prompt.style.display = 'block';
+    // Auto-open Model Keys section
+    const sec = document.getElementById('secKeys');
+    if (sec && !sec.classList.contains('open')) sec.classList.add('open');
   } else {
     prompt.style.display = 'none';
   }
