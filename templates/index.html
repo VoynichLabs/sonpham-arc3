@@ -1353,7 +1353,7 @@ function _initPyodideGameWorker() {
           postProgress('Stage 3/3: Installing arcengine...', 60);
           await pyodide.loadPackage('micropip');
           const micropip = pyodide.pyimport('micropip');
-          await micropip.install('arcengine', {keep_going: true});
+          await micropip.install('arcengine', {deps: false});
           postProgress('Ready', 100);
           self.postMessage({type: 'ready', id: msg.id});
         } catch (err) {
