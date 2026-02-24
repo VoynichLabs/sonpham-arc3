@@ -696,6 +696,16 @@
                         LLM returns a multi-step plan instead of one action. Saves tokens.
                       </div>
                     </div>
+                    <div class="opt-row" style="margin-top:8px;">
+                      <span class="opt-label">Max tokens</span>
+                      <span class="spin-wrap">
+                        <input type="number" id="maxTokensLimit" value="16384" min="1024" max="65536" step="1024" style="width:68px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px 0 0 4px;padding:3px 6px;font-family:inherit;font-size:12px;">
+                        <span class="spin-btns">
+                          <button class="spin-btn" onclick="spinMaxTokens(1)">&#9650;</button>
+                          <button class="spin-btn" onclick="spinMaxTokens(-1)">&#9660;</button>
+                        </span>
+                      </span>
+                    </div>
 
                     <div class="sub-header" style="display:flex;align-items:center;justify-content:space-between;">
                       <span>Compacting Model</span>
@@ -2220,10 +2230,10 @@ async function checkInterrupt(expected, grid, changeMap) {
     // Strip markdown fences, JSON wrappers, whitespace
     const clean = text.replace(/```[\s\S]*?```/g, m => m.replace(/```\w*/g, '').trim())
       .replace(/[{}"]/g, '').trim().toUpperCase();
-    // Check for NO anywhere (but not in "NOT_FINISHED" etc.)
-    if (clean.startsWith('NO')) return true;
-    if (/\bNO\b/.test(clean) && !/\bYES\b/.test(clean)) return true;
-    if (/FALSE/.test(clean) && !/TRUE/.test(clean)) return true;
+    // Prompt asks "should we interrupt?" — YES means interrupt
+    if (clean.startsWith('YES')) return true;
+    if (/\bYES\b/.test(clean) && !/\bNO\b/.test(clean)) return true;
+    if (/TRUE/.test(clean) && !/FALSE/.test(clean)) return true;
     return false;
   }
 
@@ -2396,6 +2406,14 @@ function getToolsMode() {
 
 function getPlanningMode() {
   return document.querySelector('input[name="planMode"]:checked')?.value || 'off';
+}
+
+function getMaxTokens() {
+  return parseInt(document.getElementById('maxTokensLimit')?.value) || 16384;
+}
+function spinMaxTokens(dir) {
+  const el = document.getElementById('maxTokensLimit');
+  el.value = Math.max(1024, Math.min(65536, (parseInt(el.value) || 16384) + dir * 1024));
 }
 
 function shouldAskAdaptive() {
@@ -2582,6 +2600,7 @@ async function askLLM() {
           tools_mode: getToolsMode(),
           planning_mode: getPlanningMode(),
           interrupt_plan: document.getElementById('interruptPlan')?.checked || false,
+          max_tokens: getMaxTokens(),
         },
       };
       if (inputSettings.image) payload.image_b64 = getCanvasScreenshotB64();
@@ -2599,7 +2618,7 @@ async function askLLM() {
       let rawContent;
       try {
         if (isByokModel) {
-          rawContent = await askLLMBYOK(prompt, model);
+          rawContent = await askLLMBYOK(prompt, model, getMaxTokens());
         } else if (isPuterModel && FEATURES.puter_js) {
           rawContent = await askLLMPuter(prompt, model);
         } else {
@@ -2657,8 +2676,10 @@ async function askLLM() {
       entry.innerHTML = `<div class="step-label" style="color:var(--yellow);">Truncated — ${resp.model || model}${durationHtml}</div>
         ${tokensHtml}
         <div style="color:var(--yellow);font-size:11px;margin-top:4px;">Response hit the token limit and was cut off. The output was discarded.</div>
-        <div style="margin-top:6px;">
-          <button class="btn btn-primary" style="font-size:11px;padding:4px 12px;" onclick="this.disabled=true;stepOnce()">Retry</button>
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-primary" style="font-size:11px;padding:4px 12px;" onclick="this.closest('div').querySelectorAll('button').forEach(b=>b.disabled=true);stepOnce()">Retry</button>
+          <button class="btn" style="font-size:11px;padding:4px 12px;" onclick="truncAutoRetry(this,20)">Keep going (up to 20)</button>
+          <button class="btn" style="font-size:11px;padding:4px 12px;" onclick="truncIncreaseAndRetry(this)">Double limit &amp; retry</button>
         </div>`;
       // Pause autoplay so user can decide
       if (autoPlaying) {
@@ -2983,6 +3004,60 @@ async function stepOnce() {
   const entry = document.querySelector('#reasoningContent .reasoning-entry');
   const expected = resp.parsed.expected || null;
   return await executePlan(plan, resp, entry, expected);
+}
+
+async function truncAutoRetry(btn, maxRetries) {
+  // Disable all sibling buttons
+  btn.closest('div').querySelectorAll('button').forEach(b => b.disabled = true);
+  autoPlaying = true;
+  lockSettings();
+  updateAutoBtn();
+  const s = getActiveSession();
+  if (s) { s.autoPlaying = true; renderSessionTabs(); }
+
+  for (let i = 0; i < maxRetries; i++) {
+    if (!autoPlaying) break;
+    const resp = await askLLM();
+    if (!autoPlaying) break;
+    if (!resp) break;
+    if (resp.error) break;
+    if (resp.truncated) {
+      // Still truncated — continue loop
+      continue;
+    }
+    // Success — not truncated
+    if (resp.parsed) {
+      const p = resp.parsed;
+      const plan = (p.plan && Array.isArray(p.plan) && p.plan.length > 0)
+        ? p.plan
+        : (p.action !== undefined && p.action !== null)
+          ? [{ action: p.action, data: p.data || {} }]
+          : null;
+      if (plan) {
+        const entry = document.querySelector('#reasoningContent .reasoning-entry');
+        const expected = p.expected || null;
+        await executePlan(plan, resp, entry, expected);
+      }
+    }
+    autoPlaying = false;
+    updateAutoBtn();
+    unlockSettings();
+    if (s) { s.autoPlaying = false; renderSessionTabs(); }
+    return;
+  }
+  // Exhausted retries or stopped
+  autoPlaying = false;
+  updateAutoBtn();
+  unlockSettings();
+  if (s) { s.autoPlaying = false; renderSessionTabs(); }
+}
+
+function truncIncreaseAndRetry(btn) {
+  const el = document.getElementById('maxTokensLimit');
+  const cur = parseInt(el.value) || 16384;
+  el.value = Math.min(cur * 2, 65536);
+  btn.closest('div').querySelectorAll('button').forEach(b => b.disabled = true);
+  stepOnce();
 }
 
 async function toggleAutoPlay() {
@@ -3568,7 +3643,7 @@ function byokActive() {
   return !!(localStorage.getItem('byok_key'));
 }
 
-async function askLLMBYOK(prompt, model) {
+async function askLLMBYOK(prompt, model, maxTokens = 16384) {
   const info = getModelInfo(model);
   const provider = info?.provider || 'openai';
   const key = getByokKey(provider);
@@ -3582,7 +3657,7 @@ async function askLLMBYOK(prompt, model) {
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: 16384 } }),
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens } }),
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
@@ -3607,7 +3682,7 @@ async function askLLMBYOK(prompt, model) {
     body: JSON.stringify({
       model: info?.api_model || model,
       messages: [{ role: 'system', content: sysMsg }, { role: 'user', content: prompt }],
-      temperature: 0.3, max_tokens: 16384,
+      temperature: 0.3, max_tokens: maxTokens,
     }),
   });
   const data = await resp.json();
@@ -4783,13 +4858,7 @@ Key facts:
 - ACTION7 is a secondary interact (rotate, swap, etc.).
 - ACTION0 = RESET. Only use as a last resort.
 - Try all directional actions first to understand movement.`,
-  interrupt_prompt: `A game agent planned actions and expected: "{expected}"
-
-Current grid state:
-{grid}
-{changes}
-
-Did the plan go as expected? Reply with ONLY "YES" or "NO". One word only, nothing else.`,
+  interrupt_prompt: `Based on the current progress. Do you feel that we might need to interrupt the plan? Reply with ONLY "YES" or "NO". One word only, nothing else.`,
   compact_prompt: `You are helping an AI agent play a game. Distill the crucial knowledge the agent has learned so far into a compact briefing. This will REPLACE the full history in the agent's context, so include everything it needs to keep playing well.
 
 Write a concise briefing (max 400 words) covering:

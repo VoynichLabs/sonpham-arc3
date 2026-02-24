@@ -1483,7 +1483,8 @@ def _call_gemini(model_name: str, prompt: str, image_b64: str | None = None,
                   tools_enabled: bool = False, session_id: str | None = None,
                   grid=None, prev_grid=None,
                   cached_content_name: str | None = None,
-                  thinking_level: str = "low") -> dict | str:
+                  thinking_level: str = "low",
+                  max_tokens: int = 16384) -> dict | str:
     """Call Gemini API. When tools_enabled, runs a multi-turn function-calling loop.
 
     Returns dict {"text": str, "tool_calls": list, "usage": dict, "cache_active": bool}
@@ -1507,7 +1508,7 @@ def _call_gemini(model_name: str, prompt: str, image_b64: str | None = None,
     use_thinking = is_thinking_model and budget > 0
     config = genai.types.GenerateContentConfig(
         temperature=0.3,
-        max_output_tokens=16384,
+        max_output_tokens=max_tokens,
     )
     if is_thinking_model:
         config.thinking_config = genai.types.ThinkingConfig(
@@ -1608,7 +1609,7 @@ def _call_gemini(model_name: str, prompt: str, image_b64: str | None = None,
     return final_text
 
 
-def _call_anthropic(model_name: str, prompt: str, image_b64: str | None = None) -> str:
+def _call_anthropic(model_name: str, prompt: str, image_b64: str | None = None, max_tokens: int = 16384) -> str:
     import httpx
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     content_blocks: list[dict] = []
@@ -1629,7 +1630,7 @@ def _call_anthropic(model_name: str, prompt: str, image_b64: str | None = None) 
         json={
             "model": model_name, "system": SYSTEM_MSG,
             "messages": [{"role": "user", "content": content_blocks}],
-            "temperature": 0.3, "max_tokens": 16384,
+            "temperature": 0.3, "max_tokens": max_tokens,
         },
         timeout=90.0,
     )
@@ -1643,7 +1644,8 @@ def _call_anthropic(model_name: str, prompt: str, image_b64: str | None = None) 
 
 def _call_openai_compatible(url: str, api_key: str, model: str, prompt: str,
                              image_b64: str | None = None,
-                             extra_headers: dict | None = None) -> str:
+                             extra_headers: dict | None = None,
+                             max_tokens: int = 16384) -> str:
     import httpx
     if image_b64:
         user_content: list | str = [
@@ -1660,7 +1662,7 @@ def _call_openai_compatible(url: str, api_key: str, model: str, prompt: str,
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     if extra_headers:
         headers.update(extra_headers)
-    body = {"model": model, "messages": messages, "temperature": 0.3, "max_tokens": 16384}
+    body = {"model": model, "messages": messages, "temperature": 0.3, "max_tokens": max_tokens}
 
     # Retry with backoff on 429 (rate limit) — up to 3 attempts
     last_exc = None
@@ -1682,7 +1684,7 @@ def _call_openai_compatible(url: str, api_key: str, model: str, prompt: str,
     raise last_exc
 
 
-def _call_cloudflare(model_name: str, prompt: str, image_b64: str | None = None) -> str:
+def _call_cloudflare(model_name: str, prompt: str, image_b64: str | None = None, max_tokens: int = 16384) -> str:
     import httpx
     api_key = os.environ.get("CLOUDFLARE_API_KEY", "")
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
@@ -1708,7 +1710,7 @@ def _call_cloudflare(model_name: str, prompt: str, image_b64: str | None = None)
     resp = httpx.post(
         url,
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"messages": messages, "temperature": 0.3, "max_tokens": 16384},
+        json={"messages": messages, "temperature": 0.3, "max_tokens": max_tokens},
         timeout=90.0,
     )
     resp.raise_for_status()
@@ -1799,7 +1801,8 @@ def _route_model_call(model_key: str, prompt: str, image_b64: str | None = None,
                       tools_enabled: bool = False, session_id: str | None = None,
                       grid=None, prev_grid=None,
                       cached_content_name: str | None = None,
-                      thinking_level: str = "low") -> str | dict:
+                      thinking_level: str = "low",
+                      max_tokens: int = 16384) -> str | dict:
     """Route to the correct provider, passing image if available.
 
     Returns dict when Gemini tools are active, str otherwise.
@@ -1825,11 +1828,12 @@ def _route_model_call(model_key: str, prompt: str, image_b64: str | None = None,
                             session_id=session_id,
                             grid=grid, prev_grid=prev_grid,
                             cached_content_name=cached_content_name,
-                            thinking_level=thinking_level)
+                            thinking_level=thinking_level,
+                            max_tokens=max_tokens)
     if provider == "anthropic":
-        return _call_anthropic(api_model, prompt, img)
+        return _call_anthropic(api_model, prompt, img, max_tokens=max_tokens)
     if provider == "cloudflare":
-        return _call_cloudflare(api_model, prompt, img)
+        return _call_cloudflare(api_model, prompt, img, max_tokens=max_tokens)
     if provider == "copilot":
         return _call_copilot(api_model, prompt, img)
     if provider == "ollama":
@@ -1838,7 +1842,7 @@ def _route_model_call(model_key: str, prompt: str, image_b64: str | None = None,
     # OpenAI-compatible (Groq, Mistral, HuggingFace) — no image for these
     api_key = os.environ.get(info.get("env_key", ""), "")
     url = info.get("url", "")
-    return _call_openai_compatible(url, api_key, api_model, prompt, None)
+    return _call_openai_compatible(url, api_key, api_model, prompt, None, max_tokens=max_tokens)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2279,6 +2283,7 @@ def llm_ask():
     planning_mode = settings.get("planning_mode", "off")
     thinking_level = settings.get("thinking_level", "low")
     interrupt_plan = settings.get("interrupt_plan", False)
+    max_tokens = min(int(settings.get("max_tokens", 16384)), 65536)
     prompt = _build_prompt(payload, input_settings, tools_mode, planning_mode, interrupt_plan)
 
     # Get image if the input setting is on and data was provided
@@ -2318,6 +2323,7 @@ def llm_ask():
                 grid=grid, prev_grid=prev_grid,
                 cached_content_name=cached_content_name,
                 thinking_level=thinking_level,
+                max_tokens=max_tokens,
             )
 
             # Handle dict return (Gemini w/ tools, or truncated) vs str return (others)
