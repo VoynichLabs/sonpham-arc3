@@ -1352,7 +1352,7 @@ function _initPyodideGameWorker() {
           postProgress('Stage 3/4: Installing pydantic...', 60);
           await pyodide.loadPackage('micropip');
           const micropip = pyodide.pyimport('micropip');
-          await micropip.install('pydantic');
+          await micropip.install(['pydantic>=2.10.6', 'typing-extensions>=4.12.2']);
           postProgress('Stage 4/4: Installing arcengine...', 80);
           await micropip.install('arcengine');
           postProgress('Ready', 100);
