@@ -1350,12 +1350,10 @@ function _initPyodideGameWorker() {
           pyodide = await loadPyodide();
           postProgress('Stage 2/4: Loading NumPy...', 40);
           await pyodide.loadPackage('numpy');
-          postProgress('Stage 3/4: Installing pydantic...', 60);
+          postProgress('Stage 3/3: Installing arcengine...', 60);
           await pyodide.loadPackage('micropip');
           const micropip = pyodide.pyimport('micropip');
-          await micropip.install(['pydantic>=2.10.6', 'typing-extensions>=4.12.2']);
-          postProgress('Stage 4/4: Installing arcengine...', 80);
-          await micropip.install('arcengine');
+          await micropip.install('arcengine', {keep_going: true});
           postProgress('Ready', 100);
           self.postMessage({type: 'ready', id: msg.id});
         } catch (err) {
