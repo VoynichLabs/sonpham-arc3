@@ -2611,8 +2611,15 @@ async function askLLM() {
       }
       // Guard: session changed during client LLM call — discard response
       if (sessionId !== _callSessionId) { console.log('[askLLM] session changed during client LLM call, discarding'); return null; }
+      // Handle truncated BYOK responses (returned as {text, truncated})
+      let _clientTruncated = false;
+      if (rawContent && typeof rawContent === 'object' && rawContent.truncated) {
+        _clientTruncated = true;
+        rawContent = rawContent.text;
+      }
       if (rawContent) {
         resp = parseClientLLMResponse(rawContent, model);
+        if (_clientTruncated) resp.truncated = true;
         resp.tools_active = getToolsMode() === 'on';
         // Execute Python code blocks if tools are on (Pyodide online, server local)
         if (resp.tools_active && (FEATURES.server_llm || _pyodideReady) && rawContent) {
@@ -2643,7 +2650,26 @@ async function askLLM() {
     const entry = document.createElement('div');
     entry.className = 'reasoning-entry';
 
-    if (resp.error) {
+    if (resp.truncated) {
+      const tokensHtml = formatTokenInfo(resp);
+      const durationHtml = resp.call_duration_ms
+        ? `<span style="font-size:10px;color:var(--dim);margin-left:6px;">${(resp.call_duration_ms / 1000).toFixed(1)}s</span>` : '';
+      entry.innerHTML = `<div class="step-label" style="color:var(--yellow);">Truncated — ${resp.model || model}${durationHtml}</div>
+        ${tokensHtml}
+        <div style="color:var(--yellow);font-size:11px;margin-top:4px;">Response hit the token limit and was cut off. The output was discarded.</div>
+        <div style="margin-top:6px;">
+          <button class="btn btn-primary" style="font-size:11px;padding:4px 12px;" onclick="this.disabled=true;stepOnce()">Retry</button>
+        </div>`;
+      // Pause autoplay so user can decide
+      if (autoPlaying) {
+        autoPlaying = false;
+        updateAutoBtn();
+        unlockSettings();
+        const s = getActiveSession();
+        if (s) { s.autoPlaying = false; }
+        renderSessionTabs();
+      }
+    } else if (resp.error) {
       entry.innerHTML = `<div class="step-label">Error (${resp.model || model})</div>
         <div style="color:var(--red);">${resp.error}</div>`;
     } else if (resp.parsed) {
@@ -2943,7 +2969,7 @@ async function stepOnce() {
   if (_ab) _ab.classList.remove('btn-blink');
 
   const resp = await askLLM();
-  if (!resp || resp.error || !resp.parsed) return;
+  if (!resp || resp.error || resp.truncated || !resp.parsed) return;
   const p = resp.parsed;
 
   // Normalize: single action becomes a 1-step plan
@@ -3014,7 +3040,7 @@ async function toggleAutoPlay() {
       break;
     }
     if (activeSessionId !== mySessionId) { autoPlaying = false; break; }
-    if (!resp || resp.error || !resp.parsed) { autoPlaying = false; break; }
+    if (!resp || resp.error || resp.truncated || !resp.parsed) { autoPlaying = false; break; }
     const p = resp.parsed;
 
     // Normalize: single action becomes a 1-step plan
@@ -3560,7 +3586,10 @@ async function askLLMBYOK(prompt, model) {
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || JSON.stringify(data);
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || JSON.stringify(data);
+    const fr = data.candidates?.[0]?.finishReason;
+    if (fr === 'MAX_TOKENS') return { text, truncated: true };
+    return text;
   }
 
   // OpenAI-compatible API (OpenAI, Groq, Mistral)
@@ -3583,7 +3612,9 @@ async function askLLMBYOK(prompt, model) {
   });
   const data = await resp.json();
   if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-  return data.choices?.[0]?.message?.content || JSON.stringify(data);
+  const text = data.choices?.[0]?.message?.content || JSON.stringify(data);
+  if (data.choices?.[0]?.finish_reason === 'length') return { text, truncated: true };
+  return text;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

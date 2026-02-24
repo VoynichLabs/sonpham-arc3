@@ -1573,6 +1573,13 @@ def _call_gemini(model_name: str, prompt: str, image_b64: str | None = None,
         # No function call — extract final text and return
         final_text = response.text if response.text else ""
 
+        # Detect truncation (hit max_output_tokens)
+        truncated = False
+        if response.candidates:
+            fr = getattr(response.candidates[0], 'finish_reason', None)
+            if fr and str(fr).upper() in ("MAX_TOKENS", "2"):
+                truncated = True
+
         # Extract usage if available
         usage = {}
         if hasattr(response, 'usage_metadata') and response.usage_metadata:
@@ -1586,8 +1593,8 @@ def _call_gemini(model_name: str, prompt: str, image_b64: str | None = None,
         cache_active = cached_content_name is not None
         if tools_enabled:
             return {"text": final_text, "tool_calls": tool_calls_log, "usage": usage,
-                    "cache_active": cache_active}
-        return final_text
+                    "cache_active": cache_active, "truncated": truncated}
+        return {"text": final_text, "truncated": truncated} if truncated else final_text
 
     # Hit max rounds — return what we have
     final_text = ""
@@ -1627,7 +1634,11 @@ def _call_anthropic(model_name: str, prompt: str, image_b64: str | None = None) 
         timeout=90.0,
     )
     resp.raise_for_status()
-    return resp.json()["content"][0]["text"]
+    data = resp.json()
+    text = data["content"][0]["text"]
+    if data.get("stop_reason") == "max_tokens":
+        return {"text": text, "truncated": True}
+    return text
 
 
 def _call_openai_compatible(url: str, api_key: str, model: str, prompt: str,
@@ -1663,7 +1674,11 @@ def _call_openai_compatible(url: str, api_key: str, model: str, prompt: str,
                 f"429 Too Many Requests", request=resp.request, response=resp)
             continue
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"]
+        if data["choices"][0].get("finish_reason") == "length":
+            return {"text": text, "truncated": True}
+        return text
     raise last_exc
 
 
@@ -2305,9 +2320,11 @@ def llm_ask():
                 thinking_level=thinking_level,
             )
 
-            # Handle dict return (Gemini w/ tools) vs str return (others)
+            # Handle dict return (Gemini w/ tools, or truncated) vs str return (others)
+            truncated = False
             if isinstance(content, dict):
                 text = content.get("text", "")
+                truncated = content.get("truncated", False)
                 result = _parse_llm_response(text, model_key)
                 result["tool_calls"] = content.get("tool_calls", [])
                 result["cache_active"] = content.get("cache_active", False)
@@ -2315,6 +2332,8 @@ def llm_ask():
                     result["usage"] = content["usage"]
             else:
                 result = _parse_llm_response(content, model_key)
+            if truncated:
+                result["truncated"] = True
 
             # Retry if no parseable response (empty or unparseable)
             if not result.get("parsed") and attempt < max_retries - 1:
