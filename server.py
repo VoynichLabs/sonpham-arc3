@@ -2302,6 +2302,7 @@ def llm_ask():
 
     payload = request.get_json(force=True)
     settings = payload.get("settings", {})
+    scaffolding_type = settings.get("scaffolding", "linear")
     model_key = settings.get("model") or payload.get("model", "gemini-2.5-flash")
 
     input_settings = settings.get("input", {"diff": True, "full_grid": True})
@@ -2772,9 +2773,9 @@ def import_session():
     steps = payload.get("steps", [])
     if not sess or not sess.get("id") or not sess.get("game_id"):
         return _cors_resp({"error": "session.id and session.game_id required"}, 400)
-    # Reject short sessions — under 20 steps is noise
-    if len(steps) < 20:
-        return _cors_resp({"error": "Session too short (min 20 steps)", "skipped": True})
+    # Reject trivially short sessions
+    if len(steps) < 5:
+        return _cors_resp({"error": "Session too short (min 5 steps)", "skipped": True})
     try:
         prompts_json = json.dumps(sess.get("prompts")) if sess.get("prompts") else None
         timeline_json = json.dumps(sess.get("timeline")) if sess.get("timeline") else None
@@ -3189,7 +3190,7 @@ a{color:#58a6ff;text-decoration:none;}a:hover{text-decoration:underline;}</style
             max_depth -= 1
             parent_sess = None
             p_steps = []
-            # Try local SQLite
+            # Try local SQLite first
             conn = _get_db()
             p_row = conn.execute(
                 "SELECT parent_session_id, branch_at_step FROM sessions WHERE id = ?",
@@ -3200,10 +3201,31 @@ a{color:#58a6ff;text-decoration:none;}a:hover{text-decoration:underline;}</style
                 (trace_id, trace_step),
             ).fetchall()
             conn.close()
+            # Fall back to Turso if local has no steps
+            if not p_steps_rows and turso_conn:
+                try:
+                    tc = _get_turso_db()
+                    if tc:
+                        if not p_row:
+                            t_row = tc.execute(
+                                "SELECT parent_session_id, branch_at_step FROM sessions WHERE id = ?",
+                                (trace_id,),
+                            )
+                            p_row_t = _turso_dict_fetchone(t_row)
+                            if p_row_t:
+                                p_row = p_row_t
+                        t_steps = tc.execute(
+                            "SELECT * FROM session_steps WHERE session_id = ? AND step_num <= ? ORDER BY step_num",
+                            (trace_id, trace_step),
+                        )
+                        p_steps_rows = _turso_dict_fetchall(t_steps)
+                        tc.close()
+                except Exception:
+                    pass
             if p_row:
-                parent_sess = dict(p_row)
+                parent_sess = dict(p_row) if not isinstance(p_row, dict) else p_row
             for s in p_steps_rows:
-                st = _format_step_row(dict(s))
+                st = _format_step_row(dict(s) if not isinstance(s, dict) else s)
                 st["from_parent"] = True
                 p_steps.append(st)
             # Prepend parent steps (oldest ancestor first)

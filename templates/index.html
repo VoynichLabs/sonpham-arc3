@@ -669,197 +669,8 @@
 
           <!-- ── Settings subtab ── -->
           <div class="subtab-pane active" id="subtabSettings" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
-            <div class="settings-columns">
-
-                <!-- INPUT -->
-                <div class="opt-section open" id="secInput">
-                  <div class="opt-header" onclick="toggleSection('secInput')">
-                    <span>Input</span><span class="chevron">&#9654;</span>
-                  </div>
-                  <div class="opt-body settings-grid">
-                    <div class="opt-row">
-                      <span class="opt-label">Full grid (RLE)</span>
-                      <label class="toggle"><input type="checkbox" id="inputGrid" checked><span class="slider"></span></label>
-                    </div>
-                    <div class="opt-row" id="imageRow">
-                      <span class="opt-label">Image <span class="opt-badge badge-img" id="imgBadge">IMG</span></span>
-                      <label class="toggle"><input type="checkbox" id="inputImage"><span class="slider"></span></label>
-                    </div>
-                    <div class="opt-row">
-                      <span class="opt-label">Diff (change map)</span>
-                      <label class="toggle"><input type="checkbox" id="inputDiff" checked><span class="slider"></span></label>
-                    </div>
-                    <div class="opt-row">
-                      <span class="opt-label">Color histogram</span>
-                      <label class="toggle"><input type="checkbox" id="inputHistogram"><span class="slider"></span></label>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- REASONING -->
-                <div class="opt-section open" id="secReasoning">
-                  <div class="opt-header" onclick="toggleSection('secReasoning')">
-                    <span>Reasoning</span><span class="chevron">&#9654;</span>
-                  </div>
-                  <div class="opt-body">
-                    <div class="sub-header">Reasoning Model</div>
-                    <div style="margin-bottom:8px;">
-                      <select id="modelSelect"><option value="">Loading...</option></select>
-                      <div class="model-caps" id="modelCaps"></div>
-                      <div id="testResult" style="display:none; margin-top:4px; padding:4px 8px; border-radius:4px; font-size:11px;"></div>
-                    </div>
-                    <div class="settings-grid" style="margin-bottom:8px;">
-                      <div>
-                        <div class="opt-label" style="margin-bottom:4px;">Thinking</div>
-                        <div class="quadswitch" id="thinkingLevel">
-                          <label><input type="radio" name="thinkingLevel" value="off"><span>Off</span></label>
-                          <label><input type="radio" name="thinkingLevel" value="low" checked><span>Low</span></label>
-                          <label><input type="radio" name="thinkingLevel" value="med"><span>Med</span></label>
-                          <label><input type="radio" name="thinkingLevel" value="high"><span>High</span></label>
-                        </div>
-                        <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
-                          Thinking token budget
-                        </div>
-                      </div>
-                      <div>
-                        <div class="opt-label" style="margin-bottom:4px;">Tool calls</div>
-                        <div class="triswitch" id="toolsMode">
-                          <label><input type="radio" name="toolsMode" value="off"><span>Off</span></label>
-                          <label><input type="radio" name="toolsMode" value="on" checked><span>On</span></label>
-                        </div>
-                        <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
-                          On = Python sandbox{% if mode == 'online' %} (Pyodide){% endif %}
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <div class="opt-label" style="margin-bottom:4px;">Planning horizon</div>
-                      <div class="triswitch" id="planningMode">
-                        <label><input type="radio" name="planMode" value="off"><span>Off</span></label>
-                        <label><input type="radio" name="planMode" value="5"><span>5</span></label>
-                        <label><input type="radio" name="planMode" value="10" checked><span>10</span></label>
-                        <label><input type="radio" name="planMode" value="20"><span>20</span></label>
-                        <label><input type="radio" name="planMode" value="unlimited"><span>&infin;</span></label>
-                      </div>
-                      <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
-                        LLM returns a multi-step plan instead of one action. Saves tokens.
-                      </div>
-                    </div>
-                    <div class="opt-row" style="margin-top:8px;">
-                      <span class="opt-label">Max tokens</span>
-                      <span class="spin-wrap">
-                        <input type="number" id="maxTokensLimit" value="16384" min="1024" max="65536" step="1024" style="width:68px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px 0 0 4px;padding:3px 6px;font-family:inherit;font-size:12px;">
-                        <span class="spin-btns">
-                          <button class="spin-btn" onclick="spinMaxTokens(1)">&#9650;</button>
-                          <button class="spin-btn" onclick="spinMaxTokens(-1)">&#9660;</button>
-                        </span>
-                      </span>
-                    </div>
-
-                    <div class="sub-header" style="display:flex;align-items:center;justify-content:space-between;">
-                      <span>Compacting Model</span>
-                      <label class="toggle" style="margin:0;"><input type="checkbox" id="compactContext" checked onchange="toggleCompactSettings()"><span class="slider"></span></label>
-                    </div>
-                    <div id="compactSettingsBody">
-                      <div style="margin-bottom:8px;">
-                        <select id="compactModelSelectTop" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-family:inherit;font-size:12px;">
-                          <option value="auto">Auto (cheapest of same provider)</option>
-                          <option value="auto-fastest">Auto (fastest of same provider)</option>
-                          <option value="same">Same as reasoning</option>
-                        </select>
-                        <div style="font-size:9px;color:var(--dim);margin-top:3px;">Used to summarize game history when context gets long.</div>
-                      </div>
-                      <div class="settings-grid">
-                        <div class="opt-row">
-                          <span class="opt-label">After call #</span>
-                          <input type="number" id="compactAfter" placeholder="—" min="1" max="200" style="width:55px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">
-                        </div>
-                        <div class="opt-row">
-                          <span class="opt-label">Context limit</span>
-                          <span class="spin-wrap">
-                            <input type="number" id="compactContextPct" value="64000" min="1" step="1" style="width:68px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px 0 0 4px;padding:3px 6px;font-family:inherit;font-size:12px;">
-                            <span class="spin-btns">
-                              <button class="spin-btn" onclick="spinContextLimit(1)">&#9650;</button>
-                              <button class="spin-btn" onclick="spinContextLimit(-1)">&#9660;</button>
-                            </span>
-                          </span>
-                          <select id="contextLimitUnit" style="width:62px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 4px;font-family:inherit;font-size:11px;margin-left:4px;" onchange="onContextLimitUnitChange()">
-                            <option value="pct">%</option>
-                            <option value="tokens" selected>tok</option>
-                          </select>
-                        </div>
-                        <div class="opt-row">
-                          <span class="opt-label">Compact on new level</span>
-                          <label class="toggle"><input type="checkbox" id="compactOnLevel" checked><span class="slider"></span></label>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="sub-header" style="display:flex;align-items:center;justify-content:space-between;">
-                      <span>Interrupt Model</span>
-                      <label class="toggle" style="margin:0;"><input type="checkbox" id="interruptPlan" onchange="toggleInterruptSettings()"><span class="slider"></span></label>
-                    </div>
-                    <div id="interruptSettingsBody" style="opacity:0.4;pointer-events:none;">
-                      <div style="margin-bottom:8px;">
-                        <select id="interruptModelSelect" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-family:inherit;font-size:12px;">
-                          <option value="auto">Auto (cheapest of same provider)</option>
-                          <option value="auto-fastest">Auto (fastest of same provider)</option>
-                          <option value="same">Same as reasoning</option>
-                        </select>
-                        <div style="font-size:9px;color:var(--dim);margin-top:3px;">After each plan step, a cheap model checks if things went as expected. Interrupts if not.</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- MODEL KEYS -->
-                <div class="opt-section open" id="secKeys">
-                  <div class="opt-header" onclick="toggleSection('secKeys')">
-                    <span>Model Keys</span><span class="chevron">&#9654;</span>
-                  </div>
-                  <div class="opt-body">
-                    <div id="keysEmptyHint" style="padding:8px 0;font-size:11px;color:var(--text-dim);font-style:italic;">Required keys will appear when models are selected.</div>
-                    <div id="byokPrompt" style="display:none;margin-bottom:8px;">
-                      <div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Reasoning model key</div>
-                      <input type="password" class="text-input" id="byokKeyInline" placeholder="Paste API key here..." style="margin-bottom:4px;">
-                      <div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only — never sent to our server.</div>
-                    </div>
-                    <div id="compactByokPrompt" style="display:none;margin-bottom:8px;">
-                      <div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Compact model key</div>
-                      <input type="password" class="text-input" id="compactByokKeyInline" placeholder="Paste API key here..." style="margin-bottom:4px;">
-                      <div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only — never sent to our server.</div>
-                    </div>
-                    <div id="interruptByokPrompt" style="display:none;margin-bottom:8px;">
-                      <div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Interrupt model key</div>
-                      <input type="password" class="text-input" id="interruptByokKeyInline" placeholder="Paste API key here..." style="margin-bottom:4px;">
-                      <div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only — never sent to our server.</div>
-                    </div>
-                    {% if features.copilot %}
-                    <div id="copilotNotAuth">
-                      <div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">GitHub Copilot</div>
-                      <button class="btn btn-primary" onclick="copilotStartAuth()" style="width:100%;font-size:11px;">Connect GitHub Copilot</button>
-                      <div id="copilotDeviceCode" style="display:none;">
-                        <div class="copilot-code" id="copilotUserCode">————</div>
-                        <div style="text-align:center;">
-                          <a id="copilotVerifyLink" href="#" target="_blank" class="copilot-link">Open GitHub to enter code</a>
-                        </div>
-                        <div style="font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center;">Waiting for authorization...</div>
-                      </div>
-                    </div>
-                    <div id="copilotAuthed" style="display:none;">
-                      <div class="copilot-status">
-                        <span class="dot dot-green"></span>
-                        <span style="color:var(--green);font-weight:600;">Connected</span>
-                      </div>
-                      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;">
-                        Models: gpt-4.1, gpt-4o, gpt-5-mini<span class="tier-badge tier-free">FREE</span><br>
-                        claude-sonnet-4, gemini-2.5-pro<span class="tier-badge tier-premium">PREMIUM</span>
-                      </div>
-                    </div>
-                    {% endif %}
-                  </div>
-                </div>
-
+            <div class="settings-columns" id="settingsColumns">
+              <!-- Populated dynamically by renderScaffoldingSettings() -->
             </div>
 
             <!-- Transport bar moved to canvas panel -->
@@ -994,6 +805,679 @@ let humanLocked = true;  // human controls locked by default
 let turnCounter = 0;     // monotonic turn counter for undo grouping
 let apiMode = 'local';
 const clientId = 'client_' + Math.random().toString(36).slice(2, 10);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCAFFOLDING SCHEMAS
+// ═══════════════════════════════════════════════════════════════════════════
+
+let activeScaffoldingType = 'linear';
+
+const SCAFFOLDING_SCHEMAS = {
+  linear: {
+    id: 'linear',
+    name: 'Linear',
+    description: 'Reasoning model with optional compaction and interrupt checking.',
+    pipeline: [
+      { id: 'reasoning', label: 'Reasoning Model', color: 'var(--accent)', settingsRef: 'reasoning' },
+      { id: 'compact', label: 'Compact', color: 'var(--purple)', settingsRef: 'compact', optional: true, enabledBy: 'compact.enabled' },
+      { id: 'interrupt', label: 'Interrupt', color: 'var(--yellow)', settingsRef: 'interrupt', optional: true, enabledBy: 'interrupt.enabled' },
+    ],
+    edges: [
+      { from: 'reasoning', to: 'compact', label: 'after N calls' },
+      { from: 'compact', to: 'reasoning', label: 'resummarized' },
+      { from: 'reasoning', to: 'interrupt', label: 'each plan step' },
+      { from: 'interrupt', to: 'reasoning', label: 'if interrupted' },
+    ],
+    sections: [
+      {
+        id: 'secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
+        fields: [
+          { type: 'toggle', id: 'inputGrid', label: 'Full grid (RLE)', default: true },
+          { type: 'toggle', id: 'inputImage', label: 'Image', default: false, rowId: 'imageRow',
+            labelHtml: 'Image <span class="opt-badge badge-img" id="imgBadge">IMG</span>' },
+          { type: 'toggle', id: 'inputDiff', label: 'Diff (change map)', default: true },
+          { type: 'toggle', id: 'inputHistogram', label: 'Color histogram', default: false },
+        ]
+      },
+      {
+        id: 'secReasoning', label: 'Reasoning', open: true,
+        groups: [
+          {
+            subHeader: 'Reasoning Model',
+            fields: [
+              { type: 'model-select', id: 'modelSelect', capsId: 'modelCaps', testResultId: 'testResult' },
+              { type: 'grid-2col', marginBottom: '8px', children: [
+                { type: 'quadswitch', id: 'thinkingLevel', name: 'thinkingLevel', label: 'Thinking',
+                  options: [{v:'off',l:'Off'},{v:'low',l:'Low',checked:true},{v:'med',l:'Med'},{v:'high',l:'High'}],
+                  hint: 'Thinking token budget' },
+                { type: 'triswitch', id: 'toolsMode', name: 'toolsMode', label: 'Tool calls',
+                  options: [{v:'off',l:'Off'},{v:'on',l:'On',checked:true}],
+                  hint: 'On = Python sandbox' + (MODE === 'online' ? ' (Pyodide)' : '') },
+              ]},
+              { type: 'multiswitch', id: 'planningMode', name: 'planMode', label: 'Planning horizon',
+                options: [{v:'off',l:'Off'},{v:'5',l:'5'},{v:'10',l:'10',checked:true},{v:'20',l:'20'},{v:'unlimited',l:'\u221E'}],
+                hint: 'LLM returns a multi-step plan instead of one action. Saves tokens.' },
+              { type: 'number-spin', id: 'maxTokensLimit', label: 'Max tokens',
+                default: 16384, min: 1024, max: 65536, step: 1024, spinFn: 'spinMaxTokens' },
+            ]
+          },
+          {
+            subHeader: 'Compacting Model',
+            toggleId: 'compactContext', toggleDefault: true, toggleOnChange: 'toggleCompactSettings()',
+            bodyId: 'compactSettingsBody',
+            fields: [
+              { type: 'compact-model-select', id: 'compactModelSelectTop',
+                hint: 'Used to summarize game history when context gets long.' },
+              { type: 'grid-2col-body', children: [
+                { type: 'number-input', id: 'compactAfter', label: 'After call #',
+                  placeholder: '\u2014', min: 1, max: 200, width: '55px' },
+                { type: 'number-spin-unit', id: 'compactContextPct', unitId: 'contextLimitUnit',
+                  label: 'Context limit', default: 64000, min: 1, step: 1, width: '68px',
+                  spinFn: 'spinContextLimit', unitChangeFn: 'onContextLimitUnitChange()',
+                  units: [{v:'pct',l:'%'},{v:'tokens',l:'tok',selected:true}] },
+                { type: 'toggle', id: 'compactOnLevel', label: 'Compact on new level', default: true },
+              ]}
+            ]
+          },
+          {
+            subHeader: 'Interrupt Model',
+            toggleId: 'interruptPlan', toggleDefault: false, toggleOnChange: 'toggleInterruptSettings()',
+            bodyId: 'interruptSettingsBody', bodyDisabledDefault: true,
+            fields: [
+              { type: 'compact-model-select', id: 'interruptModelSelect',
+                hint: 'After each plan step, a cheap model checks if things went as expected. Interrupts if not.' },
+            ]
+          }
+        ]
+      },
+      {
+        id: 'secKeys', label: 'Model Keys', open: true,
+        customHtml: function() {
+          let h = '<div id="keysEmptyHint" style="padding:8px 0;font-size:11px;color:var(--text-dim);font-style:italic;">Required keys will appear when models are selected.</div>';
+          h += '<div id="byokPrompt" style="display:none;margin-bottom:8px;">';
+          h += '<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Reasoning model key</div>';
+          h += '<input type="password" class="text-input" id="byokKeyInline" placeholder="Paste API key here..." style="margin-bottom:4px;">';
+          h += '<div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only \u2014 never sent to our server.</div></div>';
+          h += '<div id="compactByokPrompt" style="display:none;margin-bottom:8px;">';
+          h += '<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Compact model key</div>';
+          h += '<input type="password" class="text-input" id="compactByokKeyInline" placeholder="Paste API key here..." style="margin-bottom:4px;">';
+          h += '<div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only \u2014 never sent to our server.</div></div>';
+          h += '<div id="interruptByokPrompt" style="display:none;margin-bottom:8px;">';
+          h += '<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Interrupt model key</div>';
+          h += '<input type="password" class="text-input" id="interruptByokKeyInline" placeholder="Paste API key here..." style="margin-bottom:4px;">';
+          h += '<div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only \u2014 never sent to our server.</div></div>';
+          if (FEATURES.copilot) {
+            h += '<div id="copilotNotAuth">';
+            h += '<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">GitHub Copilot</div>';
+            h += '<button class="btn btn-primary" onclick="copilotStartAuth()" style="width:100%;font-size:11px;">Connect GitHub Copilot</button>';
+            h += '<div id="copilotDeviceCode" style="display:none;">';
+            h += '<div class="copilot-code" id="copilotUserCode">\u2014\u2014\u2014\u2014</div>';
+            h += '<div style="text-align:center;"><a id="copilotVerifyLink" href="#" target="_blank" class="copilot-link">Open GitHub to enter code</a></div>';
+            h += '<div style="font-size:10px;color:var(--text-dim);margin-top:6px;text-align:center;">Waiting for authorization...</div>';
+            h += '</div></div>';
+            h += '<div id="copilotAuthed" style="display:none;">';
+            h += '<div class="copilot-status"><span class="dot dot-green"></span><span style="color:var(--green);font-weight:600;">Connected</span></div>';
+            h += '<div style="font-size:10px;color:var(--text-dim);margin-top:6px;">';
+            h += 'Models: gpt-4.1, gpt-4o, gpt-5-mini<span class="tier-badge tier-free">FREE</span><br>';
+            h += 'claude-sonnet-4, gemini-2.5-pro<span class="tier-badge tier-premium">PREMIUM</span></div></div>';
+          }
+          return h;
+        }
+      }
+    ]
+  },
+
+  rlm: {
+    id: 'rlm',
+    name: 'RLM (Recursive)',
+    description: 'Root LM spawns sub-calls via REPL with persistent memory.',
+    pipeline: [
+      { id: 'root_lm', label: 'Root LM', color: 'var(--accent)', settingsRef: 'root_model' },
+      { id: 'repl', label: 'REPL Environment', color: 'var(--green)', settingsRef: null },
+      { id: 'sub_lm', label: 'Recursive LM', color: 'var(--purple)', settingsRef: 'sub_model' },
+      { id: 'memory', label: 'Memory Store', color: 'var(--yellow)', settingsRef: null },
+    ],
+    edges: [
+      { from: 'root_lm', to: 'repl', label: 'code output' },
+      { from: 'repl', to: 'sub_lm', label: 'sub-call' },
+      { from: 'sub_lm', to: 'repl', label: 'result' },
+      { from: 'repl', to: 'memory', label: 'store/retrieve' },
+      { from: 'repl', to: 'root_lm', label: 'final answer' },
+    ],
+    sections: [
+      {
+        id: 'sf_rlm_secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
+        fields: [
+          { type: 'toggle', id: 'sf_rlm_inputGrid', label: 'Full grid (RLE)', default: true },
+          { type: 'toggle', id: 'sf_rlm_inputImage', label: 'Image', default: false },
+          { type: 'toggle', id: 'sf_rlm_inputDiff', label: 'Diff (change map)', default: true },
+          { type: 'toggle', id: 'sf_rlm_inputHistogram', label: 'Color histogram', default: false },
+        ]
+      },
+      {
+        id: 'sf_rlm_secRoot', label: 'Root Model', open: true,
+        groups: [{
+          subHeader: 'Root LM',
+          fields: [
+            { type: 'model-select', id: 'sf_rlm_modelSelect', capsId: 'sf_rlm_modelCaps' },
+            { type: 'grid-2col', marginBottom: '8px', children: [
+              { type: 'quadswitch', id: 'sf_rlm_thinking', name: 'sf_rlm_thinking', label: 'Thinking',
+                options: [{v:'off',l:'Off'},{v:'low',l:'Low',checked:true},{v:'med',l:'Med'},{v:'high',l:'High'}],
+                hint: 'Thinking token budget' },
+              { type: 'number-spin', id: 'sf_rlm_maxTokens', label: 'Max tokens',
+                default: 16384, min: 1024, max: 65536, step: 1024, spinFn: null, inline: true },
+            ]},
+          ]
+        }]
+      },
+      {
+        id: 'sf_rlm_secSub', label: 'Sub Model', open: true,
+        groups: [{
+          subHeader: 'Recursive LM',
+          fields: [
+            { type: 'model-select', id: 'sf_rlm_subModelSelect', capsId: 'sf_rlm_subModelCaps' },
+            { type: 'grid-2col', marginBottom: '8px', children: [
+              { type: 'quadswitch', id: 'sf_rlm_subThinking', name: 'sf_rlm_subThinking', label: 'Thinking',
+                options: [{v:'off',l:'Off'},{v:'low',l:'Low',checked:true},{v:'med',l:'Med'},{v:'high',l:'High'}],
+                hint: 'Thinking token budget' },
+              { type: 'number-spin', id: 'sf_rlm_subMaxTokens', label: 'Max tokens',
+                default: 16384, min: 1024, max: 65536, step: 1024, spinFn: null, inline: true },
+            ]},
+          ]
+        }]
+      },
+      {
+        id: 'sf_rlm_secRecursion', label: 'Recursion', open: true,
+        groups: [{
+          subHeader: 'Recursion Limits',
+          fields: [
+            { type: 'number-input', id: 'sf_rlm_maxDepth', label: 'Max depth', default: 3, min: 1, max: 10, width: '55px' },
+            { type: 'number-input', id: 'sf_rlm_maxIter', label: 'Max iterations', default: 10, min: 1, max: 100, width: '55px' },
+            { type: 'number-input', id: 'sf_rlm_outputTrunc', label: 'Output truncation (chars)', default: 5000, min: 100, max: 50000, width: '75px' },
+          ]
+        }]
+      },
+      {
+        id: 'sf_rlm_secKeys', label: 'Model Keys', open: true,
+        customHtml: function() {
+          return '<div style="padding:8px 0;font-size:11px;color:var(--text-dim);font-style:italic;">RLM keys: configure via Model Keys in Linear scaffolding.</div>';
+        }
+      }
+    ]
+  }
+};
+
+// ── Scaffolding Settings Renderer ─────────────────────────────────────────
+
+function renderScaffoldingSettings(schemaId) {
+  const schema = SCAFFOLDING_SCHEMAS[schemaId];
+  if (!schema) return;
+  activeScaffoldingType = schemaId;
+  const container = document.getElementById('settingsColumns');
+  if (!container) return;
+  let html = '';
+
+  // ── Scaffolding selector + pipeline visualizer ──
+  html += '<div style="padding:8px 14px 0;border-bottom:1px solid var(--border);">';
+  html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+  html += '<span style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;">Scaffolding</span>';
+  html += '<select id="scaffoldingSelect" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-family:inherit;font-size:12px;" onchange="switchScaffolding(this.value)">';
+  for (const key of Object.keys(SCAFFOLDING_SCHEMAS)) {
+    const s = SCAFFOLDING_SCHEMAS[key];
+    html += `<option value="${key}"${key === schemaId ? ' selected' : ''}>${s.name}</option>`;
+  }
+  html += '</select></div>';
+  html += `<div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;">${schema.description}</div>`;
+  html += '<div id="pipelineVisualizer"></div>';
+  html += '</div>';
+
+  for (const section of schema.sections) {
+    const openCls = section.open ? ' open' : '';
+    html += `<div class="opt-section${openCls}" id="${section.id}">`;
+    html += `<div class="opt-header" onclick="toggleSection('${section.id}')">`;
+    html += `<span>${section.label}</span><span class="chevron">&#9654;</span></div>`;
+
+    if (section.customHtml) {
+      html += `<div class="opt-body">${section.customHtml()}</div>`;
+    } else if (section.fields) {
+      // Simple section with flat fields
+      html += `<div class="opt-body${section.bodyClass ? ' ' + section.bodyClass : ''}">`;
+      for (const f of section.fields) {
+        html += renderField(f);
+      }
+      html += '</div>';
+    } else if (section.groups) {
+      // Section with sub-groups (like Reasoning)
+      html += '<div class="opt-body">';
+      for (const g of section.groups) {
+        html += renderGroup(g);
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+
+  // Re-attach event listeners for dynamically rendered settings elements
+  attachSettingsListeners();
+
+  // Render pipeline SVG
+  renderPipelineVisualizer(schema);
+}
+
+function switchScaffolding(schemaId) {
+  if (!SCAFFOLDING_SCHEMAS[schemaId]) return;
+  // Save current settings before switching
+  saveScaffoldingToStorage();
+  localStorage.setItem('arc_scaffolding_type', schemaId);
+  renderScaffoldingSettings(schemaId);
+  // Restore saved settings for the new scaffolding
+  loadScaffoldingFromStorage(schemaId);
+  // Reload models into new selects
+  if (typeof loadModels === 'function') loadModels();
+}
+
+function renderPipelineVisualizer(schema) {
+  const container = document.getElementById('pipelineVisualizer');
+  if (!container || !schema.pipeline?.length) { if (container) container.innerHTML = ''; return; }
+
+  const nodes = schema.pipeline;
+  const edges = schema.edges || [];
+
+  const nodeW = 140, nodeH = 30, gapY = 36, padX = 40, padTop = 12, padBot = 12;
+  const svgW = nodeW + padX * 2 + 60; // extra space for back-edge curves
+  const svgH = padTop + nodes.length * nodeH + (nodes.length - 1) * gapY + padBot;
+
+  // Node positions
+  const nodePos = {};
+  nodes.forEach((n, i) => {
+    nodePos[n.id] = { x: padX, y: padTop + i * (nodeH + gapY), w: nodeW, h: nodeH };
+  });
+
+  // Check enabled state for optional nodes
+  function isNodeEnabled(node) {
+    if (!node.enabledBy) return true;
+    const [group, field] = node.enabledBy.split('.');
+    if (field === 'enabled') {
+      // Check toggle element
+      const toggleMap = { compact: 'compactContext', interrupt: 'interruptPlan' };
+      const el = document.getElementById(toggleMap[group] || '');
+      return el ? el.checked : true;
+    }
+    return true;
+  }
+
+  let svg = `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto 8px;">`;
+  svg += '<defs>';
+  svg += '<marker id="arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 3.5 L0 7 z" fill="var(--text-dim)"/></marker>';
+  svg += '<marker id="arrowDash" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 3.5 L0 7 z" fill="var(--text-dim)" opacity="0.5"/></marker>';
+  svg += '</defs>';
+
+  // Classify edges: forward (from index < to index) vs back
+  const nodeIdx = {};
+  nodes.forEach((n, i) => nodeIdx[n.id] = i);
+
+  // Draw edges first (behind nodes)
+  for (const e of edges) {
+    const fromP = nodePos[e.from];
+    const toP = nodePos[e.to];
+    if (!fromP || !toP) continue;
+
+    const fromIdx = nodeIdx[e.from];
+    const toIdx = nodeIdx[e.to];
+    const isBack = toIdx <= fromIdx;
+
+    const fromEnabled = isNodeEnabled(nodes[fromIdx]);
+    const toEnabled = isNodeEnabled(nodes[toIdx]);
+    const edgeOpacity = (fromEnabled && toEnabled) ? 1 : 0.25;
+
+    if (isBack) {
+      // Back edge: curve to the right
+      const x1 = fromP.x + fromP.w;
+      const y1 = fromP.y + fromP.h / 2;
+      const x2 = toP.x + toP.w;
+      const y2 = toP.y + toP.h / 2;
+      const curveX = padX + nodeW + 35;
+      svg += `<path d="M${x1} ${y1} C${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}" fill="none" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrowDash)" opacity="${edgeOpacity * 0.5}"/>`;
+      // Label
+      const labelX = curveX + 2;
+      const labelY = (y1 + y2) / 2;
+      if (e.label) svg += `<text x="${labelX}" y="${labelY}" font-size="8" fill="var(--text-dim)" opacity="${edgeOpacity * 0.5}" dominant-baseline="middle">${e.label}</text>`;
+    } else {
+      // Forward edge: straight down
+      const x = fromP.x + fromP.w / 2;
+      const y1 = fromP.y + fromP.h;
+      const y2 = toP.y;
+      svg += `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="var(--text-dim)" stroke-width="1" marker-end="url(#arrow)" opacity="${edgeOpacity * 0.4}"/>`;
+      // Label
+      if (e.label) {
+        const labelY = (y1 + y2) / 2;
+        svg += `<text x="${x + 6}" y="${labelY}" font-size="8" fill="var(--text-dim)" opacity="${edgeOpacity * 0.4}" dominant-baseline="middle">${e.label}</text>`;
+      }
+    }
+  }
+
+  // Draw nodes
+  for (const node of nodes) {
+    const p = nodePos[node.id];
+    const enabled = isNodeEnabled(node);
+    const opacity = enabled ? 1 : 0.25;
+    svg += `<g data-node="${node.id}" opacity="${opacity}">`;
+    svg += `<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="6" fill="none" stroke="${node.color}" stroke-width="1.5"/>`;
+    svg += `<text x="${p.x + p.w/2}" y="${p.y + p.h/2 + 1}" font-size="10" fill="${node.color}" text-anchor="middle" dominant-baseline="middle" font-weight="600">${node.label}</text>`;
+    if (node.optional) {
+      svg += `<text x="${p.x + p.w - 4}" y="${p.y + 8}" font-size="7" fill="var(--text-dim)" text-anchor="end" opacity="0.6">opt</text>`;
+    }
+    svg += '</g>';
+  }
+
+  svg += '</svg>';
+  container.innerHTML = svg;
+}
+
+function updatePipelineOpacity() {
+  const schema = SCAFFOLDING_SCHEMAS[activeScaffoldingType];
+  if (!schema) return;
+  renderPipelineVisualizer(schema);
+}
+
+// ── Scaffolding Settings Persistence ──────────────────────────────────────
+
+function saveScaffoldingToStorage() {
+  try {
+    const settings = getScaffoldingSettings();
+    localStorage.setItem(`arc_scaffolding_${activeScaffoldingType}`, JSON.stringify(settings));
+  } catch {}
+}
+
+function loadScaffoldingFromStorage(schemaId) {
+  try {
+    const raw = localStorage.getItem(`arc_scaffolding_${schemaId}`);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (schemaId === 'linear') {
+      // Restore linear settings to DOM
+      _setChecked('inputGrid', s.input?.full_grid ?? true);
+      _setChecked('inputImage', s.input?.image ?? false);
+      _setChecked('inputDiff', s.input?.diff ?? true);
+      _setChecked('inputHistogram', s.input?.color_histogram ?? false);
+      _setRadio('thinkingLevel', s.thinking_level || 'low');
+      _setRadio('toolsMode', s.tools_mode || 'on');
+      _setRadio('planMode', s.planning_mode || '10');
+      _setVal('maxTokensLimit', s.max_tokens || 16384);
+      _setChecked('compactContext', s.compact?.enabled ?? true);
+      toggleCompactSettings();
+      if (s.compact?.after) _setVal('compactAfter', s.compact.after);
+      if (s.compact?.contextLimitVal) _setVal('compactContextPct', s.compact.contextLimitVal);
+      if (s.compact?.contextLimitUnit) _setSelectVal('contextLimitUnit', s.compact.contextLimitUnit);
+      _setChecked('compactOnLevel', s.compact?.compactOnLevel ?? true);
+      _setChecked('interruptPlan', s.interrupt_plan ?? false);
+      toggleInterruptSettings();
+    } else if (schemaId === 'rlm') {
+      _setChecked('sf_rlm_inputGrid', s.input?.full_grid ?? true);
+      _setChecked('sf_rlm_inputImage', s.input?.image ?? false);
+      _setChecked('sf_rlm_inputDiff', s.input?.diff ?? true);
+      _setChecked('sf_rlm_inputHistogram', s.input?.color_histogram ?? false);
+      _setRadio('sf_rlm_thinking', s.thinking_level || 'low');
+      _setVal('sf_rlm_maxTokens', s.max_tokens || 16384);
+      _setRadio('sf_rlm_subThinking', s.sub_thinking_level || 'low');
+      _setVal('sf_rlm_subMaxTokens', s.sub_max_tokens || 16384);
+      _setVal('sf_rlm_maxDepth', s.max_depth || 3);
+      _setVal('sf_rlm_maxIter', s.max_iterations || 10);
+      _setVal('sf_rlm_outputTrunc', s.output_truncation || 5000);
+    }
+    updatePipelineOpacity();
+  } catch {}
+}
+
+// DOM helpers for restoring settings
+function _setChecked(id, val) { const el = document.getElementById(id); if (el) el.checked = !!val; }
+function _setVal(id, val) { const el = document.getElementById(id); if (el) el.value = val; }
+function _setSelectVal(id, val) { const el = document.getElementById(id); if (el) el.value = val; }
+function _setRadio(name, val) {
+  const el = document.querySelector(`input[name="${name}"][value="${val}"]`);
+  if (el) el.checked = true;
+}
+
+function migrateOldSettingsToScaffolding() {
+  // If we already have saved scaffolding settings, skip migration
+  if (localStorage.getItem('arc_scaffolding_linear')) return;
+
+  // Nothing to migrate — old settings were not persisted to localStorage
+  // (they were ephemeral DOM state). Just save current defaults.
+  // Model selection is restored by loadModels() separately.
+}
+
+// Auto-save settings on any change within the settings panel
+document.addEventListener('change', (e) => {
+  if (e.target.closest('#settingsColumns')) {
+    saveScaffoldingToStorage();
+  }
+});
+document.addEventListener('input', (e) => {
+  if (e.target.closest('#settingsColumns') && e.target.type === 'number') {
+    saveScaffoldingToStorage();
+  }
+});
+
+function attachSettingsListeners() {
+  // compactContextPct ArrowUp/Down
+  const compactPctEl = document.getElementById('compactContextPct');
+  if (compactPctEl) {
+    compactPctEl.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') { e.preventDefault(); spinContextLimit(1); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); spinContextLimit(-1); }
+    });
+  }
+
+  // modelSelect change
+  const modelSel = document.getElementById('modelSelect');
+  if (modelSel) {
+    modelSel.addEventListener('change', function() {
+      updateModelCaps();
+      updateByokPrompt();
+      updateCompactByokPrompt();
+      updateInterruptByokPrompt();
+      const model = this.value;
+      const isPuter = modelsData.some(m => m.name === model && m.provider === 'puter');
+      if (isPuter) loadPuterJS();
+    });
+  }
+
+  // compactModelSelectTop change
+  const compactSel = document.getElementById('compactModelSelectTop');
+  if (compactSel) {
+    compactSel.addEventListener('change', function() {
+      updateCompactByokPrompt();
+    });
+  }
+
+  // interruptModelSelect change
+  const interruptSel = document.getElementById('interruptModelSelect');
+  if (interruptSel) {
+    interruptSel.addEventListener('change', function() {
+      updateInterruptByokPrompt();
+    });
+  }
+
+  // toolsMode radio — Pyodide download prompt
+  document.querySelectorAll('input[name="toolsMode"]').forEach(radio => {
+    radio.addEventListener('change', async (e) => {
+      if (e.target.value === 'off') return;
+      if (FEATURES.server_llm) return;
+      if (_pyodideReady) return;
+      const ok = confirm(
+        'Tool calls require Pyodide (Python in WebAssembly).\n\n' +
+        'This will download ~10 MB on first use (cached after).\n' +
+        'Load Pyodide now?'
+      );
+      if (!ok) {
+        document.querySelector('input[name="toolsMode"][value="off"]').checked = true;
+        return;
+      }
+      e.target.closest('.triswitch').style.opacity = '0.5';
+      try {
+        await ensurePyodide();
+      } catch (err) {
+        alert('Failed to load Pyodide: ' + err.message);
+        document.querySelector('input[name="toolsMode"][value="off"]').checked = true;
+      }
+      e.target.closest('.triswitch').style.opacity = '1';
+    });
+  });
+}
+
+function renderGroup(g) {
+  let h = '';
+  if (g.toggleId) {
+    // Sub-header with toggle
+    h += '<div class="sub-header" style="display:flex;align-items:center;justify-content:space-between;">';
+    h += `<span>${g.subHeader}</span>`;
+    h += `<label class="toggle" style="margin:0;"><input type="checkbox" id="${g.toggleId}"${g.toggleDefault ? ' checked' : ''} onchange="${g.toggleOnChange}"><span class="slider"></span></label>`;
+    h += '</div>';
+    const disStyle = g.bodyDisabledDefault ? ' style="opacity:0.4;pointer-events:none;"' : '';
+    h += `<div id="${g.bodyId}"${disStyle}>`;
+  } else {
+    h += `<div class="sub-header">${g.subHeader}</div>`;
+  }
+  for (const f of g.fields) {
+    h += renderField(f);
+  }
+  if (g.toggleId) h += '</div>';
+  return h;
+}
+
+function renderField(f) {
+  switch (f.type) {
+    case 'toggle': return renderToggle(f);
+    case 'model-select': return renderModelSelect(f);
+    case 'quadswitch': return renderSwitch(f, 'quadswitch');
+    case 'triswitch': return renderSwitch(f, 'triswitch');
+    case 'multiswitch': return renderSwitch(f, 'triswitch');
+    case 'number-spin': return renderNumberSpin(f);
+    case 'number-input': return renderNumberInput(f);
+    case 'number-spin-unit': return renderNumberSpinUnit(f);
+    case 'compact-model-select': return renderCompactModelSelect(f);
+    case 'grid-2col': return renderGrid2Col(f);
+    case 'grid-2col-body': return renderGrid2ColBody(f);
+    default: return '';
+  }
+}
+
+function renderToggle(f) {
+  const rowId = f.rowId ? ` id="${f.rowId}"` : '';
+  const label = f.labelHtml || f.label;
+  return `<div class="opt-row"${rowId}><span class="opt-label">${label}</span><label class="toggle"><input type="checkbox" id="${f.id}"${f.default ? ' checked' : ''}><span class="slider"></span></label></div>`;
+}
+
+function renderModelSelect(f) {
+  let h = '<div style="margin-bottom:8px;">';
+  h += `<select id="${f.id}"><option value="">Loading...</option></select>`;
+  if (f.capsId) h += `<div class="model-caps" id="${f.capsId}"></div>`;
+  if (f.testResultId) h += `<div id="${f.testResultId}" style="display:none; margin-top:4px; padding:4px 8px; border-radius:4px; font-size:11px;"></div>`;
+  h += '</div>';
+  return h;
+}
+
+function renderSwitch(f, cls) {
+  let h = '<div>';
+  h += `<div class="opt-label" style="margin-bottom:4px;">${f.label}</div>`;
+  h += `<div class="${cls}" id="${f.id}">`;
+  for (const o of f.options) {
+    h += `<label><input type="radio" name="${f.name}" value="${o.v}"${o.checked ? ' checked' : ''}><span>${o.l}</span></label>`;
+  }
+  h += '</div>';
+  if (f.hint) h += `<div style="font-size:10px;color:var(--text-dim);margin-top:4px;">${f.hint}</div>`;
+  h += '</div>';
+  return h;
+}
+
+function renderNumberSpin(f) {
+  if (f.inline) {
+    // Inline variant without opt-row wrapper (used inside grid-2col)
+    let h = '<div>';
+    h += `<div class="opt-label" style="margin-bottom:4px;">${f.label}</div>`;
+    h += '<span class="spin-wrap">';
+    h += `<input type="number" id="${f.id}" value="${f.default}" min="${f.min}" max="${f.max}" step="${f.step}" style="width:68px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px 0 0 4px;padding:3px 6px;font-family:inherit;font-size:12px;">`;
+    h += '<span class="spin-btns">';
+    if (f.spinFn) {
+      h += `<button class="spin-btn" onclick="${f.spinFn}(1)">&#9650;</button>`;
+      h += `<button class="spin-btn" onclick="${f.spinFn}(-1)">&#9660;</button>`;
+    } else {
+      h += `<button class="spin-btn" onclick="document.getElementById('${f.id}').value=Math.min(${f.max},(parseInt(document.getElementById('${f.id}').value)||${f.default})+${f.step})">&#9650;</button>`;
+      h += `<button class="spin-btn" onclick="document.getElementById('${f.id}').value=Math.max(${f.min},(parseInt(document.getElementById('${f.id}').value)||${f.default})-${f.step})">&#9660;</button>`;
+    }
+    h += '</span></span></div>';
+    return h;
+  }
+  let h = '<div class="opt-row" style="margin-top:8px;">';
+  h += `<span class="opt-label">${f.label}</span>`;
+  h += '<span class="spin-wrap">';
+  h += `<input type="number" id="${f.id}" value="${f.default}" min="${f.min}" max="${f.max}" step="${f.step}" style="width:68px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px 0 0 4px;padding:3px 6px;font-family:inherit;font-size:12px;">`;
+  h += '<span class="spin-btns">';
+  h += `<button class="spin-btn" onclick="${f.spinFn}(1)">&#9650;</button>`;
+  h += `<button class="spin-btn" onclick="${f.spinFn}(-1)">&#9660;</button>`;
+  h += '</span></span></div>';
+  return h;
+}
+
+function renderNumberInput(f) {
+  let h = `<div class="opt-row"><span class="opt-label">${f.label}</span>`;
+  h += `<input type="number" id="${f.id}"`;
+  if (f.default !== undefined) h += ` value="${f.default}"`;
+  if (f.placeholder) h += ` placeholder="${f.placeholder}"`;
+  h += ` min="${f.min}" max="${f.max}"`;
+  h += ` style="width:${f.width || '55px'};background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">`;
+  h += '</div>';
+  return h;
+}
+
+function renderNumberSpinUnit(f) {
+  let h = `<div class="opt-row"><span class="opt-label">${f.label}</span>`;
+  h += '<span class="spin-wrap">';
+  h += `<input type="number" id="${f.id}" value="${f.default}" min="${f.min}" step="${f.step}" style="width:${f.width || '68px'};background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px 0 0 4px;padding:3px 6px;font-family:inherit;font-size:12px;">`;
+  h += '<span class="spin-btns">';
+  h += `<button class="spin-btn" onclick="${f.spinFn}(1)">&#9650;</button>`;
+  h += `<button class="spin-btn" onclick="${f.spinFn}(-1)">&#9660;</button>`;
+  h += '</span></span>';
+  h += `<select id="${f.unitId}" style="width:62px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 4px;font-family:inherit;font-size:11px;margin-left:4px;" onchange="${f.unitChangeFn}">`;
+  for (const u of f.units) {
+    h += `<option value="${u.v}"${u.selected ? ' selected' : ''}>${u.l}</option>`;
+  }
+  h += '</select></div>';
+  return h;
+}
+
+function renderCompactModelSelect(f) {
+  let h = '<div style="margin-bottom:8px;">';
+  h += `<select id="${f.id}" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-family:inherit;font-size:12px;">`;
+  h += '<option value="auto">Auto (cheapest of same provider)</option>';
+  h += '<option value="auto-fastest">Auto (fastest of same provider)</option>';
+  h += '<option value="same">Same as reasoning</option>';
+  h += '</select>';
+  if (f.hint) h += `<div style="font-size:9px;color:var(--dim);margin-top:3px;">${f.hint}</div>`;
+  h += '</div>';
+  return h;
+}
+
+function renderGrid2Col(f) {
+  let h = `<div class="settings-grid"${f.marginBottom ? ` style="margin-bottom:${f.marginBottom};"` : ''}>`;
+  for (const child of f.children) {
+    h += renderField(child);
+  }
+  h += '</div>';
+  return h;
+}
+
+function renderGrid2ColBody(f) {
+  let h = '<div class="settings-grid">';
+  for (const child of f.children) {
+    h += renderField(child);
+  }
+  h += '</div>';
+  return h;
+}
 
 // Compact context: accumulate LLM observations across the session
 let llmObservations = []; // [{step, observation, reasoning, action, analysis}]
@@ -1355,34 +1839,7 @@ async function runPyodide(code, grid, prev_grid) {
 }
 
 // ── Tools mode confirmation (online = Pyodide, local = server sandbox) ───
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('input[name="toolsMode"]').forEach(radio => {
-    radio.addEventListener('change', async (e) => {
-      if (e.target.value === 'off') return;
-      // Local mode: server-side sandbox, no download needed
-      if (FEATURES.server_llm) return;
-      // Online mode: need Pyodide
-      if (_pyodideReady) return;
-      const ok = confirm(
-        'Tool calls require Pyodide (Python in WebAssembly).\n\n' +
-        'This will download ~10 MB on first use (cached after).\n' +
-        'Load Pyodide now?'
-      );
-      if (!ok) {
-        document.querySelector('input[name="toolsMode"][value="off"]').checked = true;
-        return;
-      }
-      e.target.closest('.triswitch').style.opacity = '0.5';
-      try {
-        await ensurePyodide();
-      } catch (err) {
-        alert('Failed to load Pyodide: ' + err.message);
-        document.querySelector('input[name="toolsMode"][value="off"]').checked = true;
-      }
-      e.target.closest('.triswitch').style.opacity = '1';
-    });
-  });
-});
+// Moved to attachSettingsListeners() — called after renderScaffoldingSettings()
 
 // Execute code via server-side sandbox (local mode)
 async function runServerSandbox(code, grid, prev_grid) {
@@ -1869,12 +2326,14 @@ function toggleCompactSettings() {
   const on = document.getElementById('compactContext')?.checked;
   const body = document.getElementById('compactSettingsBody');
   if (body) { body.style.opacity = on ? '1' : '0.4'; body.style.pointerEvents = on ? 'auto' : 'none'; }
+  updatePipelineOpacity();
 }
 
 function toggleInterruptSettings() {
   const on = document.getElementById('interruptPlan')?.checked;
   const body = document.getElementById('interruptSettingsBody');
   if (body) { body.style.opacity = on ? '1' : '0.4'; body.style.pointerEvents = on ? 'auto' : 'none'; }
+  updatePipelineOpacity();
 }
 
 function switchTopTab(tab) {
@@ -2020,20 +2479,7 @@ function updateModelCaps() {
   }
 }
 
-document.getElementById('modelSelect').addEventListener('change', function() {
-  updateModelCaps();
-  updateByokPrompt();
-  updateCompactByokPrompt(); // reasoning provider may have changed
-  updateInterruptByokPrompt();
-  // Lazy-load Puter.js when a Puter model is selected
-  const model = this.value;
-  const isPuter = modelsData.some(m => m.name === model && m.provider === 'puter');
-  if (isPuter) loadPuterJS();
-});
-
-document.getElementById('compactModelSelectTop').addEventListener('change', function() {
-  updateCompactByokPrompt();
-});
+// Moved to attachSettingsListeners() — called after renderScaffoldingSettings()
 
 function updateCompactByokPrompt() {
   const prompt = document.getElementById('compactByokPrompt');
@@ -2093,9 +2539,7 @@ document.addEventListener('input', (e) => {
   if (provider) localStorage.setItem(`byok_key_${provider}`, e.target.value.trim());
 });
 
-document.getElementById('interruptModelSelect').addEventListener('change', function() {
-  updateInterruptByokPrompt();
-});
+// Moved to attachSettingsListeners() — called after renderScaffoldingSettings()
 
 function updateInterruptByokPrompt() {
   const prompt = document.getElementById('interruptByokPrompt');
@@ -2699,7 +3143,8 @@ function getCompactSettings() {
   const after = afterVal ? parseInt(afterVal) : null;  // null = disabled
   const unit = document.getElementById('contextLimitUnit').value; // 'pct' or 'tokens'
   const rawVal = parseInt(document.getElementById('compactContextPct').value) || 64000;
-  return { enabled, after, contextLimitUnit: unit, contextLimitVal: rawVal };
+  const compactOnLevel = document.getElementById('compactOnLevel')?.checked ?? true;
+  return { enabled, after, contextLimitUnit: unit, contextLimitVal: rawVal, compactOnLevel };
 }
 
 function onContextLimitUnitChange() {
@@ -2724,11 +3169,7 @@ function spinContextLimit(dir) {
   }
 }
 
-// ArrowUp/Down: ×2/÷2 for tokens, ±5 for pct
-document.getElementById('compactContextPct').addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowUp') { e.preventDefault(); spinContextLimit(1); }
-  else if (e.key === 'ArrowDown') { e.preventDefault(); spinContextLimit(-1); }
-});
+// ArrowUp/Down listener moved to attachSettingsListeners()
 
 function getContextTokenLimit(compact, contextWindow) {
   if (compact.contextLimitUnit === 'tokens') return compact.contextLimitVal;
@@ -3083,11 +3524,45 @@ function getCanvasScreenshotB64() {
 
 function getInputSettings() {
   return {
-    diff: document.getElementById('inputDiff').checked,
-    full_grid: document.getElementById('inputGrid').checked,
-    image: document.getElementById('inputImage').checked,
-    color_histogram: document.getElementById('inputHistogram').checked,
+    diff: document.getElementById('inputDiff')?.checked ?? true,
+    full_grid: document.getElementById('inputGrid')?.checked ?? true,
+    image: document.getElementById('inputImage')?.checked ?? false,
+    color_histogram: document.getElementById('inputHistogram')?.checked ?? false,
   };
+}
+
+function getScaffoldingSettings() {
+  const type = activeScaffoldingType;
+  const s = { scaffolding: type };
+
+  if (type === 'linear') {
+    s.input = getInputSettings();
+    s.model = getSelectedModel();
+    s.thinking_level = getThinkingLevel();
+    s.tools_mode = getToolsMode();
+    s.planning_mode = getPlanningMode();
+    s.max_tokens = getMaxTokens();
+    s.interrupt_plan = document.getElementById('interruptPlan')?.checked || false;
+    s.compact = getCompactSettings();
+  } else if (type === 'rlm') {
+    s.input = {
+      diff: document.getElementById('sf_rlm_inputDiff')?.checked ?? true,
+      full_grid: document.getElementById('sf_rlm_inputGrid')?.checked ?? true,
+      image: document.getElementById('sf_rlm_inputImage')?.checked ?? false,
+      color_histogram: document.getElementById('sf_rlm_inputHistogram')?.checked ?? false,
+    };
+    s.model = document.getElementById('sf_rlm_modelSelect')?.value || '';
+    s.thinking_level = document.querySelector('input[name="sf_rlm_thinking"]:checked')?.value || 'low';
+    s.max_tokens = parseInt(document.getElementById('sf_rlm_maxTokens')?.value) || 16384;
+    s.sub_model = document.getElementById('sf_rlm_subModelSelect')?.value || '';
+    s.sub_thinking_level = document.querySelector('input[name="sf_rlm_subThinking"]:checked')?.value || 'low';
+    s.sub_max_tokens = parseInt(document.getElementById('sf_rlm_subMaxTokens')?.value) || 16384;
+    s.max_depth = parseInt(document.getElementById('sf_rlm_maxDepth')?.value) || 3;
+    s.max_iterations = parseInt(document.getElementById('sf_rlm_maxIter')?.value) || 10;
+    s.output_truncation = parseInt(document.getElementById('sf_rlm_outputTrunc')?.value) || 5000;
+  }
+
+  return s;
 }
 
 // Token estimation: ~4 chars per token (rough average)
@@ -3366,15 +3841,10 @@ async function askLLM(ss) {
         change_map: _cur.currentChangeMap,
         session_id: _cur.sessionId,
         compact_context: compactBlock,
-        settings: {
+        settings: Object.assign(getScaffoldingSettings(), {
           model: model,
           input: inputSettings,
-          thinking_level: getThinkingLevel(),
-          tools_mode: getToolsMode(),
-          planning_mode: getPlanningMode(),
-          interrupt_plan: document.getElementById('interruptPlan')?.checked || false,
-          max_tokens: getMaxTokens(),
-        },
+        }),
       };
       if (inputSettings.image) payload.image_b64 = getCanvasScreenshotB64();
       resp = await fetchJSON('/api/llm/ask', payload);
@@ -4984,11 +5454,15 @@ function recordStepForPersistence(actionId, actionData, grid, changeMap, llmResp
   }
 }
 
-const MIN_STEPS_FOR_UPLOAD = 20;
+const MIN_STEPS_FOR_UPLOAD = 5;
 
 async function autoUploadSession() {
   const payload = buildSessionPayload();
   if (!payload) return;
+  // Always save to localStorage as backup (even below server threshold)
+  if (payload.session && payload.steps?.length > 0) {
+    saveLocalSession(payload.session, payload.steps);
+  }
   if ((payload.steps || []).length < MIN_STEPS_FOR_UPLOAD) return;
   try {
     await fetch('/api/sessions/import', {
@@ -5378,8 +5852,44 @@ async function resumeSession(sid) {
   if (sessionId === sid && currentGrid && stepCount > 0) return;
 
   try {
-    const data = await fetchJSON('/api/sessions/resume', { session_id: sid });
-    if (data.error) { alert(data.error); return; }
+    let data = await fetchJSON('/api/sessions/resume', { session_id: sid });
+    if (data.error) {
+      // Server doesn't have this session — try localStorage fallback
+      const localData = getLocalSessionData(sid);
+      if (localData && localData.steps && localData.steps.length > 0) {
+        console.log(`[resumeSession] Server 404, restoring ${sid} from localStorage (${localData.steps.length} steps)`);
+        // Re-upload to server so future resumes work
+        const reimportPayload = { session: localData.session, steps: localData.steps };
+        fetch('/api/sessions/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(reimportPayload),
+        }).catch(() => {});
+        // Retry resume after re-import
+        await new Promise(r => setTimeout(r, 500));
+        data = await fetchJSON('/api/sessions/resume', { session_id: sid });
+        if (data.error) {
+          // Still failed — start fresh with the game from localStorage
+          console.warn(`[resumeSession] Re-import failed for ${sid}, starting fresh`);
+          const gameId = localData.session?.game_id;
+          if (gameId) {
+            // Remove the dead session and let the user start fresh
+            sessions.delete(sid);
+            saveSessionIndex();
+            renderSessionTabs();
+          }
+          return;
+        }
+      } else {
+        // No local data either — session is truly gone
+        console.warn(`[resumeSession] Session ${sid} not found in server or localStorage`);
+        sessions.delete(sid);
+        saveSessionIndex();
+        renderSessionTabs();
+        updateEmptyAppState();
+        return;
+      }
+    }
 
     // Set up client state for live play
     sessionId = sid;
@@ -6224,6 +6734,21 @@ function closeSession(id) {
   if (id === activeSessionId) saveSessionToState();
   uploadClosedSession(s);
 
+  // Persist session data to localStorage so it survives browser refresh,
+  // even if the server upload was skipped (below threshold).
+  const steps = s.sessionStepsBuffer || [];
+  if (steps.length > 0 && s.gameId) {
+    saveLocalSession({
+      id: s.sessionId || id,
+      game_id: s.currentState?.game_id || s.gameId,
+      model: s.model || '',
+      result: s.currentState?.state || s.status || 'NOT_FINISHED',
+      steps: s.stepCount || steps.length,
+      levels: s.currentState?.levels_completed || 0,
+      created_at: s.createdAt || (Date.now() / 1000),
+    }, steps);
+  }
+
   sessions.delete(id);
   // Switch to another session or show empty
   if (id === activeSessionId) {
@@ -6341,6 +6866,12 @@ function restoreSessionsFromLocalStorage() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function initApp() {
+  // Render scaffolding settings (must happen before loadModels populates selects)
+  migrateOldSettingsToScaffolding();
+  const savedScaffolding = localStorage.getItem('arc_scaffolding_type') || 'linear';
+  renderScaffoldingSettings(savedScaffolding);
+  loadScaffoldingFromStorage(savedScaffolding);
+
   loadGames();
   loadModels();
   if (FEATURES.copilot) checkCopilotStatus();
