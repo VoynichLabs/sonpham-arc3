@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>((t)=>{if(t)document.documentElement.setAttribute('data-theme',t)})(localStorage.getItem('arc-theme'))</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ARC-AGI-3 Player</title>
@@ -16,6 +17,13 @@
     --bg: #0d1117; --surface: #161b22; --surface2: #1c2129; --border: #30363d;
     --text: #e6edf3; --text-dim: #8b949e; --accent: #58a6ff;
     --green: #3fb950; --red: #f85149; --yellow: #d29922; --purple: #bc8cff;
+    --dim: #8b949e;
+  }
+  [data-theme="light"] {
+    --bg: #ffffff; --surface: #f6f8fa; --surface2: #eaeef2; --border: #d0d7de;
+    --text: #1f2328; --text-dim: #656d76; --accent: #0969da;
+    --green: #1a7f37; --red: #cf222e; --yellow: #9a6700; --purple: #8250df;
+    --dim: #656d76;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   input[type=number] { -moz-appearance: textfield; }
@@ -495,6 +503,8 @@
     <span class="app-title">ARC-AGI-3 Player</span>
     <span class="nav-link active" onclick="showAppView('play')">Play</span>
     <span class="nav-link" onclick="showAppView('browse')">Browse Sessions</span>
+    <span style="flex:1;"></span>
+    <button id="themeToggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-size:16px;padding:4px 8px;border-radius:6px;line-height:1;" title="Toggle light/dark mode"></button>
   </div>
   <!-- ── Session tab bar ─────────────────────────────────────────────── -->
   <div class="session-tab-bar" id="sessionTabBar">
@@ -6362,6 +6372,27 @@ if (window.location.hostname === 'staging.arc3.sonpham.net') {
     letterSpacing:'1px', opacity:'0.85', pointerEvents:'none'
   });
   document.body.appendChild(b);
+}
+
+/* ── Theme toggle ──────────────────────────────────────────────── */
+(function(){
+  const saved = localStorage.getItem('arc-theme');
+  if (saved) document.documentElement.setAttribute('data-theme', saved);
+  updateThemeBtn();
+})();
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const next = cur === 'light' ? 'dark' : 'light';
+  if (next === 'dark') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('arc-theme', next);
+  updateThemeBtn();
+}
+function updateThemeBtn() {
+  const btn = document.getElementById('themeToggle');
+  if (!btn) return;
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  btn.textContent = isLight ? '\u263C' : '\u263E';
 }
 </script>
 </body>
