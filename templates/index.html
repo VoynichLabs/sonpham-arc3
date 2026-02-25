@@ -1344,10 +1344,15 @@ function _initPyodideGameWorker() {
 
       if (msg.type === 'init') {
         try {
+          console.log('[PyodideWorker] Starting init...');
           postProgress('Loading Pyodide runtime...', 5);
           pyodide = await loadPyodide();
+          console.log('[PyodideWorker] Pyodide loaded, loading packages...');
           postProgress('Loading packages...', 30);
           await pyodide.loadPackage(['numpy', 'pydantic']);
+          console.log('[PyodideWorker] numpy+pydantic loaded, verifying...');
+          await pyodide.runPythonAsync('import pydantic; print("pydantic", pydantic.__version__)');
+          console.log('[PyodideWorker] pydantic verified, installing arcengine...');
           postProgress('Installing arcengine...', 60);
           // Bypass micropip entirely — it can't handle pydantic-core (C ext).
           // Fetch wheel from PyPI, extract to site-packages manually.
@@ -1358,18 +1363,27 @@ from pyodide.http import pyfetch
 resp = await pyfetch("https://pypi.org/pypi/arcengine/json")
 meta = json.loads(await resp.string())
 whl_url = next(u["url"] for u in meta["urls"] if u["filename"].endswith("py3-none-any.whl"))
+print(f"Downloading wheel: {whl_url}")
 
 whl_resp = await pyfetch(whl_url)
 whl_bytes = bytes(await whl_resp.bytes())
 
 sp = site.getsitepackages()[0]
+print(f"Extracting to: {sp}")
 with zipfile.ZipFile(io.BytesIO(whl_bytes)) as zf:
     zf.extractall(sp)
+    print(f"Extracted files: {zf.namelist()[:10]}...")
 importlib.invalidate_caches()
+
+# Verify arcengine imports
+from arcengine import ARCBaseGame
+print(f"arcengine loaded successfully: {ARCBaseGame}")
           \`);
+          console.log('[PyodideWorker] arcengine installed and verified!');
           postProgress('Ready', 100);
           self.postMessage({type: 'ready', id: msg.id});
         } catch (err) {
+          console.error('[PyodideWorker] Init failed:', err);
           self.postMessage({type: 'error', id: msg.id, error: err.message});
         }
         return;
@@ -1384,10 +1398,8 @@ importlib.invalidate_caches()
           // exec the game source in a namespace that has arcengine imports
           pyodide.runPython(\`
 import numpy as np
-from arcengine import (
-    ActionInput, ARCBaseGame, Camera, GameAction, GameState,
-    Level, RenderableUserDisplay, Frame, FrameDataRaw,
-)
+import arcengine
+from arcengine import *
 import copy
 \`);
           // Set source via globals to avoid escaping issues
@@ -1396,7 +1408,9 @@ import copy
           pyodide.runPython(\`
 exec(_source_code)
 _game_instance = eval(_class_name + "()")
-_frame_data = _game_instance.observation_space
+_undo_stack = []
+_reset_action = ActionInput(id=GameAction.RESET)
+_frame_data = _game_instance.perform_action(_reset_action, raw=True)
 \`);
 
           // Extract state
@@ -1423,8 +1437,8 @@ json.dumps({
       if (msg.type === 'step') {
         try {
           const {action, data, id} = msg;
-          // Save undo snapshot before stepping
-          pyodide.runPython('_undo_stack.append(copy.deepcopy(_game_instance))');
+          // Save undo snapshot before stepping (game instance + frame data)
+          pyodide.runPython('_undo_stack.append((copy.deepcopy(_game_instance), copy.deepcopy(_frame_data)))');
 
           // Perform the action
           pyodide.globals.set('_action_id', action);
@@ -1432,7 +1446,8 @@ json.dumps({
           pyodide.runPython(\`
 _action = GameAction.from_id(int(_action_id))
 _data = dict(_action_data) if _action_data is not None and _action_data != 'None' else None
-_frame_data = _game_instance.step(_action, data=_data)
+_action_input = ActionInput(id=_action, data=_data or {})
+_frame_data = _game_instance.perform_action(_action_input, raw=True)
 \`);
 
           const stateJson = pyodide.runPython(\`
@@ -1459,7 +1474,8 @@ json.dumps({
       if (msg.type === 'reset') {
         try {
           pyodide.runPython(\`
-_frame_data = _game_instance.reset()
+_reset_action = ActionInput(id=GameAction.RESET)
+_frame_data = _game_instance.perform_action(_reset_action, raw=True)
 _undo_stack = []
 \`);
           const stateJson = pyodide.runPython(\`
@@ -1491,11 +1507,10 @@ json.dumps({
 if len(_undo_stack) >= _undo_count:
     for _ in range(_undo_count - 1):
         _undo_stack.pop()
-    _game_instance = _undo_stack.pop()
+    _game_instance, _frame_data = _undo_stack.pop()
 elif _undo_stack:
-    _game_instance = _undo_stack[0]
+    _game_instance, _frame_data = _undo_stack[0]
     _undo_stack = []
-_frame_data = _game_instance.observation_space
 \`);
           const stateJson = pyodide.runPython(\`
 import json
@@ -3043,7 +3058,7 @@ async function askLLM() {
     const compactBlock = needsCompact ? await buildCompactContext() : '';
 
     // Guard: session changed during compact — discard
-    if (sessionId !== _callSessionId) { console.log('[askLLM] session changed during compact, discarding'); return null; }
+    if (!sessions.has(_callSessionId)) { console.log('[askLLM] session closed during compact, discarding'); return null; }
 
     // Only show reasoning entry when a NEW compact was generated (not cached)
     if (compactBlock && _compactSummaryAtCall !== prevCompactCall) {
@@ -3095,7 +3110,7 @@ async function askLLM() {
       if (inputSettings.image) payload.image_b64 = getCanvasScreenshotB64();
       resp = await fetchJSON('/api/llm/ask', payload);
       // Guard: session changed during LLM call — discard response
-      if (sessionId !== _callSessionId) { console.log('[askLLM] session changed during server LLM call, discarding'); return null; }
+      if (!sessions.has(_callSessionId)) { console.log('[askLLM] session closed during server LLM call, discarding'); return null; }
       // For non-Gemini server models: extract code blocks and run via server sandbox
       if (resp && !resp.error && resp.tools_active && !resp.tool_calls?.length && resp.raw) {
         const toolCalls = await executeToolBlocks(resp.raw, currentState.grid, previousGrid);
@@ -3118,7 +3133,7 @@ async function askLLM() {
         rawContent = null;
       }
       // Guard: session changed during client LLM call — discard response
-      if (sessionId !== _callSessionId) { console.log('[askLLM] session changed during client LLM call, discarding'); return null; }
+      if (!sessions.has(_callSessionId)) { console.log('[askLLM] session closed during client LLM call, discarding'); return null; }
       // Handle truncated BYOK responses (returned as {text, truncated})
       let _clientTruncated = false;
       if (rawContent && typeof rawContent === 'object' && rawContent.truncated) {
@@ -3437,7 +3452,7 @@ async function executeOneAction(resp) {
   if (resp?._clientSide) singleExtras.llm_response = resp;
   const data = await gameStep(_actionSessionId, p.action, p.data || {}, singleExtras);
   // Guard: session changed during step execution
-  if (sessionId !== _actionSessionId) { console.log('[executeOneAction] session changed, discarding'); return null; }
+  if (!sessions.has(_actionSessionId)) { console.log('[executeOneAction] session closed, discarding'); return null; }
   if (data.error) { undoStack.pop(); stepCount--; alert(data.error); return null; }
   moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId });
   recordStepForPersistence(p.action, p.data || {}, data.grid, data.change_map, resp);
@@ -5820,6 +5835,10 @@ function switchSession(targetId) {
   activeSessionId = targetId;
   restoreSessionFromState(target);
   renderSessionTabs();
+  // Update spinners to reflect the target session's LLM state
+  const isWaiting = target.waitingForLLM || false;
+  document.getElementById('llmSpinner').style.display = isWaiting ? 'inline' : 'none';
+  document.getElementById('topSpinner').style.display = isWaiting ? 'inline' : 'none';
 
   // If this is a restored stub (no grid data), resume from server
   if (!target.currentGrid && target.sessionId && !target.sessionId.startsWith('pending_')) {

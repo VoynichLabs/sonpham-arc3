@@ -43,7 +43,7 @@ app.logger.setLevel(logging.INFO)
 # ═══════════════════════════════════════════════════════════════════════════
 
 FEATURES = {
-    "copilot":       {"local": True,  "online": False},
+    "copilot":       {"local": False,  "online": False},
     "server_llm":    {"local": True,  "online": False},
     "puter_js":      {"local": True,  "online": True},
     "byok":          {"local": True,  "online": True},
