@@ -5253,8 +5253,24 @@ async function askLLMBYOK(prompt, model, maxTokens = 16384) {
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || JSON.stringify(data);
     const fr = data.candidates?.[0]?.finishReason;
+    // MALFORMED_FUNCTION_CALL: model emitted code instead of a proper function call.
+    // Retry without tools (plain text generation) since client-side has no sandbox.
+    if (fr === 'MALFORMED_FUNCTION_CALL') {
+      console.warn('BYOK Gemini: MALFORMED_FUNCTION_CALL, retrying without tools');
+      const retryResp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt + '\n\nIMPORTANT: Do NOT use code or function calls. Respond with plain JSON only.' }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+        }),
+      });
+      const retryData = await retryResp.json();
+      if (retryData.error) throw new Error(retryData.error.message || JSON.stringify(retryData.error));
+      return retryData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    }
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || JSON.stringify(data);
     if (fr === 'MAX_TOKENS') return { text, truncated: true };
     return text;
   }
