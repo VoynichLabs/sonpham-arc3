@@ -1915,6 +1915,59 @@ def _call_gemini(model_name: str, prompt: str, image_b64: str | None = None,
             model=model_name, contents=contents, config=config,
         )
 
+        # Check for MALFORMED_FUNCTION_CALL — model tried to call a tool
+        # but formatted it as a code block instead of a proper function call.
+        # Extract the code and execute it as if it were a run_python call.
+        if response.candidates:
+            fr = getattr(response.candidates[0], 'finish_reason', None)
+            fr_str = str(fr).upper() if fr else ""
+            if "MALFORMED" in fr_str and tools_enabled and session_id:
+                # Try to extract code from the malformed response
+                raw_text = ""
+                try:
+                    raw_text = response.text or ""
+                except Exception:
+                    # content may be empty; try finish_message
+                    fm = getattr(response.candidates[0], 'finish_message', None)
+                    if fm:
+                        raw_text = fm
+                # Extract code from ```python ... ``` blocks
+                import re as _re
+                code_match = _re.search(r'```python\s*\n(.*?)```', raw_text, _re.DOTALL)
+                if code_match:
+                    code = code_match.group(1).strip()
+                    app.logger.info(
+                        f"Recovered code from MALFORMED_FUNCTION_CALL (len={len(code)}), executing as run_python"
+                    )
+                    output = _execute_python(session_id, code, grid, prev_grid)
+                    tool_calls_log.append({
+                        "name": "run_python",
+                        "arguments": {"code": code},
+                        "output": output,
+                    })
+                    # Feed the result back to the model (without tools, to get a text answer)
+                    contents.append(genai.types.Content(
+                        role="model",
+                        parts=[genai.types.Part.from_function_call(
+                            name="run_python", args={"code": code}
+                        )],
+                    ))
+                    contents.append(genai.types.Content(
+                        role="user",
+                        parts=[genai.types.Part.from_function_response(
+                            name="run_python",
+                            response={"result": output},
+                        )],
+                    ))
+                    config.tools = None  # force text answer on next round
+                    continue  # next round
+                else:
+                    app.logger.warning(
+                        "MALFORMED_FUNCTION_CALL but couldn't extract code, retrying without tools"
+                    )
+                    config.tools = None
+                    continue  # retry this round without tools
+
         # Check for function calls in the response
         has_function_call = False
         if response.candidates and response.candidates[0].content:
@@ -2832,6 +2885,12 @@ def llm_ask():
                 app.logger.warning(
                     f"LLM call failed (attempt {attempt + 1}/{max_retries}): {e}, retrying..."
                 )
+                # Disable tools on exception retry — malformed function calls
+                # cause empty content which throws, and retrying with tools
+                # just hits the same error.
+                if real_tools:
+                    app.logger.info("Disabling tools for exception retry")
+                    real_tools = False
                 continue
             return jsonify({"error": str(e), "model": model_key}), 500
 
