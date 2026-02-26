@@ -3,7 +3,6 @@ from arcengine import ARCBaseGame, Camera, Level, RenderableUserDisplay
 
 # Logical grid: 32×32 cells, each rendered as 2×2 pixels → 64×64 output
 GL = 32
-MAX_LIVES = 5
 
 # ARC-AGI-3 colour indices
 # 0=black  1=dark-blue  2=green   3=dark-gray  4=yellow   5=gray
@@ -17,39 +16,24 @@ ROCK_C     = 5    # gray rocks
 SHIP_C     = 15   # white ship hull / sail
 DECK_C     = 3    # dark deck
 TREASURE_C = 11   # bright yellow chest
-ENEMY_C    = 6    # magenta enemy ship
+ENEMY_C    = 6    # magenta enemy ship  (distinct from British red)
 LIFE_C     = 12   # red HUD lives
 PROGRESS_C = 11   # yellow HUD progress
-USED_PORT_C = 5   # gray — docked / exhausted port
 
-# ── Faction identifiers & colours ────────────────────────────────────────
-F_BRITISH = "british"
-F_FRANCE  = "france"
-F_SPAIN   = "spain"
-F_DUTCH   = "dutch"
-F_PIRATE  = "pirate"
+# ── Faction port colours ──────────────────────────────────────────────────
+BRITISH_C = 12   # red
+FRANCE_C  = 8    # azure
+SPAIN_C   = 4    # yellow / gold  (interior island cells, not shore)
+DUTCH_C   = 7    # orange
+PIRATE_C  = 0    # black
 
-FACTION_COLOR = {
-    F_BRITISH: 12,   # red
-    F_FRANCE:  8,    # azure
-    F_SPAIN:   4,    # yellow / gold
-    F_DUTCH:   7,    # orange
-    F_PIRATE:  0,    # black
-}
-
-# Effect applied when docking at a port (effect_type, magnitude)
-#   "life"         → +N lives (capped at MAX_LIVES)
-#   "invincible"   → +N steps of invincibility
-#   "remove_enemy" → remove N nearest enemy ships
-PORT_EFFECT = {
-    F_BRITISH: ("life",          1),
-    F_FRANCE:  ("invincible",   15),
-    F_SPAIN:   ("remove_enemy",  1),
-    F_DUTCH:   ("life",          1),
-    F_PIRATE:  ("life",          2),
-}
-
-FACTIONS_ORDERED = [F_BRITISH, F_FRANCE, F_SPAIN, F_DUTCH, F_PIRATE]
+FACTIONS = [
+    ("British", BRITISH_C),
+    ("France",  FRANCE_C),
+    ("Spain",   SPAIN_C),
+    ("Dutch",   DUTCH_C),
+    ("Pirate",  PIRATE_C),
+]
 
 # Map cell types
 OCEAN = 0
@@ -61,9 +45,9 @@ _DIR = {1: (0, -1), 2: (1, 0), 3: (0, 1), 4: (-1, 0)}
 
 # Player ship pixel art (logical 2×3), -1 = transparent
 SHIP_PIX = [
-    [-1,     SHIP_C],
-    [SHIP_C, SHIP_C],
-    [DECK_C, DECK_C],
+    [-1,     SHIP_C],   # mast / sail
+    [SHIP_C, SHIP_C],   # upper hull
+    [DECK_C, DECK_C],   # keel
 ]
 SHIP_LW, SHIP_LH = 2, 3
 
@@ -93,49 +77,48 @@ def _shore_mask(m):
     return s
 
 
-def _port(lx, ly, faction):
-    return {"lx": lx, "ly": ly, "faction": faction,
-            "color": FACTION_COLOR[faction], "used": False}
-
-
 # ── Map 1: Caribbean Cove ─────────────────────────────────────────────────
+# Islands:  A=(10,8,4,3)  B=(22,21,3,4)
 _MAP1 = _make_map(
     islands=[(10, 8, 4, 3), (22, 21, 3, 4)],
     rocks=[(17, 14), (18, 14), (17, 15)],
 )
+# Ports on interior land cells (verified inside ellipse < 1.0)
 _PORTS1 = [
-    _port(10,  8, F_BRITISH),
-    _port( 8,  7, F_SPAIN),
-    _port(11,  9, F_PIRATE),
-    _port(22, 21, F_FRANCE),
-    _port(23, 20, F_DUTCH),
+    (10,  8, BRITISH_C),   # island A centre
+    ( 8,  7, SPAIN_C),     # island A upper-left
+    (11,  9, PIRATE_C),    # island A lower-right
+    (22, 21, FRANCE_C),    # island B centre
+    (23, 20, DUTCH_C),     # island B upper-right
 ]
 
 # ── Map 2: Skull Shoals ───────────────────────────────────────────────────
+# Islands:  A=(8,6,3,2)  B=(23,8,2,4)  C=(15,23,5,3)
 _MAP2 = _make_map(
     islands=[(8, 6, 3, 2), (23, 8, 2, 4), (15, 23, 5, 3)],
     rocks=[(12, 15), (13, 16), (21, 16), (26, 6)],
 )
 _PORTS2 = [
-    _port( 8,  6, F_BRITISH),
-    _port(23,  8, F_FRANCE),
-    _port(15, 23, F_SPAIN),
-    _port(14, 22, F_DUTCH),
-    _port(16, 24, F_PIRATE),
+    ( 8,  6, BRITISH_C),   # island A centre
+    (23,  8, FRANCE_C),    # island B centre
+    (15, 23, SPAIN_C),     # island C centre
+    (14, 22, DUTCH_C),     # island C upper-left
+    (16, 24, PIRATE_C),    # island C lower-right
 ]
 
 # ── Map 3: Dragon's Lair ──────────────────────────────────────────────────
+# Islands: (6,5,2,2) (18,4,3,2) (27,11,2,3) (9,21,2,3) (23,25,3,2) (15,16,2,2)
 _MAP3 = _make_map(
     islands=[(6, 5, 2, 2), (18, 4, 3, 2), (27, 11, 2, 3),
              (9, 21, 2, 3), (23, 25, 3, 2), (15, 16, 2, 2)],
     rocks=[(14, 10), (15, 10), (10, 15), (24, 18), (20, 20)],
 )
 _PORTS3 = [
-    _port( 6,  5, F_BRITISH),
-    _port(18,  4, F_FRANCE),
-    _port(27, 11, F_SPAIN),
-    _port( 9, 21, F_DUTCH),
-    _port(23, 25, F_PIRATE),
+    ( 6,  5, BRITISH_C),   # NW island
+    (18,  4, FRANCE_C),    # N island
+    (27, 11, SPAIN_C),     # NE island
+    ( 9, 21, DUTCH_C),     # W island
+    (23, 25, PIRATE_C),    # SE island
 ]
 
 _SHORE1, _SHORE2, _SHORE3 = _shore_mask(_MAP1), _shore_mask(_MAP2), _shore_mask(_MAP3)
@@ -143,7 +126,9 @@ _SHORE1, _SHORE2, _SHORE3 = _shore_mask(_MAP1), _shore_mask(_MAP2), _shore_mask(
 _LEVELS = [
     {
         "name":      "Caribbean Cove",
-        "map":       _MAP1, "shore": _SHORE1, "ports": _PORTS1,
+        "map":       _MAP1,
+        "shore":     _SHORE1,
+        "ports":     _PORTS1,
         "ship":      (2, 16),
         "treasures": [(28, 4), (28, 27), (4, 27)],
         "enemies":   [{"pos": [16, 5],  "dir": [1, 0]}],
@@ -151,7 +136,9 @@ _LEVELS = [
     },
     {
         "name":      "Skull Shoals",
-        "map":       _MAP2, "shore": _SHORE2, "ports": _PORTS2,
+        "map":       _MAP2,
+        "shore":     _SHORE2,
+        "ports":     _PORTS2,
         "ship":      (2, 16),
         "treasures": [(28, 4), (28, 28), (4, 28), (28, 16), (16, 28)],
         "enemies":   [{"pos": [16, 10], "dir": [0, 1]},
@@ -160,7 +147,9 @@ _LEVELS = [
     },
     {
         "name":      "Dragon's Lair",
-        "map":       _MAP3, "shore": _SHORE3, "ports": _PORTS3,
+        "map":       _MAP3,
+        "shore":     _SHORE3,
+        "ports":     _PORTS3,
         "ship":      (2, 16),
         "treasures": [(29, 3), (29, 29), (3, 29), (29, 16),
                       (16, 29), (16, 2),  (3,  3)],
@@ -221,20 +210,14 @@ class PiDisplay(RenderableUserDisplay):
                 elif cell == ROCK:
                     _fill(frame, lx, ly, ROCK_C)
 
-        # ── Faction ports ─────────────────────────────────────────────────────
-        for port in g.ports:
-            lx, ly = port["lx"], port["ly"]
-            if port["used"]:
-                # Gray rubble — port exhausted
-                _fill(frame, lx, ly, USED_PORT_C)
-            else:
-                # Active port: faction colour + small flag spike above
-                color = port["color"]
-                _fill(frame, lx, ly, color)
-                flag_py = ly * 2 - 1
-                flag_px = lx * 2 + 1
-                if 0 <= flag_py < 64:
-                    frame[flag_py, flag_px] = color
+        # ── Faction ports (drawn over terrain, on island interiors) ───────────
+        for lx, ly, color in g.ports:
+            _fill(frame, lx, ly, color)
+            # Small flag pixel one row above the port (if in bounds)
+            flag_py = ly * 2 - 1
+            flag_px = lx * 2 + 1
+            if 0 <= flag_py < 64 and 0 <= flag_px < 64:
+                frame[flag_py, flag_px] = color
 
         # ── Treasures ────────────────────────────────────────────────────────
         for tx, ty in g.treasures:
@@ -242,7 +225,8 @@ class PiDisplay(RenderableUserDisplay):
 
         # ── Enemy ships ──────────────────────────────────────────────────────
         for e in g.enemies:
-            _fill(frame, int(e["pos"][0]), int(e["pos"][1]), ENEMY_C)
+            ex, ey = int(e["pos"][0]), int(e["pos"][1])
+            _fill(frame, ex, ey, ENEMY_C)
 
         # ── Player ship (blinks when invincible) ─────────────────────────────
         if not (g.invincible > 0 and g.invincible % 4 < 2):
@@ -252,12 +236,9 @@ class PiDisplay(RenderableUserDisplay):
         for i in range(g.lives):
             frame[1:3, 1 + i * 5:1 + i * 5 + 3] = LIFE_C
 
-        # ── HUD: faction legend + used indicator (bottom two rows) ────────────
-        # Active port: faction colour.  Used port: gray.
-        for i, fname in enumerate(FACTIONS_ORDERED):
-            port_used = any(p["faction"] == fname and p["used"] for p in g.ports)
-            color = USED_PORT_C if port_used else FACTION_COLOR[fname]
-            frame[62:64, 2 + i * 7:2 + i * 7 + 5] = color
+        # ── HUD: faction legend (bottom row, 5 coloured dots) ────────────────
+        for i, (_, fc) in enumerate(FACTIONS):
+            frame[62:64, 2 + i * 7:2 + i * 7 + 5] = fc
 
         # ── HUD: treasure progress (top strip) ───────────────────────────────
         total = len(_LEVELS[g.level_index]["treasures"])
@@ -286,6 +267,7 @@ class Pi01(ARCBaseGame):
         self.enemies     = []
         self.lives       = 3
         self.invincible  = 0
+        self._step_count = 0
 
         super().__init__(
             "pi01",
@@ -296,13 +278,11 @@ class Pi01(ARCBaseGame):
             [1, 2, 3, 4],
         )
 
-    # ── Level setup ──────────────────────────────────────────────────────────
-
     def on_set_level(self, level: Level) -> None:
         d = _LEVELS[self.level_index]
         self.game_map    = d["map"]
         self.shore_mask  = d["shore"]
-        self.ports       = [dict(p) for p in d["ports"]]   # fresh copy, used=False
+        self.ports       = list(d["ports"])
         self.ship_start  = d["ship"]
         self.sx, self.sy = d["ship"]
         self.treasures   = list(d["treasures"])
@@ -310,8 +290,7 @@ class Pi01(ARCBaseGame):
                             for e in d["enemies"]]
         self.lives       = d["lives"]
         self.invincible  = 0
-
-    # ── Helpers ──────────────────────────────────────────────────────────────
+        self._step_count = 0
 
     def _blocked(self, lx: int, ly: int) -> bool:
         for row in range(SHIP_LH):
@@ -322,39 +301,6 @@ class Pi01(ARCBaseGame):
                 if self.game_map[cy, cx] != OCEAN:
                     return True
         return False
-
-    def _ship_adjacent_to(self, px: int, py: int) -> bool:
-        """True if any cell in the ship's footprint is orthogonally adjacent to (px, py)."""
-        for row in range(SHIP_LH):
-            for col in range(SHIP_LW):
-                cx, cy = self.sx + col, self.sy + row
-                if abs(cx - px) + abs(cy - py) == 1:
-                    return True
-        return False
-
-    def _apply_port_effect(self, faction: str) -> None:
-        effect, magnitude = PORT_EFFECT[faction]
-        if effect == "life":
-            self.lives = min(MAX_LIVES, self.lives + magnitude)
-        elif effect == "invincible":
-            self.invincible = max(self.invincible, magnitude)
-        elif effect == "remove_enemy":
-            for _ in range(magnitude):
-                if not self.enemies:
-                    break
-                # Remove the enemy nearest to the ship
-                nearest = min(
-                    self.enemies,
-                    key=lambda e: abs(e["pos"][0] - self.sx) + abs(e["pos"][1] - self.sy),
-                )
-                self.enemies.remove(nearest)
-
-    def _check_ports(self) -> None:
-        """Dock at any adjacent unused port and apply its effect."""
-        for port in self.ports:
-            if not port["used"] and self._ship_adjacent_to(port["lx"], port["ly"]):
-                port["used"] = True
-                self._apply_port_effect(port["faction"])
 
     def _move_enemies(self) -> None:
         m = self.game_map
@@ -381,8 +327,6 @@ class Pi01(ARCBaseGame):
                 return True
         return False
 
-    # ── Step ─────────────────────────────────────────────────────────────────
-
     def step(self) -> None:
         aid = self.action.id.value
         dx, dy = _DIR.get(aid, (0, 0))
@@ -398,10 +342,8 @@ class Pi01(ARCBaseGame):
                     self.sy <= ty < self.sy + SHIP_LH)
         ]
 
-        # Dock at adjacent ports
-        self._check_ports()
-
         self._move_enemies()
+        self._step_count += 1
 
         if self.invincible == 0 and self._enemy_collision():
             self.lives -= 1
