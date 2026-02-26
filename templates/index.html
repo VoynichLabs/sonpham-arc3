@@ -4176,6 +4176,58 @@ async function askLLM(ss) {
         resp = parseClientLLMResponse(rawContent, model);
         if (_clientTruncated) resp.truncated = true;
         resp.tools_active = getToolsMode() === 'on';
+
+        // ── Parse-retry loop: if no valid JSON action found, retry with nudge ──
+        const MAX_PARSE_RETRIES = 2;
+        if (!resp.parsed && !resp.truncated && rawContent) {
+          const actions = (_cur.currentState.available_actions || []).map(a => `${a}=${ACTION_NAMES[a] || 'ACTION'+a}`).join(', ');
+          const nudge = `Your previous response could not be parsed as a valid action. You MUST respond with ONLY a JSON object. Available actions: ${actions}\nExample: {"observation":"...","reasoning":"...","action":1}\nDo NOT output code, commentary, or markdown. JSON ONLY.`;
+          for (let _retry = 0; _retry < MAX_PARSE_RETRIES; _retry++) {
+            console.warn(`[askLLM] Parse retry ${_retry + 1}/${MAX_PARSE_RETRIES} — no valid action in response`);
+            // Update wait element to show retry
+            if (isActive()) {
+              const previewEl = _waitEl.querySelector('.stream-preview');
+              if (previewEl) {
+                previewEl.style.display = 'block';
+                previewEl.textContent = `Parse failed — retrying (${_retry + 1}/${MAX_PARSE_RETRIES})...`;
+              }
+            }
+            let retryRaw;
+            try {
+              if (isByokModel) {
+                retryRaw = await askLLMBYOK(prompt + '\n\n' + nudge, model, getMaxTokens());
+              } else if (isPuterModel && FEATURES.puter_js) {
+                retryRaw = await askLLMPuter(prompt + '\n\n' + nudge, model);
+              }
+            } catch (e) { console.warn('[askLLM] Parse retry error:', e.message); continue; }
+            if (!sessions.has(_callSessionId)) return null;
+            if (retryRaw && typeof retryRaw === 'object' && retryRaw.truncated) retryRaw = retryRaw.text;
+            if (retryRaw) {
+              const retryResp = parseClientLLMResponse(retryRaw, model);
+              if (retryResp.parsed) {
+                resp = retryResp;
+                resp.tools_active = getToolsMode() === 'on';
+                resp.retries = _retry + 1;
+                rawContent = retryRaw;
+                console.log(`[askLLM] Parse retry ${_retry + 1} succeeded`);
+                break;
+              }
+            }
+          }
+          // All retries failed — fall back to random valid action
+          if (!resp.parsed) {
+            const avail = _cur.currentState.available_actions || [];
+            // Prefer movement actions (1-4) over reset (0) and special actions
+            const preferred = avail.filter(a => a >= 1 && a <= 4);
+            const pool = preferred.length ? preferred : avail.filter(a => a !== 0);
+            const fallbackAction = pool.length ? pool[Math.floor(Math.random() * pool.length)] : (avail[0] ?? 1);
+            console.warn(`[askLLM] All parse retries exhausted — falling back to random action ${fallbackAction} (${ACTION_NAMES[fallbackAction]})`);
+            resp.parsed = { action: fallbackAction, observation: 'Parse failed', reasoning: 'Random fallback after failed parse retries' };
+            resp.retries = MAX_PARSE_RETRIES;
+            resp._fallbackAction = true;
+          }
+        }
+
         // Execute Python code blocks if tools are on (Pyodide online, server local)
         if (resp.tools_active && (FEATURES.server_llm || _pyodideReady) && rawContent) {
           const toolCalls = await executeToolBlocks(rawContent, _cur.currentState.grid, _ss ? _ss.previousGrid : previousGrid);
@@ -4319,6 +4371,8 @@ async function askLLM(ss) {
       const cacheBadge = resp.cache_active ? '<span class="tools-badge" style="background:#e3b34133;color:var(--yellow);">CACHED</span>' : '';
       const compactBadge = compactBlock ? '<span class="tools-badge" style="background:#bc8cff33;color:var(--purple);">COMPACT</span>' : '';
       const planBadge = p.plan ? '<span class="tools-badge" style="background:#58a6ff33;color:var(--accent);">PLAN</span>' : '';
+      const retryBadge = resp.retries ? `<span class="tools-badge" style="background:#e3b34133;color:var(--yellow);">${resp.retries} RETRY</span>` : '';
+      const fallbackBadge = resp._fallbackAction ? '<span class="tools-badge" style="background:#f8514933;color:var(--red);">FALLBACK</span>' : '';
       const analysisHtml = p.analysis
         ? `<details class="analysis-wrap"><summary>Analysis</summary><div class="analysis-content">${p.analysis}</div></details>` : '';
       const ci = _cur.currentChangeMap?.change_count > 0
@@ -4345,7 +4399,7 @@ async function askLLM(ss) {
       entry.dataset.branchStep = _cur.stepCount + steps.length;
       entry.innerHTML = `
         <button class="branch-btn" onclick="branchFromStep(${_cur.stepCount + steps.length})" title="Branch from here">&#8627; branch</button>
-        <div class="step-label">${stepLabel} — ${resp.model}${durationHtml}${thinkBadge}${toolsBadge}${cacheBadge}${compactBadge}${planBadge}</div>
+        <div class="step-label">${stepLabel} — ${resp.model}${durationHtml}${thinkBadge}${toolsBadge}${cacheBadge}${compactBadge}${planBadge}${retryBadge}${fallbackBadge}</div>
         ${tokensHtml}${ci}
         <div class="observation"><strong>Obs:</strong> ${p.observation || '—'}</div>
         <div style="margin-top:4px;"><strong>Reasoning:</strong> ${p.reasoning || '—'}</div>
