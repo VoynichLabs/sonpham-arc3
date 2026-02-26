@@ -3972,7 +3972,7 @@ async function askLLM(ss) {
   // Show waiting indicator in reasoning tab (only if active)
   const _waitEl = document.createElement('div');
   _waitEl.className = 'reasoning-entry llm-waiting';
-  _waitEl.innerHTML = `<div class="step-label" style="color:var(--dim);"><span class="spinner" style="margin-right:6px;"></span>Waiting for model response... <span class="wait-timer">0s</span></div>`;
+  _waitEl.innerHTML = `<div class="step-label" style="color:var(--dim);"><span class="spinner" style="margin-right:6px;"></span>Waiting for model response... <span class="wait-timer">0s</span></div><div class="stream-preview" style="font-size:12px;color:var(--fg);opacity:0.7;max-height:200px;overflow-y:auto;white-space:pre-wrap;margin-top:4px;padding:4px 8px;border-left:2px solid var(--accent);display:none;"></div>`;
   if (isActive()) {
     const _reasoningContent = document.getElementById('reasoningContent');
     if (_reasoningContent.querySelector('.empty-state')) _reasoningContent.innerHTML = '';
@@ -4079,7 +4079,74 @@ async function askLLM(ss) {
       window._lastLLMPrevGrid = _ss ? _ss.previousGrid : previousGrid;
       let rawContent;
       try {
-        if (isByokModel) {
+        if (isByokModel && modelInfo?.provider === 'gemini') {
+          // Streaming path for Gemini BYOK
+          const streamResult = await askLLMBYOKStreaming(prompt, model, getMaxTokens(), (textSoFar) => {
+            if (isActive()) {
+              const previewEl = _waitEl.querySelector('.stream-preview');
+              if (previewEl) {
+                previewEl.style.display = 'block';
+                previewEl.textContent = textSoFar.length > 500 ? textSoFar.slice(-500) : textSoFar;
+                previewEl.scrollTop = previewEl.scrollHeight;
+              }
+              // Update wait label to show streaming
+              const label = _waitEl.querySelector('.step-label');
+              if (label && !label.dataset.streaming) {
+                label.dataset.streaming = '1';
+                const spinnerEl = label.querySelector('.spinner');
+                const timerEl = label.querySelector('.wait-timer');
+                label.innerHTML = '';
+                if (spinnerEl) label.appendChild(spinnerEl);
+                label.appendChild(timerEl);
+              }
+            }
+          });
+          rawContent = streamResult.text;
+          if (streamResult.truncated) rawContent = { text: rawContent, truncated: true };
+          if (streamResult.malformed) {
+            // MALFORMED_FUNCTION_CALL recovery — same logic as non-streaming askLLMBYOK
+            const finishMsg = streamResult.finishMessage || '';
+            const codeMatch = finishMsg.match(/```python\s*\n([\s\S]*?)```/);
+            const geminiKey = getByokKey('gemini');
+            const geminiApiModel = modelInfo?.api_model || model;
+            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiApiModel}:generateContent?key=${geminiKey}`;
+            if (codeMatch && _pyodideReady) {
+              console.warn('BYOK Gemini streaming: MALFORMED_FUNCTION_CALL — extracting code, running via Pyodide');
+              const code = codeMatch[1].trim();
+              const grid = window._lastLLMGrid || [[]];
+              const prevGrid = window._lastLLMPrevGrid || null;
+              const output = await runPyodide(code, grid, prevGrid);
+              const retryResp = await fetch(geminiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [
+                    { parts: [{ text: prompt }] },
+                    { role: 'model', parts: [{ text: '```python\n' + code + '\n```' }] },
+                    { parts: [{ text: '[Code output]:\n' + output + '\n\nBased on this analysis, provide your answer as JSON only. No code.' }] },
+                  ],
+                  generationConfig: { temperature: 0.3, maxOutputTokens: getMaxTokens() },
+                }),
+              });
+              const retryData = await retryResp.json();
+              if (retryData.error) throw new Error(retryData.error.message || JSON.stringify(retryData.error));
+              rawContent = retryData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            } else {
+              console.warn('BYOK Gemini streaming: MALFORMED_FUNCTION_CALL, retrying without tools');
+              const retryResp = await fetch(geminiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt + '\n\nIMPORTANT: Do NOT use code or function calls. Respond with plain JSON only.' }] }],
+                  generationConfig: { temperature: 0.3, maxOutputTokens: getMaxTokens() },
+                }),
+              });
+              const retryData = await retryResp.json();
+              if (retryData.error) throw new Error(retryData.error.message || JSON.stringify(retryData.error));
+              rawContent = retryData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            }
+          }
+        } else if (isByokModel) {
           rawContent = await askLLMBYOK(prompt, model, getMaxTokens());
         } else if (isPuterModel && FEATURES.puter_js) {
           rawContent = await askLLMPuter(prompt, model);
@@ -5236,6 +5303,69 @@ function byokActive() {
   }
   // Legacy check
   return !!(localStorage.getItem('byok_key'));
+}
+
+async function askLLMBYOKStreaming(prompt, model, maxTokens, onChunk) {
+  // Streaming version for Gemini BYOK — uses SSE endpoint
+  const info = getModelInfo(model);
+  const key = getByokKey('gemini');
+  if (!key) throw new Error('No API key for Gemini. Select the model and paste your key.');
+  const apiModel = info?.api_model || model;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:streamGenerateContent?key=${key}&alt=sse`;
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+    }),
+  });
+  if (!resp.ok) {
+    const errData = await resp.json().catch(() => ({}));
+    throw new Error(errData.error?.message || `Gemini API error ${resp.status}`);
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let accumulated = '';
+  let buffer = '';
+  let lastFinishReason = null;
+  let finishMessage = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // keep incomplete last line
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const json = line.slice(6).trim();
+      if (!json || json === '[DONE]') continue;
+      try {
+        const chunk = JSON.parse(json);
+        const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        accumulated += text;
+        if (onChunk) onChunk(accumulated);
+
+        const fr = chunk.candidates?.[0]?.finishReason;
+        if (fr && fr !== 'STOP') {
+          lastFinishReason = fr;
+          finishMessage = chunk.candidates?.[0]?.finishMessage || '';
+        }
+      } catch (e) { /* skip malformed SSE chunk */ }
+    }
+  }
+
+  const result = { text: accumulated };
+  if (lastFinishReason === 'MALFORMED_FUNCTION_CALL') {
+    result.malformed = true;
+    result.finishMessage = finishMessage;
+  }
+  if (lastFinishReason === 'MAX_TOKENS') result.truncated = true;
+  return result;
 }
 
 async function askLLMBYOK(prompt, model, maxTokens = 16384) {
