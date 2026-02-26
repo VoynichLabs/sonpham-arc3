@@ -100,8 +100,10 @@ MODELS = {
     },
     # Gemini (google-genai SDK)
     "gemini-2.0-flash":      {"provider": "gemini", "api_model": "gemini-2.0-flash",      "env_key": "GEMINI_API_KEY"},
+    "gemini-2.5-flash-lite": {"provider": "gemini", "api_model": "gemini-2.5-flash-lite",  "env_key": "GEMINI_API_KEY"},
     "gemini-2.5-flash":      {"provider": "gemini", "api_model": "gemini-2.5-flash",       "env_key": "GEMINI_API_KEY"},
     "gemini-2.5-pro":        {"provider": "gemini", "api_model": "gemini-2.5-pro",         "env_key": "GEMINI_API_KEY"},
+    "gemini-3.1-pro":        {"provider": "gemini", "api_model": "gemini-3.1-pro-preview",  "env_key": "GEMINI_API_KEY"},
     # Anthropic (direct API via httpx)
     "claude-haiku-4-5":      {"provider": "anthropic", "api_model": "claude-haiku-4-5-20251001", "env_key": "ANTHROPIC_API_KEY"},
     "claude-sonnet-4-5":     {"provider": "anthropic", "api_model": "claude-sonnet-4-5",         "env_key": "ANTHROPIC_API_KEY"},

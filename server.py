@@ -275,6 +275,7 @@ _throttle_lock = threading.Lock()
 from db import (
     DB_PATH, _init_db, _get_db, _compress_grid, _decompress_grid,
     _db_insert_session, _db_insert_step, _db_update_session,
+    _log_llm_call, _get_session_calls,
 )
 
 def _reconstruct_session(game_id: str, actions: list[dict], capture_per_step: bool = False):
@@ -1011,6 +1012,8 @@ def _create_rlm_repl(session_id: str, context: dict, model_key: str,
         'final_answer': None,
         'sub_call_count': 0,
         'max_sub_calls': 50,  # safety limit
+        'session_id': session_id,
+        'parent_call_id': None,  # set by _handle_rlm_scaffolding per iteration
     }
 
     # ── llm_query: single LLM call (no REPL, no recursion) ──
@@ -1020,14 +1023,22 @@ def _create_rlm_repl(session_id: str, context: dict, model_key: str,
         repl_state['sub_call_count'] += 1
         _model = sub_model_key or model_key
         try:
+            t0 = time.time()
             result = _route_model_call(
                 _model, prompt, None,
                 thinking_level=sub_thinking_level,
                 max_tokens=sub_max_tokens,
             )
-            if isinstance(result, dict):
-                return result.get("text", "")
-            return str(result)
+            dur = int((time.time() - t0) * 1000)
+            text = result.get("text", "") if isinstance(result, dict) else str(result)
+            _log_llm_call(
+                repl_state['session_id'], "rlm_sub", _model,
+                parent_call_id=repl_state.get('parent_call_id'),
+                prompt_preview=prompt[:500], prompt_length=len(prompt),
+                response_preview=text[:1000] if text else None,
+                duration_ms=dur,
+            )
+            return text
         except Exception as e:
             return f"[LLM ERROR] {e}"
 
@@ -1191,17 +1202,33 @@ def _handle_rlm_scaffolding(payload: dict, settings: dict) -> dict:
 
         # Call the main model
         try:
+            t0 = time.time()
             response = _route_model_call(
                 model_key, prompt, None,
                 thinking_level=thinking_level,
                 max_tokens=max_tokens,
             )
+            rlm_dur = int((time.time() - t0) * 1000)
             if isinstance(response, dict):
                 response_text = response.get("text", "")
             else:
                 response_text = str(response)
+            # Log main RLM iteration call and set parent_call_id for sub-calls
+            rlm_call_id = _log_llm_call(
+                session_id, "rlm_main", model_key,
+                prompt_preview=prompt[:500], prompt_length=len(prompt),
+                response_preview=response_text[:1000],
+                duration_ms=rlm_dur,
+                thinking_level=thinking_level,
+            )
+            repl['parent_call_id'] = rlm_call_id
         except Exception as e:
             app.logger.error(f"RLM iteration {iteration} LLM call failed: {e}")
+            _log_llm_call(
+                session_id, "rlm_main", model_key,
+                prompt_preview=prompt[:500], prompt_length=len(prompt),
+                error=str(e),
+            )
             iterations_log.append({
                 "iteration": iteration,
                 "error": str(e),
@@ -2341,6 +2368,26 @@ def llm_summarize():
     if not prompt:
         return jsonify({"error": "No prompt"}), 400
 
+    session_id = payload.get("session_id", "")
+
+    def _do_summarize(model_to_use):
+        t0 = time.time()
+        result = _route_model_call(model_to_use, prompt, None)
+        dur = int((time.time() - t0) * 1000)
+        text = result.get("text", result) if isinstance(result, dict) else result
+        usage = result.get("usage", {}) if isinstance(result, dict) else {}
+        call_id = None
+        if session_id:
+            call_id = _log_llm_call(
+                session_id, "compact", model_to_use,
+                prompt_preview=prompt, prompt_length=len(prompt),
+                response_preview=str(text)[:1000] if text else None,
+                input_tokens=usage.get("prompt_tokens", 0),
+                output_tokens=usage.get("candidates_tokens", 0),
+                duration_ms=dur,
+            )
+        return text, model_to_use, call_id
+
     # If a specific model is requested, use it directly
     requested_model = payload.get("model")
     if requested_model and requested_model in MODEL_REGISTRY:
@@ -2348,9 +2395,11 @@ def llm_summarize():
         env_key = info.get("env_key", "")
         if not env_key or os.environ.get(env_key):
             try:
-                result = _route_model_call(requested_model, prompt, None)
-                text = result.get("text", result) if isinstance(result, dict) else result
-                return jsonify({"summary": text, "model_used": requested_model})
+                text, used, call_id = _do_summarize(requested_model)
+                resp = {"summary": text, "model_used": used}
+                if call_id:
+                    resp["call_id"] = call_id
+                return jsonify(resp)
             except Exception as e:
                 app.logger.warning("Summarize with requested %s failed: %s", requested_model, e)
 
@@ -2398,9 +2447,11 @@ def llm_summarize():
             if not matched:
                 continue
             try:
-                result = _route_model_call(matched, prompt, None)
-                text = result.get("text", result) if isinstance(result, dict) else result
-                return jsonify({"summary": text, "model_used": matched})
+                text, used, call_id = _do_summarize(matched)
+                resp = {"summary": text, "model_used": used}
+                if call_id:
+                    resp["call_id"] = call_id
+                return jsonify(resp)
             except Exception as e:
                 app.logger.warning("Summarize with %s failed: %s", matched, e)
                 continue
@@ -2416,8 +2467,27 @@ def llm_interrupt_check():
         return jsonify({"error": "Server LLM not available"}), 403
     payload = request.get_json(force=True)
     prompt = payload.get("prompt", "")
+    session_id = payload.get("session_id", "")
     if not prompt:
         return jsonify({"error": "No prompt"}), 400
+
+    def _do_interrupt(model_to_use):
+        t0 = time.time()
+        result = _route_model_call(model_to_use, prompt, None)
+        dur = int((time.time() - t0) * 1000)
+        text = result.get("text", result) if isinstance(result, dict) else result
+        usage = result.get("usage", {}) if isinstance(result, dict) else {}
+        call_id = None
+        if session_id:
+            call_id = _log_llm_call(
+                session_id, "interrupt", model_to_use,
+                prompt_preview=prompt, prompt_length=len(prompt),
+                response_preview=str(text)[:1000] if text else None,
+                input_tokens=usage.get("prompt_tokens", 0),
+                output_tokens=usage.get("candidates_tokens", 0),
+                duration_ms=dur,
+            )
+        return text, model_to_use, call_id
 
     # If a specific model is requested, use it directly
     requested_model = payload.get("model")
@@ -2426,9 +2496,11 @@ def llm_interrupt_check():
         env_key = info.get("env_key", "")
         if not env_key or os.environ.get(env_key):
             try:
-                result = _route_model_call(requested_model, prompt, None)
-                text = result.get("text", result) if isinstance(result, dict) else result
-                return jsonify({"result": text, "model_used": requested_model})
+                text, used, call_id = _do_interrupt(requested_model)
+                resp = {"result": text, "model_used": used}
+                if call_id:
+                    resp["call_id"] = call_id
+                return jsonify(resp)
             except Exception as e:
                 app.logger.warning("Interrupt check with requested %s failed: %s", requested_model, e)
 
@@ -2472,9 +2544,11 @@ def llm_interrupt_check():
             if not matched:
                 continue
             try:
-                result = _route_model_call(matched, prompt, None)
-                text = result.get("text", result) if isinstance(result, dict) else result
-                return jsonify({"result": text, "model_used": matched})
+                text, used, call_id = _do_interrupt(matched)
+                resp = {"result": text, "model_used": used}
+                if call_id:
+                    resp["call_id"] = call_id
+                return jsonify(resp)
             except Exception as e:
                 app.logger.warning("Interrupt check with %s failed: %s", matched, e)
                 continue
@@ -2572,6 +2646,7 @@ def llm_ask():
     last_error = None
     for attempt in range(max_retries):
         try:
+            t0 = time.time()
             content = _route_model_call(
                 model_key, prompt, image_b64,
                 tools_enabled=real_tools,
@@ -2581,6 +2656,7 @@ def llm_ask():
                 thinking_level=thinking_level,
                 max_tokens=max_tokens,
             )
+            call_duration_ms = int((time.time() - t0) * 1000)
 
             # Handle dict return (Gemini w/ tools, or truncated) vs str return (others)
             truncated = False
@@ -2611,6 +2687,7 @@ def llm_ask():
             result["tools_active"] = tools_mode == "on"
             result["thinking_level"] = thinking_level
             result["prompt_length"] = len(prompt)
+            result["call_duration_ms"] = call_duration_ms
             if attempt > 0:
                 result["retries"] = attempt
 
@@ -2619,6 +2696,26 @@ def llm_ask():
                 with session_lock:
                     session_last_llm[session_id] = result
                 _db_update_session(session_id, model=model_key)
+
+            # Log to llm_calls table
+            if session_id:
+                usage = result.get("usage", {})
+                call_id = _log_llm_call(
+                    session_id, "executor", model_key,
+                    prompt_preview=prompt[:500],
+                    prompt_length=len(prompt),
+                    response_preview=result.get("raw", "")[:1000],
+                    response_json=result,
+                    input_tokens=usage.get("prompt_tokens", 0),
+                    output_tokens=usage.get("candidates_tokens", 0),
+                    duration_ms=call_duration_ms,
+                    thinking_level=thinking_level,
+                    tools_active=tools_mode == "on",
+                    cache_active=result.get("cache_active", False),
+                    attempt=attempt,
+                )
+                if call_id:
+                    result["call_id"] = call_id
 
             return jsonify(result)
         except Exception as e:
@@ -2634,6 +2731,14 @@ def llm_ask():
                     app.logger.info("Disabling tools for exception retry")
                     real_tools = False
                 continue
+            # Log failed call
+            if session_id:
+                _log_llm_call(
+                    session_id, "executor", model_key,
+                    prompt_preview=prompt[:500], prompt_length=len(prompt),
+                    error=str(e), attempt=attempt,
+                    duration_ms=int((time.time() - t0) * 1000),
+                )
             return jsonify({"error": str(e), "model": model_key}), 500
 
     return jsonify({"error": str(last_error or "No response after retries"), "model": model_key}), 500
@@ -3371,6 +3476,24 @@ def get_session_step(session_id, step_num):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# LLM CALL LOG — universal call log API
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/sessions/<session_id>/calls")
+def session_calls(session_id):
+    """Return all LLM calls for a session, ordered by timestamp."""
+    calls = _get_session_calls(session_id)
+    # Parse response_json back from string
+    for c in calls:
+        if c.get("response_json"):
+            try:
+                c["response_json"] = json.loads(c["response_json"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return jsonify(calls)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # SHARE — public replay page
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -3506,6 +3629,15 @@ a{color:#58a6ff;text-decoration:none;}a:hover{text-decoration:underline;}</style
             except Exception:
                 pass
 
+        # Fetch LLM call log for this session
+        call_log = _get_session_calls(session_id)
+        for c in call_log:
+            if c.get("response_json"):
+                try:
+                    c["response_json"] = json.loads(c["response_json"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         return render_template(
             "share.html",
             session=sess,
@@ -3515,6 +3647,7 @@ a{color:#58a6ff;text-decoration:none;}a:hover{text-decoration:underline;}</style
             umami_url=UMAMI_URL, umami_website_id=UMAMI_WEBSITE_ID,
             prompts=prompts,
             timeline=timeline,
+            call_log=call_log,
         )
     except Exception as e:
         app.logger.warning(f"Share page error: {e}")

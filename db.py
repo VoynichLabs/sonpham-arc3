@@ -74,6 +74,36 @@ def _init_db():
             FOREIGN KEY (session_id) REFERENCES sessions(id)
         )
     """)
+    # LLM call log table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_calls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            call_type TEXT NOT NULL,
+            step_num INTEGER,
+            parent_call_id INTEGER,
+            model TEXT NOT NULL,
+            prompt_preview TEXT,
+            prompt_length INTEGER,
+            response_preview TEXT,
+            response_json TEXT,
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            cost REAL DEFAULT 0,
+            duration_ms INTEGER DEFAULT 0,
+            thinking_level TEXT,
+            tools_active INTEGER DEFAULT 0,
+            cache_active INTEGER DEFAULT 0,
+            error TEXT,
+            attempt INTEGER DEFAULT 0,
+            timestamp REAL NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id)")
+    except sqlite3.OperationalError:
+        pass
     # Batch tables
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS batch_runs (
@@ -254,6 +284,36 @@ def _init_turso_db():
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
         """)
+        # LLM call log table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS llm_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                call_type TEXT NOT NULL,
+                step_num INTEGER,
+                parent_call_id INTEGER,
+                model TEXT NOT NULL,
+                prompt_preview TEXT,
+                prompt_length INTEGER,
+                response_preview TEXT,
+                response_json TEXT,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                cost REAL DEFAULT 0,
+                duration_ms INTEGER DEFAULT 0,
+                thinking_level TEXT,
+                tools_active INTEGER DEFAULT 0,
+                cache_active INTEGER DEFAULT 0,
+                error TEXT,
+                attempt INTEGER DEFAULT 0,
+                timestamp REAL NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        """)
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id)")
+        except Exception:
+            pass
         # Schema migration: add columns (idempotent)
         for col, defn in [("prompts_json", "TEXT DEFAULT NULL"),
                           ("timeline_json", "TEXT DEFAULT NULL")]:
@@ -318,6 +378,67 @@ def _turso_import_session(payload):
     except Exception as e:
         log.warning(f"Turso import failed: {e}")
         return False
+
+
+def _log_llm_call(session_id: str, call_type: str, model: str, *,
+                   step_num: int | None = None,
+                   parent_call_id: int | None = None,
+                   prompt_preview: str | None = None,
+                   prompt_length: int = 0,
+                   response_preview: str | None = None,
+                   response_json: dict | None = None,
+                   input_tokens: int = 0,
+                   output_tokens: int = 0,
+                   cost: float = 0,
+                   duration_ms: int = 0,
+                   thinking_level: str | None = None,
+                   tools_active: bool = False,
+                   cache_active: bool = False,
+                   error: str | None = None,
+                   attempt: int = 0) -> int | None:
+    """Insert an LLM call log row. Returns call_id or None on failure."""
+    try:
+        conn = _get_db()
+        cur = conn.execute(
+            "INSERT INTO llm_calls "
+            "(session_id, call_type, step_num, parent_call_id, model, "
+            " prompt_preview, prompt_length, response_preview, response_json, "
+            " input_tokens, output_tokens, cost, duration_ms, "
+            " thinking_level, tools_active, cache_active, error, attempt, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id, call_type, step_num, parent_call_id, model,
+                prompt_preview[:500] if prompt_preview else None,
+                prompt_length,
+                response_preview[:1000] if response_preview else None,
+                json.dumps(response_json) if response_json else None,
+                input_tokens, output_tokens, cost, duration_ms,
+                thinking_level, int(tools_active), int(cache_active),
+                error, attempt, time.time(),
+            ),
+        )
+        call_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return call_id
+    except Exception as e:
+        log.warning(f"_log_llm_call failed: {e}")
+        return None
+
+
+def _get_session_calls(session_id: str) -> list[dict]:
+    """Return all llm_calls for a session, ordered by timestamp."""
+    try:
+        conn = _get_db()
+        rows = conn.execute(
+            "SELECT * FROM llm_calls WHERE session_id = ? ORDER BY timestamp",
+            (session_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.warning(f"_get_session_calls failed: {e}")
+        return []
 
 
 # Initialize both DBs at import time (for gunicorn/Railway)
