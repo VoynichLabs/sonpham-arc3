@@ -4886,9 +4886,70 @@ async function saveArcApiKey() {
 // MODELS LIST
 // ═══════════════════════════════════════════════════════════════════════════
 
+function _populateSubModelSelect(sel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, savedVal) {
+  for (const prov of providerOrder) {
+    const models = groups[prov];
+    if (!models?.length) continue;
+    const grp = document.createElement('optgroup');
+    grp.label = providerLabels[prov] || prov;
+    for (const m of models) {
+      const opt = document.createElement('option');
+      opt.value = m.name;
+      opt.textContent = `${m.name} — ${m.price}`;
+      grp.appendChild(opt);
+    }
+    sel.appendChild(grp);
+  }
+  for (const prov of byokProviderOrder) {
+    const models = byokGroups[prov];
+    if (!models?.length) continue;
+    const grp = document.createElement('optgroup');
+    grp.label = `${prov} (BYOK)`;
+    for (const m of models) {
+      const opt = document.createElement('option');
+      opt.value = m.name;
+      opt.textContent = `${m.name} — ${m.price}`;
+      grp.appendChild(opt);
+    }
+    sel.appendChild(grp);
+  }
+  if (savedVal && [...sel.options].some(o => o.value === savedVal)) sel.value = savedVal;
+}
+
 async function loadModels() {
   const data = await fetchJSON('/api/llm/models');
   modelsData = data.models || [];
+
+  // Add Puter.js models to modelsData (before grouping)
+  if (FEATURES.puter_js) {
+    // Only add if not already present
+    const puterNames = new Set(modelsData.filter(m => m.provider === 'puter').map(m => m.name));
+    for (const m of ['gpt-4o-mini', 'gpt-4o', 'claude-3.5-sonnet', 'mistral-large-latest']) {
+      if (!puterNames.has(m)) {
+        modelsData.push({ name: m, provider: 'puter', price: 'Free', context_window: 128000, capabilities: { image: false, reasoning: false, tools: false }, available: true });
+      }
+    }
+  }
+
+  // Group models by provider (shared by all selectors)
+  const groups = {};
+  for (const m of modelsData) {
+    if (!m.available) continue;
+    const key = m.provider.charAt(0).toUpperCase() + m.provider.slice(1);
+    (groups[key] ??= []).push(m);
+  }
+  const providerOrder = ['Local', 'Copilot', 'Gemini', 'Anthropic', 'Cloudflare', 'Groq', 'Mistral', 'Huggingface', 'Ollama'];
+  const providerLabels = { Local: 'Local Models (free)', Puter: 'Puter.js (free)' };
+
+  const unavail = modelsData.filter(m => !m.available);
+  const byokGroups = {};
+  for (const m of unavail) {
+    const key = m.provider.charAt(0).toUpperCase() + m.provider.slice(1);
+    (byokGroups[key] ??= []).push(m);
+  }
+  const byokProviderOrder = ['Gemini', 'Anthropic', 'Cloudflare', 'Groq', 'Mistral', 'Huggingface'];
+
+  // ── Populate main reasoning model selector ──
   const sel = document.getElementById('modelSelect');
   if (sel) {
   sel.innerHTML = '';
@@ -4897,17 +4958,6 @@ async function loadModels() {
   const defaultOpt = document.createElement('option');
   defaultOpt.value = ''; defaultOpt.textContent = 'Select a model...';
   sel.appendChild(defaultOpt);
-
-  // Group by provider
-  const groups = {};
-  for (const m of modelsData) {
-    if (!m.available) continue;
-    const key = m.provider.charAt(0).toUpperCase() + m.provider.slice(1);
-    (groups[key] ??= []).push(m);
-  }
-
-  const providerOrder = ['Local', 'Copilot', 'Gemini', 'Anthropic', 'Cloudflare', 'Groq', 'Mistral', 'Huggingface', 'Ollama'];
-  const providerLabels = { Local: 'Local Models (free)' };
 
   for (const prov of providerOrder) {
     const models = groups[prov];
@@ -4928,26 +4978,6 @@ async function loadModels() {
     sel.appendChild(grp);
   }
 
-  // Puter.js models (available in both local and online modes)
-  if (FEATURES.puter_js) {
-    const grp = document.createElement('optgroup');
-    grp.label = 'Puter.js (free)';
-    for (const m of ['gpt-4o-mini', 'gpt-4o', 'claude-3.5-sonnet', 'mistral-large-latest']) {
-      const opt = document.createElement('option');
-      opt.value = m; opt.textContent = `${m} — Free (Puter.js)`;
-      grp.appendChild(opt);
-      modelsData.push({ name: m, provider: 'puter', price: 'Free', context_window: 128000, capabilities: { image: false, reasoning: false, tools: false }, available: true });
-    }
-    sel.appendChild(grp);
-  }
-  // Unavailable models — usable via BYOK key in any mode, grouped by provider
-  const unavail = modelsData.filter(m => !m.available);
-  const byokGroups = {};
-  for (const m of unavail) {
-    const key = m.provider.charAt(0).toUpperCase() + m.provider.slice(1);
-    (byokGroups[key] ??= []).push(m);
-  }
-  const byokProviderOrder = ['Gemini', 'Anthropic', 'Cloudflare', 'Groq', 'Mistral', 'Huggingface'];
   for (const prov of byokProviderOrder) {
     const models = byokGroups[prov];
     if (!models?.length) continue;
@@ -4977,46 +5007,7 @@ async function loadModels() {
   // Remove all optgroups (keep the static <option>s)
   csel.querySelectorAll('optgroup').forEach(g => g.remove());
   // Add available models grouped by provider
-  for (const prov of providerOrder) {
-    const models = groups[prov];
-    if (!models?.length) continue;
-    const grp = document.createElement('optgroup');
-    grp.label = prov;
-    for (const m of models) {
-      const opt = document.createElement('option');
-      opt.value = m.name;
-      opt.textContent = `${m.name} — ${m.price}`;
-      grp.appendChild(opt);
-    }
-    csel.appendChild(grp);
-  }
-  // Add Puter.js models
-  if (FEATURES.puter_js) {
-    const grp = document.createElement('optgroup');
-    grp.label = 'Puter.js (free)';
-    for (const m of ['gpt-4o-mini', 'gpt-4o', 'claude-3.5-sonnet', 'mistral-large-latest']) {
-      const opt = document.createElement('option');
-      opt.value = m; opt.textContent = `${m} — Free (Puter.js)`;
-      grp.appendChild(opt);
-    }
-    csel.appendChild(grp);
-  }
-  // Add unavailable (BYOK) models grouped by provider
-  for (const prov of byokProviderOrder) {
-    const models = byokGroups[prov];
-    if (!models?.length) continue;
-    const grp = document.createElement('optgroup');
-    grp.label = `${prov} (BYOK)`;
-    for (const m of models) {
-      const opt = document.createElement('option');
-      opt.value = m.name;
-      opt.textContent = `${m.name} — ${m.price}`;
-      grp.appendChild(opt);
-    }
-    csel.appendChild(grp);
-  }
-  // Restore previous selection if still valid
-  if (savedVal && [...csel.options].some(o => o.value === savedVal)) csel.value = savedVal;
+  _populateSubModelSelect(csel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, savedVal);
   } // end compact select block
 
   // Populate interrupt model selector — same pattern
@@ -5024,43 +5015,7 @@ async function loadModels() {
   if (!isel) { /* interrupt select not in current scaffolding */ } else {
   const iSavedVal = isel.value;
   isel.querySelectorAll('optgroup').forEach(g => g.remove());
-  for (const prov of providerOrder) {
-    const models = groups[prov];
-    if (!models?.length) continue;
-    const grp = document.createElement('optgroup');
-    grp.label = prov;
-    for (const m of models) {
-      const opt = document.createElement('option');
-      opt.value = m.name;
-      opt.textContent = `${m.name} — ${m.price}`;
-      grp.appendChild(opt);
-    }
-    isel.appendChild(grp);
-  }
-  if (FEATURES.puter_js) {
-    const grp = document.createElement('optgroup');
-    grp.label = 'Puter.js (free)';
-    for (const m of ['gpt-4o-mini', 'gpt-4o', 'claude-3.5-sonnet', 'mistral-large-latest']) {
-      const opt = document.createElement('option');
-      opt.value = m; opt.textContent = `${m} — Free (Puter.js)`;
-      grp.appendChild(opt);
-    }
-    isel.appendChild(grp);
-  }
-  for (const prov of byokProviderOrder) {
-    const models = byokGroups[prov];
-    if (!models?.length) continue;
-    const grp = document.createElement('optgroup');
-    grp.label = `${prov} (BYOK)`;
-    for (const m of models) {
-      const opt = document.createElement('option');
-      opt.value = m.name;
-      opt.textContent = `${m.name} — ${m.price}`;
-      grp.appendChild(opt);
-    }
-    isel.appendChild(grp);
-  }
-  if (iSavedVal && [...isel.options].some(o => o.value === iSavedVal)) isel.value = iSavedVal;
+  _populateSubModelSelect(isel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, iSavedVal);
   } // end interrupt select block
 
   // Populate RLM model selects if they exist
@@ -5069,49 +5024,7 @@ async function loadModels() {
     if (!rlmSel) continue;
     const rlmSaved = rlmSel.value;
     rlmSel.innerHTML = '<option value="">Select a model...</option>';
-    for (const prov of providerOrder) {
-      const models = groups[prov];
-      if (!models?.length) continue;
-      const grp = document.createElement('optgroup');
-      grp.label = prov;
-      for (const m of models) {
-        const opt = document.createElement('option');
-        opt.value = m.name;
-        const caps = [];
-        if (m.capabilities?.image) caps.push('IMG');
-        if (m.capabilities?.reasoning) caps.push('RSN');
-        opt.textContent = `${m.name} — ${m.price}${caps.length ? ` [${caps.join(',')}]` : ''}`;
-        grp.appendChild(opt);
-      }
-      rlmSel.appendChild(grp);
-    }
-    if (FEATURES.puter_js) {
-      const grp = document.createElement('optgroup');
-      grp.label = 'Puter.js (free)';
-      for (const m of ['gpt-4o-mini', 'gpt-4o', 'claude-3.5-sonnet', 'mistral-large-latest']) {
-        const opt = document.createElement('option');
-        opt.value = m; opt.textContent = `${m} — Free (Puter.js)`;
-        grp.appendChild(opt);
-      }
-      rlmSel.appendChild(grp);
-    }
-    for (const prov of byokProviderOrder) {
-      const models = byokGroups[prov];
-      if (!models?.length) continue;
-      const grp = document.createElement('optgroup');
-      grp.label = `${prov} (BYOK)`;
-      for (const m of models) {
-        const opt = document.createElement('option');
-        opt.value = m.name;
-        const caps = [];
-        if (m.capabilities?.image) caps.push('IMG');
-        if (m.capabilities?.reasoning) caps.push('RSN');
-        opt.textContent = `${m.name} — ${m.price}${caps.length ? ` [${caps.join(',')}]` : ''}`;
-        grp.appendChild(opt);
-      }
-      rlmSel.appendChild(grp);
-    }
-    if (rlmSaved && [...rlmSel.options].some(o => o.value === rlmSaved)) rlmSel.value = rlmSaved;
+    _populateSubModelSelect(rlmSel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, rlmSaved);
   }
 
   updateModelCaps();
