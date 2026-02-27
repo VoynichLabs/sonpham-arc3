@@ -6448,6 +6448,9 @@ async function resumeSession(sid) {
   // Guard: don't overwrite an active session that already has a loaded grid
   if (sessionId === sid && currentGrid && stepCount > 0) return;
 
+  // Track whether session was already registered — used to detect close-during-resume
+  const _wasRegistered = sessions.has(sid);
+
   try {
     let data = await fetchJSON('/api/sessions/resume', { session_id: sid });
     if (data.error) {
@@ -6486,6 +6489,12 @@ async function resumeSession(sid) {
         updateEmptyAppState();
         return;
       }
+    }
+
+    // Guard: if session was registered before the await but got closed while server was replaying, abort
+    if (_wasRegistered && !sessions.has(sid)) {
+      console.log('[resumeSession] Session was closed during server replay, aborting.');
+      return;
     }
 
     // Set up client state for live play
@@ -7321,51 +7330,61 @@ function switchSession(targetId) {
 function closeSession(id) {
   const s = sessions.get(id);
   if (!s) return;
-  // Stop autoplay if running
-  if (s.autoPlaying) { s.autoPlaying = false; }
-  if (id === activeSessionId && autoPlaying) { autoPlaying = false; updateAutoBtn(); }
-  // Abort in-flight LLM fetch
-  if (s.abortController) { s.abortController.abort(); s.abortController = null; }
 
-  // Upload session to main DB before deleting (if enough steps)
-  if (id === activeSessionId) saveSessionToState();
-  uploadClosedSession(s);
+  try {
+    // Stop autoplay if running
+    if (s.autoPlaying) { s.autoPlaying = false; }
+    if (id === activeSessionId && autoPlaying) { autoPlaying = false; updateAutoBtn(); }
+    // Abort in-flight LLM fetch
+    if (s.abortController) { s.abortController.abort(); s.abortController = null; }
+    // Upload session to main DB before deleting (if enough steps)
+    if (id === activeSessionId) saveSessionToState();
+    uploadClosedSession(s);
+    // Persist session data to localStorage
+    try {
+      const steps = s.sessionStepsBuffer || [];
+      if (steps.length > 0 && s.gameId) {
+        saveLocalSession({
+          id: s.sessionId || id,
+          game_id: s.currentState?.game_id || s.gameId,
+          model: s.model || '',
+          result: s.currentState?.state || s.status || 'NOT_FINISHED',
+          steps: s.stepCount || steps.length,
+          levels: s.currentState?.levels_completed || 0,
+          created_at: s.createdAt || (Date.now() / 1000),
+        }, steps);
+      }
+    } catch (e) { console.warn('[closeSession] saveLocalSession failed:', e); }
+  } catch (e) { console.warn('[closeSession] pre-delete step failed:', e); }
 
-  // Persist session data to localStorage so it survives browser refresh,
-  // even if the server upload was skipped (below threshold).
-  const steps = s.sessionStepsBuffer || [];
-  if (steps.length > 0 && s.gameId) {
-    saveLocalSession({
-      id: s.sessionId || id,
-      game_id: s.currentState?.game_id || s.gameId,
-      model: s.model || '',
-      result: s.currentState?.state || s.status || 'NOT_FINISHED',
-      steps: s.stepCount || steps.length,
-      levels: s.currentState?.levels_completed || 0,
-      created_at: s.createdAt || (Date.now() / 1000),
-    }, steps);
-  }
-
+  // Always delete and update UI regardless of any errors above
   sessions.delete(id);
-  // Switch to another session or show empty
-  if (id === activeSessionId) {
-    const remaining = [...sessions.keys()];
-    if (remaining.length > 0) {
-      switchSession(remaining[remaining.length - 1]);
-    } else {
-      activeSessionId = null;
-      sessionId = null;
-      currentGrid = null;
-      currentState = {};
-      canvas.style.display = 'none';
-      document.getElementById('emptyState').style.display = '';
-      document.getElementById('controls').style.display = 'none';
-      document.getElementById('transportBar').style.display = 'none';
+
+  try {
+    if (id === activeSessionId) {
+      const remaining = [...sessions.keys()];
+      if (remaining.length > 0) {
+        switchSession(remaining[remaining.length - 1]);
+      } else {
+        activeSessionId = null;
+        sessionId = null;
+        currentGrid = null;
+        currentState = {};
+        if (canvas) canvas.style.display = 'none';
+        const emptyEl = document.getElementById('emptyState');
+        if (emptyEl) emptyEl.style.display = '';
+        const ctrlEl = document.getElementById('controls');
+        if (ctrlEl) ctrlEl.style.display = 'none';
+        const tbEl = document.getElementById('transportBar');
+        if (tbEl) tbEl.style.display = 'none';
+      }
     }
-  }
+  } catch (e) { console.warn('[closeSession] post-delete UI update failed:', e); }
+
   renderSessionTabs();
   saveSessionIndex();
   updateGameListLock();
+  updateEmptyAppState();
 }
 
 function updatePanelBlur() {

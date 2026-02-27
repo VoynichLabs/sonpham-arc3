@@ -199,7 +199,6 @@ _PORTS7 = [
     _port(25,  7, F_FRANCE),
     _port( 7, 25, F_SPAIN),
     _port(25, 25, F_DUTCH),
-    _port(16, 16, F_PIRATE),
 ]
 
 # ── Map 8: Fog of War ────────────────────────────────────────────────────
@@ -832,6 +831,7 @@ class Pi01(ARCBaseGame):
                 if self.continues > 0:
                     self.continues -= 1
                     self.on_set_level(self.levels[self.level_index])
+                    self.lives = MAX_LIVES
                 else:
                     self.lose()
                 self.complete_action()
