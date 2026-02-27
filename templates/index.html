@@ -4167,7 +4167,7 @@ async function askLLM(ss) {
                     { role: 'model', parts: [{ text: '```python\n' + code + '\n```' }] },
                     { parts: [{ text: '[Code output]:\n' + output + '\n\nBased on this analysis, provide your answer as JSON only. No code.' }] },
                   ],
-                  generationConfig: { temperature: 0.3, maxOutputTokens: getMaxTokens() },
+                  generationConfig: { temperature: 0.3, maxOutputTokens: getMaxTokens(), ..._geminiThinkingConfig(geminiApiModel) },
                 }),
               });
               const retryData = await retryResp.json();
@@ -4180,7 +4180,7 @@ async function askLLM(ss) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   contents: [{ parts: [{ text: prompt + '\n\nIMPORTANT: Do NOT use code or function calls. Respond with plain JSON only.' }] }],
-                  generationConfig: { temperature: 0.3, maxOutputTokens: getMaxTokens() },
+                  generationConfig: { temperature: 0.3, maxOutputTokens: getMaxTokens(), ..._geminiThinkingConfig(geminiApiModel) },
                 }),
               });
               const retryData = await retryResp.json();
@@ -5431,6 +5431,15 @@ function byokActive() {
   return !!(localStorage.getItem('byok_key'));
 }
 
+const THINKING_BUDGETS = { off: 0, low: 1024, med: 4096, high: 8192, max: 24576 };
+
+function _geminiThinkingConfig(apiModel) {
+  const isThinking = /2\.5|3-pro|3-flash|3\.1/.test(apiModel);
+  if (!isThinking) return {};
+  const budget = THINKING_BUDGETS[getThinkingLevel()] ?? 1024;
+  return { thinkingConfig: { thinkingBudget: budget } };
+}
+
 async function askLLMBYOKStreaming(prompt, model, maxTokens, onChunk) {
   // Streaming version for Gemini BYOK — uses SSE endpoint
   const info = getModelInfo(model);
@@ -5444,7 +5453,7 @@ async function askLLMBYOKStreaming(prompt, model, maxTokens, onChunk) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+      generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens, ..._geminiThinkingConfig(apiModel) },
     }),
   });
   if (!resp.ok) {
@@ -5508,7 +5517,7 @@ async function askLLMBYOK(prompt, model, maxTokens = 16384) {
     const resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens } }),
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens, ..._geminiThinkingConfig(apiModel) } }),
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
@@ -5534,7 +5543,7 @@ async function askLLMBYOK(prompt, model, maxTokens = 16384) {
               { role: 'model', parts: [{ text: '```python\n' + code + '\n```' }] },
               { parts: [{ text: '[Code output]:\n' + output + '\n\nBased on this analysis, provide your answer as JSON only. No code.' }] },
             ],
-            generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+            generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens, ..._geminiThinkingConfig(apiModel) },
           }),
         });
         const retryData = await retryResp.json();
@@ -5548,7 +5557,7 @@ async function askLLMBYOK(prompt, model, maxTokens = 16384) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt + '\n\nIMPORTANT: Do NOT use code or function calls. Respond with plain JSON only.' }] }],
-          generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+          generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens, ..._geminiThinkingConfig(apiModel) },
         }),
       });
       const retryData = await retryResp.json();
