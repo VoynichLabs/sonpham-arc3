@@ -356,7 +356,8 @@
 
   /* ── Transport bar (inside canvas panel) ─────────────────────────── */
   .transport-strip { display: none; flex-shrink: 0; border-top: 1px solid var(--border);
-    background: var(--surface); padding: 8px 16px 6px; width: 100%; margin-top: auto; }
+    background: var(--surface); padding: 8px 8px 6px; margin: auto -16px -16px -16px;
+    width: calc(100% + 32px); }
   .transport-bar { display: flex; gap: 4px; }
   .transport-bar .btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
     padding: 7px 10px; font-size: 11px; font-weight: 600; min-width: 0;
@@ -589,7 +590,40 @@
       <span id="stepCounter" class="step-counter"></span>
       <button id="shareBtn" class="btn" style="display:none;font-size:11px;padding:2px 8px;" onclick="shareCurrentSession()">Share</button>
       <span style="flex:1;"></span>
+      <button id="loginBtn" class="btn" style="font-size:11px;padding:2px 10px;display:none;" onclick="showLoginModal()">Log in</button>
+      <div id="userBadge" style="display:none;position:relative;">
+        <button class="btn" style="font-size:11px;padding:2px 10px;" onclick="toggleUserMenu()">
+          <span id="userBadgeLabel"></span> ▾
+        </button>
+        <div id="userMenu" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 0;min-width:140px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+          <div style="padding:6px 12px;font-size:11px;color:var(--text-dim);border-bottom:1px solid var(--border);" id="userMenuEmail"></div>
+          <button style="display:block;width:100%;text-align:left;padding:6px 12px;background:none;border:none;color:var(--red);cursor:pointer;font-family:inherit;font-size:12px;" onclick="doLogout()">Log out</button>
+        </div>
+      </div>
       <span id="topSpinner" style="display:none;"><span class="spinner"></span></span>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="loginModal" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:360px;width:90%;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="font-size:15px;color:var(--accent);">Log in to ARC-AGI-3</h3>
+          <button onclick="hideLoginModal()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;">&times;</button>
+        </div>
+        <div id="loginStep1">
+          <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">Enter your email to receive a login link. No password needed.</p>
+          <input id="loginEmail" type="email" placeholder="you@example.com"
+            style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:13px;margin-bottom:10px;">
+          <button id="loginSendBtn" class="btn btn-primary" style="width:100%;padding:8px;font-size:13px;" onclick="sendMagicLink()">Send login link</button>
+          <div id="loginError" style="display:none;color:var(--red);font-size:11px;margin-top:8px;"></div>
+        </div>
+        <div id="loginStep2" style="display:none;text-align:center;">
+          <div style="font-size:24px;margin-bottom:8px;">✉️</div>
+          <p style="font-size:13px;color:var(--text);">Check your email!</p>
+          <p style="font-size:12px;color:var(--text-dim);margin-top:6px;">We sent a login link to <strong id="loginSentEmail"></strong></p>
+          <p style="font-size:11px;color:var(--text-dim);margin-top:10px;">The link expires in 15 minutes.</p>
+        </div>
+      </div>
     </div>
 
     <div class="game-area">
@@ -814,6 +848,7 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
 let sessionId = null;
+let currentUser = null;  // {id, email, display_name} or null
 let currentGrid = null;
 let previousGrid = null;
 let currentChangeMap = null;
@@ -4047,7 +4082,7 @@ async function askLLM(ss) {
     // Determine if this model uses client-side LLM (Puter.js/BYOK)
     const modelInfo = getModelInfo(model);
     const isPuterModel = modelInfo?.provider === 'puter';
-    const isByokModel = modelInfo && !modelInfo.available && getByokKey(modelInfo.provider);
+    const isByokModel = modelInfo && getByokKey(modelInfo.provider);
     const useServerLLM = FEATURES.server_llm && !isPuterModel && !isByokModel;
 
     const _callStart = performance.now();
@@ -5956,6 +5991,7 @@ function buildSessionPayload(ss) {
       levels: _cs.levels_completed || 0,
       prompts: _collectPrompts(),
       timeline: _tlEvents,
+      user_id: currentUser?.id || null,
     },
     steps: _buf,
   };
@@ -7433,6 +7469,166 @@ function initApp() {
 
   restoreSessionsFromLocalStorage();
   updateEmptyAppState();
+
+  // Auth: check login status (async, doesn't block init)
+  checkAuthStatus();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTH — Magic link login
+// ═══════════════════════════════════════════════════════════════════════════
+
+function updateAuthUI() {
+  const loginBtn = document.getElementById('loginBtn');
+  const userBadge = document.getElementById('userBadge');
+  if (currentUser) {
+    loginBtn.style.display = 'none';
+    userBadge.style.display = '';
+    const label = currentUser.display_name || currentUser.email.split('@')[0];
+    document.getElementById('userBadgeLabel').textContent = label;
+    document.getElementById('userMenuEmail').textContent = currentUser.email;
+  } else {
+    loginBtn.style.display = '';
+    userBadge.style.display = 'none';
+  }
+}
+
+function toggleUserMenu() {
+  const menu = document.getElementById('userMenu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+// Close user menu on outside click
+document.addEventListener('click', (e) => {
+  const badge = document.getElementById('userBadge');
+  const menu = document.getElementById('userMenu');
+  if (badge && menu && !badge.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
+
+function showLoginModal() {
+  const modal = document.getElementById('loginModal');
+  modal.style.display = 'flex';
+  document.getElementById('loginStep1').style.display = '';
+  document.getElementById('loginStep2').style.display = 'none';
+  document.getElementById('loginError').style.display = 'none';
+  document.getElementById('loginEmail').value = '';
+  document.getElementById('loginEmail').focus();
+}
+
+function hideLoginModal() {
+  document.getElementById('loginModal').style.display = 'none';
+}
+
+// Close modal on backdrop click
+document.getElementById('loginModal')?.addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) hideLoginModal();
+});
+
+// Submit on Enter in email field
+document.getElementById('loginEmail')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendMagicLink();
+});
+
+async function sendMagicLink() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const errEl = document.getElementById('loginError');
+  const btn = document.getElementById('loginSendBtn');
+  if (!email || !email.includes('@')) {
+    errEl.textContent = 'Please enter a valid email address.';
+    errEl.style.display = '';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  errEl.style.display = 'none';
+  try {
+    const resp = await fetch('/api/auth/magic-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      errEl.textContent = data.error || 'Failed to send link';
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Send login link';
+      return;
+    }
+    // Dev mode: if code returned, auto-verify
+    if (data.dev_code) {
+      window.location.href = '/api/auth/verify?code=' + data.dev_code;
+      return;
+    }
+    document.getElementById('loginStep1').style.display = 'none';
+    document.getElementById('loginStep2').style.display = '';
+    document.getElementById('loginSentEmail').textContent = email;
+  } catch (e) {
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send login link';
+  }
+}
+
+async function doLogout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch (e) { /* ignore */ }
+  currentUser = null;
+  updateAuthUI();
+  document.getElementById('userMenu').style.display = 'none';
+}
+
+async function checkAuthStatus() {
+  try {
+    const resp = await fetch('/api/auth/status');
+    const data = await resp.json();
+    if (data.authenticated && data.user) {
+      currentUser = data.user;
+      updateAuthUI();
+      // Claim local sessions in Turso
+      claimLocalSessions();
+    } else {
+      currentUser = null;
+      updateAuthUI();
+    }
+  } catch (e) {
+    console.warn('Auth status check failed:', e);
+    currentUser = null;
+    updateAuthUI();
+  }
+  // Clean ?logged_in param from URL
+  if (new URLSearchParams(window.location.search).has('logged_in')) {
+    const url = new URL(window.location);
+    url.searchParams.delete('logged_in');
+    window.history.replaceState({}, '', url.pathname + url.search);
+  }
+}
+
+async function claimLocalSessions() {
+  if (!currentUser) return;
+  // Collect session IDs from localStorage
+  const ids = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith('arc_session_')) {
+      ids.push(key.replace('arc_session_', ''));
+    }
+  }
+  if (ids.length === 0) return;
+  try {
+    await fetch('/api/auth/claim-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_ids: ids }),
+    });
+  } catch (e) {
+    console.warn('Claim sessions failed:', e);
+  }
 }
 
 // If no Turnstile gate (not configured), init immediately
