@@ -382,6 +382,31 @@ def _draw_sprite(frame, lx, ly, pix):
                     frame[py:py + 2, px:px + 2] = color
 
 
+def _los_clear(m, x0, y0, x1, y1):
+    """Bresenham walk from (x0,y0) to (x1,y1); returns True iff every cell
+    visited (excluding source, including target) is OCEAN."""
+    if x0 == x1 and y0 == y1:
+        return True
+    adx = abs(x1 - x0)
+    ady = abs(y1 - y0)
+    sx = 1 if x1 > x0 else -1
+    sy = 1 if y1 > y0 else -1
+    err = adx - ady
+    x, y = x0, y0
+    while True:
+        if x == x1 and y == y1:
+            return m[y, x] == OCEAN
+        e2 = 2 * err
+        if e2 > -ady:
+            err -= ady
+            x += sx
+        if e2 < adx:
+            err += adx
+            y += sy
+        if m[y, x] != OCEAN:
+            return False
+
+
 # ---------------------------------------------------------------------------
 # Display
 # ---------------------------------------------------------------------------
@@ -465,14 +490,19 @@ class PiDisplay(RenderableUserDisplay):
             px, py = int(p["pos"][0]), int(p["pos"][1])
             dx, dy = p["dir"]
             if not p["alerted"]:
-                # Draw LoS ray as a center-pixel dot in each cell ahead
-                for i in range(1, LOS_RANGE + 1):
-                    lx, ly = px + dx * i, py + dy * i
-                    if lx < 0 or lx >= GL or ly < 0 or ly >= GL:
-                        break
-                    if g.game_map[ly, lx] != OCEAN:
-                        break
-                    frame[ly * 2 + 1, lx * 2 + 1] = LOS_C
+                # Draw LoS as quarter-circle cone with wall occlusion
+                perp_x, perp_y = -dy, dx
+                for fwd in range(1, LOS_RANGE + 1):
+                    for lat in range(-fwd, fwd + 1):
+                        if fwd * fwd + lat * lat > LOS_RANGE * LOS_RANGE:
+                            continue
+                        cx = px + dx * fwd + perp_x * lat
+                        cy = py + dy * fwd + perp_y * lat
+                        if cx < 0 or cx >= GL or cy < 0 or cy >= GL:
+                            continue
+                        if not _los_clear(g.game_map, px, py, cx, cy):
+                            continue
+                        frame[cy * 2 + 1, cx * 2 + 1] = LOS_C
             _fill(frame, px, py, PATROL_C)
 
         # ── Player ship (blinks when invincible) ─────────────────────────────
@@ -666,21 +696,30 @@ class Pi01(ARCBaseGame):
             px, py = int(p["pos"][0]), int(p["pos"][1])
             dx, dy = p["dir"]
 
-            # Check line of sight if not yet alerted
+            # Check quarter-circle cone of sight with wall occlusion
             if not p["alerted"]:
-                for i in range(1, LOS_RANGE + 1):
-                    lx, ly = px + dx * i, py + dy * i
-                    if lx < 0 or lx >= GL or ly < 0 or ly >= GL:
+                perp_x, perp_y = -dy, dx
+                detected = False
+                for fwd in range(1, LOS_RANGE + 1):
+                    if detected:
                         break
-                    if m[ly, lx] != OCEAN:
-                        break
-                    if (self.sx <= lx < self.sx + SHIP_LW and
-                            self.sy <= ly < self.sy + SHIP_LH):
-                        p["alerted"] = True
-                        break
+                    for lat in range(-fwd, fwd + 1):
+                        if fwd * fwd + lat * lat > LOS_RANGE * LOS_RANGE:
+                            continue
+                        cx = px + dx * fwd + perp_x * lat
+                        cy = py + dy * fwd + perp_y * lat
+                        if cx < 0 or cx >= GL or cy < 0 or cy >= GL:
+                            continue
+                        if not _los_clear(m, px, py, cx, cy):
+                            continue
+                        if (self.sx <= cx < self.sx + SHIP_LW and
+                                self.sy <= cy < self.sy + SHIP_LH):
+                            p["alerted"] = True
+                            detected = True
+                            break
 
-            # Budget: 2 tiles/action when alerted, 1 tile/action when patrolling
-            p["budget"] += 2.0 if p["alerted"] else 1.0
+            # Budget: 1 tile/action whether alerted or patrolling
+            p["budget"] += 1.0
             steps = int(p["budget"])
             p["budget"] -= steps
 
