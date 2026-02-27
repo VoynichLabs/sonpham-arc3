@@ -4308,17 +4308,24 @@ async function askLLM(ss) {
     // Collect observation for compact context
     collectObservation(resp, _ss);
 
-    // ── Truncation fallback: if response was truncated with no parsed plan,
+    // ── Fallback: if response has no usable plan (truncated, empty, or error),
     //    pick a random valid action so the game keeps moving ──
-    if (resp.truncated && !resp.parsed) {
+    const _needsFallback = resp && !resp.parsed && (
+      resp.truncated ||                                       // token limit hit
+      resp.error === 'Empty response from model' ||           // model returned nothing
+      (resp.error && /empty|no content|no response/i.test(resp.error))  // similar empty errors
+    );
+    if (_needsFallback) {
       const avail = _cur.currentState.available_actions || [];
       const preferred = avail.filter(a => a >= 1 && a <= 4);
       const pool = preferred.length ? preferred : avail.filter(a => a !== 0);
       const fallbackAction = pool.length ? pool[Math.floor(Math.random() * pool.length)] : (avail[0] ?? 1);
-      console.warn(`[askLLM] Truncated with no parsed plan — falling back to random action ${fallbackAction} (${ACTION_NAMES[fallbackAction]})`);
-      resp.parsed = { action: fallbackAction, observation: 'Token limit reached', reasoning: 'Random fallback — response was truncated before producing a plan' };
+      const reason = resp.truncated ? 'token limit reached' : 'empty response from model';
+      console.warn(`[askLLM] ${reason} — falling back to random action ${fallbackAction} (${ACTION_NAMES[fallbackAction]})`);
+      resp.parsed = { action: fallbackAction, observation: reason, reasoning: `Random fallback — ${reason}` };
       resp._fallbackAction = true;
       resp.truncated = false;
+      resp.error = null;
     }
 
     // Build reasoning entry (always create it, but only insert into DOM if active)
