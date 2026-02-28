@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from agent import (
     ARC_AGI3_DESCRIPTION,
     ACTION_NAMES,
+    call_model_with_metadata,
     call_model_with_retry,
     compress_row,
     compute_change_map,
@@ -16,6 +17,7 @@ from agent import (
     relevant_memory_section,
     _parse_json,
 )
+from db import _log_llm_call
 
 from scaffoldings.three_system.prompts import (
     PLANNER_SYSTEM_PROMPT_BODY,
@@ -128,9 +130,16 @@ class GameContext:
     snapshots: list = field(default_factory=list)
     hard_memory: str = ""
 
-    # Tracking
+    # Session tracking
+    session_id: str = ""
     steps_since_condense: int = 0
     llm_calls: int = 0
+
+    # Per-turn accumulators (reset each turn)
+    turn_input_tokens: int = 0
+    turn_output_tokens: int = 0
+    turn_duration_ms: int = 0
+    turn_llm_calls: int = 0
 
 
 # Build the full planner system prompt with ARC_AGI3_DESCRIPTION for CLI path
@@ -162,10 +171,28 @@ class PlannerSystem:
         for turn in range(1, max_turns + 1):
             prompt = self._build_prompt(ctx, turn, max_turns, conversation)
 
-            t0 = time.time()
-            raw = call_model_with_retry(model_key, prompt, ctx.cfg, role="planner")
-            elapsed = time.time() - t0
+            llm_result = call_model_with_metadata(model_key, prompt, ctx.cfg, role="planner")
+            raw = llm_result.text
+            elapsed = llm_result.duration_ms / 1000
             ctx.llm_calls += 1
+            ctx.turn_llm_calls += 1
+            ctx.turn_input_tokens += llm_result.input_tokens
+            ctx.turn_output_tokens += llm_result.output_tokens
+            ctx.turn_duration_ms += llm_result.duration_ms
+
+            if ctx.session_id:
+                _log_llm_call(
+                    ctx.session_id, "planner", model_key,
+                    step_num=ctx.step_num,
+                    prompt_preview=prompt[:500],
+                    prompt_length=len(prompt),
+                    response_preview=(raw or "")[:1000],
+                    input_tokens=llm_result.input_tokens,
+                    output_tokens=llm_result.output_tokens,
+                    duration_ms=llm_result.duration_ms,
+                    error=llm_result.error,
+                    attempt=llm_result.attempt,
+                )
 
             print(f"    [planner] turn {turn}/{max_turns} ({elapsed:.1f}s)")
 
@@ -209,6 +236,18 @@ class PlannerSystem:
                             "data": step.get("data", {}),
                             "expected": step.get("expected", ""),
                         })
+
+                # Reject short plans — force the LLM to think harder (unless last turn)
+                if len(valid_plan) < min_plan and turn < max_turns:
+                    print(f"    [planner] REJECTED plan ({len(valid_plan)} steps < min {min_plan}), asking for more")
+                    conversation.append(
+                        f"[Turn {turn}] REJECTED: Your plan has only {len(valid_plan)} action(s). "
+                        f"The minimum is {min_plan}. Think further ahead — plan a sequence of "
+                        f"at least {min_plan} actions to reach your goal. Try again."
+                    )
+                    continue
+
+                # Last turn: accept and pad if needed
                 if len(valid_plan) < min_plan:
                     valid_plan = self._pad_plan(valid_plan, ctx, min_plan)
                 print(f"    [planner] committed plan: {len(valid_plan)} steps, goal='{goal[:60]}'")
@@ -335,10 +374,28 @@ class MonitorSystem:
             state=ctx.state_str,
         )
 
-        t0 = time.time()
-        raw = call_model_with_retry(model_key, prompt, ctx.cfg, role="monitor")
-        elapsed = time.time() - t0
+        llm_result = call_model_with_metadata(model_key, prompt, ctx.cfg, role="monitor")
+        raw = llm_result.text
+        elapsed = llm_result.duration_ms / 1000
         ctx.llm_calls += 1
+        ctx.turn_llm_calls += 1
+        ctx.turn_input_tokens += llm_result.input_tokens
+        ctx.turn_output_tokens += llm_result.output_tokens
+        ctx.turn_duration_ms += llm_result.duration_ms
+
+        if ctx.session_id:
+            _log_llm_call(
+                ctx.session_id, "monitor", model_key,
+                step_num=ctx.step_num,
+                prompt_preview=prompt[:500],
+                prompt_length=len(prompt),
+                response_preview=(raw or "")[:1000],
+                input_tokens=llm_result.input_tokens,
+                output_tokens=llm_result.output_tokens,
+                duration_ms=llm_result.duration_ms,
+                error=llm_result.error,
+                attempt=llm_result.attempt,
+            )
 
         if not raw:
             return {"verdict": "CONTINUE", "reason": "monitor unavailable", "discovery": None}
@@ -384,10 +441,28 @@ class WorldModelSystem:
         for turn in range(1, max_turns + 1):
             prompt = self._build_prompt(ctx, turn, max_turns, conversation)
 
-            t0 = time.time()
-            raw = call_model_with_retry(model_key, prompt, ctx.cfg, role="world_model")
-            elapsed = time.time() - t0
+            llm_result = call_model_with_metadata(model_key, prompt, ctx.cfg, role="world_model")
+            raw = llm_result.text
+            elapsed = llm_result.duration_ms / 1000
             ctx.llm_calls += 1
+            ctx.turn_llm_calls += 1
+            ctx.turn_input_tokens += llm_result.input_tokens
+            ctx.turn_output_tokens += llm_result.output_tokens
+            ctx.turn_duration_ms += llm_result.duration_ms
+
+            if ctx.session_id:
+                _log_llm_call(
+                    ctx.session_id, "world_model", model_key,
+                    step_num=ctx.step_num,
+                    prompt_preview=prompt[:500],
+                    prompt_length=len(prompt),
+                    response_preview=(raw or "")[:1000],
+                    input_tokens=llm_result.input_tokens,
+                    output_tokens=llm_result.output_tokens,
+                    duration_ms=llm_result.duration_ms,
+                    error=llm_result.error,
+                    attempt=llm_result.attempt,
+                )
 
             print(f"    [world_model] turn {turn}/{max_turns} ({elapsed:.1f}s)")
 
@@ -464,10 +539,27 @@ Respond with EXACTLY this JSON:
 
 If uncertain, say "uncertain — <best guess>". Keep each prediction under 100 chars."""
 
-        t0 = time.time()
-        raw = call_model_with_retry(model_key, prompt, ctx.cfg, role="world_model")
-        elapsed = time.time() - t0
+        llm_result = call_model_with_metadata(model_key, prompt, ctx.cfg, role="world_model")
+        raw = llm_result.text
         ctx.llm_calls += 1
+        ctx.turn_llm_calls += 1
+        ctx.turn_input_tokens += llm_result.input_tokens
+        ctx.turn_output_tokens += llm_result.output_tokens
+        ctx.turn_duration_ms += llm_result.duration_ms
+
+        if ctx.session_id:
+            _log_llm_call(
+                ctx.session_id, "simulate", model_key,
+                step_num=ctx.step_num,
+                prompt_preview=prompt[:500],
+                prompt_length=len(prompt),
+                response_preview=(raw or "")[:1000],
+                input_tokens=llm_result.input_tokens,
+                output_tokens=llm_result.output_tokens,
+                duration_ms=llm_result.duration_ms,
+                error=llm_result.error,
+                attempt=llm_result.attempt,
+            )
 
         if not raw:
             return ["prediction unavailable"] * len(actions)

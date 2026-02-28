@@ -504,6 +504,24 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
                     })
 
             logger.info(f"[ts_planner] LLM committed {len(plan)} raw actions, {len(valid_plan)} valid (min_plan={min_plan})")
+
+            # Reject short plans — force the LLM to think harder (unless last turn)
+            if len(valid_plan) < min_plan and turn < max_turns:
+                logger.info(f"[ts_planner] REJECTED plan ({len(valid_plan)} < {min_plan}), asking for more")
+                conversation.append(
+                    f"[Turn {turn}] REJECTED: Your plan has only {len(valid_plan)} action(s). "
+                    f"The minimum is {min_plan}. Think further ahead — plan a sequence of "
+                    f"at least {min_plan} actions to reach your goal. Try again."
+                )
+                planner_log.append({
+                    "turn": turn, "type": "rejected",
+                    "plan_length": len(valid_plan),
+                    "min_required": min_plan,
+                    "duration_ms": dur_ms,
+                })
+                continue
+
+            # Last turn: accept and pad if needed
             if len(valid_plan) < min_plan:
                 pad_count = min_plan - len(valid_plan)
                 exploratory = [a for a in context["available_actions"] if a != 0]
@@ -511,7 +529,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
                 while len(valid_plan) < min_plan and exploratory:
                     valid_plan.append({"action": exploratory[idx % len(exploratory)], "data": {}, "expected": "explore"})
                     idx += 1
-                logger.info(f"[ts_planner] padded {pad_count} exploratory actions -> {len(valid_plan)} total")
+                logger.info(f"[ts_planner] last turn, padded {pad_count} exploratory actions -> {len(valid_plan)} total")
 
             planner_log.append({
                 "turn": turn, "type": "commit",

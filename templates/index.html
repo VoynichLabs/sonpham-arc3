@@ -4951,6 +4951,8 @@ async function askLLM(ss) {
             return `<div class="ts-col-row ts-simulate">simulate: [${acts}]${dur}</div>`;
           } else if (lg.type === 'analyze') {
             return `<div class="ts-col-row ts-analyze">analyze: ${lg.tool || '?'}${dur}</div>`;
+          } else if (lg.type === 'rejected') {
+            return `<div class="ts-col-row" style="color:var(--yellow);">rejected: ${lg.plan_length || '?'} steps &lt; min ${lg.min_required || '?'}${dur}</div>`;
           } else if (lg.type === 'commit') {
             const rawLen = lg.raw_plan_length;
             const padNote = rawLen !== undefined && rawLen < (lg.plan_length || 0)
