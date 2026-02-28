@@ -109,6 +109,7 @@ def play_game_scaffold(arcade, game_id: str, cfg: dict, max_steps: int = 200,
         ctx.current_plan = plan_result["plan"]
         ctx.plan_goal = plan_result["goal"]
         ctx.plan_index = 0
+        ctx.plans_since_replan += 1
 
         print(f"  [plan] goal: {ctx.plan_goal[:80]}")
         print(f"  [plan] {len(ctx.current_plan)} steps: "

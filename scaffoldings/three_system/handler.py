@@ -63,6 +63,7 @@ def ts_get_state(session_id: str) -> dict:
             "observations": [],
             "snapshots": [],
             "turn_count": 0,
+            "plans_since_replan": 99,  # start high so first replan is allowed
         }
     return _three_system_state[session_id]
 
@@ -538,6 +539,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
                 "duration_ms": dur_ms,
             })
 
+            ss["plans_since_replan"] = ss.get("plans_since_replan", 0) + 1
             total_dur = int((time.time() - t0_total) * 1000)
             return {
                 "raw": raw,

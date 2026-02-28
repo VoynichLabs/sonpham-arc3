@@ -2622,6 +2622,13 @@ def api_llm_monitor():
     prev_levels = payload.get("prev_levels", 0)
     level_change = "LEVEL UP!" if levels > prev_levels else "same level"
 
+    # Replan cooldown: 1 replan per N plans
+    replan_cooldown = int(settings.get("replan_cooldown", 3))
+    ss = _ts_get_state(session_id)
+    plans_since = ss.get("plans_since_replan", 99)
+    on_cooldown = plans_since < replan_cooldown
+    cooldown_line = f"Replan cooldown: {'ON COOLDOWN ({plans_since}/{replan_cooldown} plans) — you MUST return CONTINUE' if on_cooldown else f'available ({plans_since}/{replan_cooldown} plans since last replan)'}"
+
     prompt = _TS_MONITOR_PROMPT.format(
         game_id=payload.get("game_id", "?"),
         step_num=payload.get("step_num", 0),
@@ -2632,6 +2639,8 @@ def api_llm_monitor():
         change_summary=change_summary,
         level_change=level_change,
         state=payload.get("state", "NOT_FINISHED"),
+        replan_cooldown=replan_cooldown,
+        cooldown_line=cooldown_line,
     )
 
     t0 = time.time()
@@ -2663,6 +2672,16 @@ def api_llm_monitor():
     if verdict not in ("CONTINUE", "REPLAN"):
         verdict = "CONTINUE"
 
+    # Server-side cooldown enforcement — override LLM even if it says REPLAN
+    suppressed = False
+    if verdict == "REPLAN" and on_cooldown:
+        app.logger.info(f"[ts_monitor] REPLAN suppressed by cooldown ({plans_since}/{replan_cooldown})")
+        verdict = "CONTINUE"
+        suppressed = True
+    elif verdict == "REPLAN":
+        ss["plans_since_replan"] = 0  # reset cooldown counter
+        app.logger.info(f"[ts_monitor] REPLAN allowed (plans_since={plans_since})")
+
     # Store discovery in WM observations if present
     discovery = parsed.get("discovery")
     if discovery:
@@ -2681,6 +2700,7 @@ def api_llm_monitor():
         "reason": parsed.get("reason", ""),
         "discovery": discovery,
         "duration_ms": dur_ms,
+        "replan_suppressed": suppressed,
     })
 
 

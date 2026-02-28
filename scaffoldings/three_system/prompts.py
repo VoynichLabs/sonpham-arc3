@@ -137,12 +137,15 @@ Expected outcome: "{expected}"
 Changes observed: {change_summary}
 Level change: {level_change}
 State: {state}
+{cooldown_line}
 
 Respond with EXACTLY this JSON (nothing else):
 {{"verdict": "CONTINUE" or "REPLAN", "reason": "<brief explanation>", "discovery": "<any new rule discovered, or null>"}}
 
 Rules:
-- CONTINUE = result matches expectations or is acceptable progress
-- REPLAN = result is very different from expected (hit wall, unexpected enemy, wrong direction, level changed unexpectedly)
+- CONTINUE = result matches expectations, is acceptable progress, or the deviation is minor
+- REPLAN = ONLY for serious, plan-breaking surprises: player is stuck/dead, completely wrong direction, dangerous enemy encountered, or a critical new discovery that changes the entire strategy
+- Default to CONTINUE. Game rules are consistent — small deviations are normal and don't warrant replanning.
+- REPLAN has a cooldown: only 1 replan per {replan_cooldown} plans. If on cooldown, you MUST return CONTINUE. Use discovery to note observations instead.
 - Keep reason under 80 chars
 - discovery: if you noticed something new about the game mechanics, describe it (≤ 120 chars). Otherwise null."""

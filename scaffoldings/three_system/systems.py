@@ -135,6 +135,9 @@ class GameContext:
     steps_since_condense: int = 0
     llm_calls: int = 0
 
+    # Replan cooldown
+    plans_since_replan: int = 99  # start high so first replan is allowed
+
     # Per-turn accumulators (reset each turn)
     turn_input_tokens: int = 0
     turn_output_tokens: int = 0
@@ -366,12 +369,23 @@ class MonitorSystem:
         action_id = ctx.current_plan[ctx.plan_index - 1]["action"] if ctx.plan_index > 0 else 0
         action_name = ACTION_NAMES.get(action_id, f"ACTION{action_id}")
 
+        scfg = ctx.cfg.get("scaffolding", {})
+        replan_cooldown = scfg.get("replan_cooldown", 3)
+        on_cooldown = ctx.plans_since_replan < replan_cooldown
+        cooldown_line = (
+            f"Replan cooldown: ON COOLDOWN ({ctx.plans_since_replan}/{replan_cooldown} plans) — you MUST return CONTINUE"
+            if on_cooldown else
+            f"Replan cooldown: available ({ctx.plans_since_replan}/{replan_cooldown} plans since last replan)"
+        )
+
         prompt = MONITOR_PROMPT_TEMPLATE.format(
             game_id=ctx.game_id, step_num=ctx.step_num,
             levels_done=ctx.levels_done, win_levels=ctx.win_levels,
             action_name=action_name, expected=expected,
             change_summary=change_summary, level_change=level_change,
             state=ctx.state_str,
+            replan_cooldown=replan_cooldown,
+            cooldown_line=cooldown_line,
         )
 
         llm_result = call_model_with_metadata(model_key, prompt, ctx.cfg, role="monitor")
@@ -408,7 +422,15 @@ class MonitorSystem:
         if verdict not in ("CONTINUE", "REPLAN"):
             verdict = "CONTINUE"
 
-        print(f"      [monitor] {verdict} ({elapsed:.1f}s) — {parsed.get('reason', '')[:60]}")
+        # Server-side cooldown enforcement
+        if verdict == "REPLAN" and on_cooldown:
+            print(f"      [monitor] REPLAN suppressed by cooldown ({ctx.plans_since_replan}/{replan_cooldown})")
+            verdict = "CONTINUE"
+        elif verdict == "REPLAN":
+            ctx.plans_since_replan = 0
+            print(f"      [monitor] REPLAN allowed ({elapsed:.1f}s) — {parsed.get('reason', '')[:60]}")
+        else:
+            print(f"      [monitor] {verdict} ({elapsed:.1f}s) — {parsed.get('reason', '')[:60]}")
 
         return {
             "verdict": verdict,
