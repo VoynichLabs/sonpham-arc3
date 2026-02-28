@@ -390,9 +390,9 @@
   .transport-strip { display: none; flex-shrink: 0; border-top: 1px solid var(--border);
     background: var(--surface); padding: 8px 8px 6px; margin: auto -16px -16px -16px;
     width: calc(100% + 32px); }
-  .transport-bar { display: flex; gap: 4px; }
-  .transport-bar .btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
-    padding: 7px 10px; font-size: 11px; font-weight: 600; min-width: 0;
+  .transport-bar { display: flex; gap: 2px; }
+  .transport-bar .btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 3px;
+    padding: 7px 6px; font-size: 11px; font-weight: 600; min-width: 0;
     border-color: var(--accent); color: var(--accent); background: var(--surface); }
   .transport-bar .btn:hover { background: #58a6ff22; }
   .transport-bar .btn:disabled { opacity: 0.3; cursor: not-allowed; border-color: var(--border); color: var(--text-dim); }
@@ -733,9 +733,6 @@
             <button class="btn" onclick="undoStep()" id="undoBtn" disabled
               onmouseenter="showTransportDesc('Undo last turn')"
               onmouseleave="clearTransportDesc()">&#9198; Undo</button>
-            <button class="btn" onclick="manualCompact()" id="compactBtn"
-              onmouseenter="showTransportDesc('Summarize history to reduce prompt size')"
-              onmouseleave="clearTransportDesc()">Compact History</button>
             <button class="btn" onclick="resetSession()" id="resetBtn"
               onmouseenter="showTransportDesc('Restart the current game from scratch')"
               onmouseleave="clearTransportDesc()">&#8635; Restart</button>
@@ -910,6 +907,7 @@ const _linearInputFields = [
     labelHtml: 'Image <span class="opt-badge badge-img" id="imgBadge">IMG</span>' },
   { type: 'toggle', id: 'inputDiff', label: 'Diff (change map)', default: true },
   { type: 'toggle', id: 'inputHistogram', label: 'Color histogram', default: false },
+  { type: 'toggle', id: 'reasoningTrace', label: 'Reasoning trace in history', default: false },
 ];
 const _linearReasoningFields = [
   { type: 'model-select', id: 'modelSelect', capsId: 'modelCaps', testResultId: 'testResult' },
@@ -1116,6 +1114,9 @@ const SCAFFOLDING_SCHEMAS = {
               { type: 'number-spin', id: 'sf_rlm_maxTokens', label: 'Max tokens',
                 default: 16384, min: 1024, max: 65536, step: 1024, spinFn: null, inline: true },
             ]},
+            { type: 'multiswitch', id: 'sf_rlm_planningMode', name: 'sf_rlm_planMode', label: 'Planning horizon',
+              options: [{v:'off',l:'Off'},{v:'5',l:'5'},{v:'10',l:'10',checked:true},{v:'15',l:'15'},{v:'20',l:'20'},{v:'unlimited',l:'\u221E'}],
+              hint: 'LLM returns a multi-step plan instead of one action. Saves tokens.' },
           ]
         }]
       },
@@ -1631,6 +1632,7 @@ function loadScaffoldingFromStorage(schemaId) {
       _setChecked('sf_rlm_inputHistogram', s.input?.color_histogram ?? false);
       _setRadio('sf_rlm_thinking', s.thinking_level || 'low');
       _setVal('sf_rlm_maxTokens', s.max_tokens || 16384);
+      _setRadio('sf_rlm_planMode', s.planning_mode || '10');
       _setRadio('sf_rlm_subThinking', s.sub_thinking_level || 'low');
       _setVal('sf_rlm_subMaxTokens', s.sub_max_tokens || 16384);
       _setVal('sf_rlm_maxDepth', s.max_depth || 3);
@@ -1984,6 +1986,7 @@ class SessionState {
     this.waitStartTime = null;     // performance.now() when LLM call started
     // Timeline
     this.timelineEvents = [];  // [{type, duration, turn, model?, callNum?}]
+    this._rlmNamespace = {};  // Persistent RLM REPL variables (survives across turns within session)
   }
   get avgCallDuration() {
     if (!this.callDurations.length) return 5000; // default 5s
@@ -4090,6 +4093,7 @@ function getScaffoldingSettings() {
     s.sub_model = document.getElementById('sf_rlm_subModelSelect')?.value || '';
     s.sub_thinking_level = document.querySelector('input[name="sf_rlm_subThinking"]:checked')?.value || 'low';
     s.sub_max_tokens = parseInt(document.getElementById('sf_rlm_subMaxTokens')?.value) || 16384;
+    s.planning_mode = document.querySelector('input[name="sf_rlm_planMode"]:checked')?.value || 'off';
     s.max_depth = parseInt(document.getElementById('sf_rlm_maxDepth')?.value) || 3;
     s.max_iterations = parseInt(document.getElementById('sf_rlm_maxIter')?.value) || 10;
     s.output_truncation = parseInt(document.getElementById('sf_rlm_outputTrunc')?.value) || 5000;
@@ -4630,10 +4634,10 @@ async function askLLM(ss) {
     const contextWindow = getSelectedModelContextWindow();
     const maxHistTokens = getContextTokenLimit(compact, contextWindow);
     const callTrigger = compact.enabled && compact.after && _cur.llmCallCount >= compact.after;
-    // Also trigger compact if estimated history tokens exceed % of model context
+    // Token-based trigger: compact when estimated history tokens exceed budget
     const histTokenEst = estimateTokens(JSON.stringify(_cur.moveHistory));
     const tokenTrigger = compact.enabled && histTokenEst > maxHistTokens;
-    const needsCompact = callTrigger || tokenTrigger;
+    const needsCompact = tokenTrigger || callTrigger;
     const prevCompactCall = _cur._compactSummaryAtCall;
     if (needsCompact && isActive()) updateScaffoldingNodeState('compact', 'waiting');
     const compactBlock = needsCompact ? await buildCompactContext(_ss) : '';
@@ -4714,6 +4718,16 @@ async function askLLM(ss) {
       }
     } else {
       // ── Client-side LLM (Puter.js or BYOK) ────────────────────────────
+      if (activeScaffoldingType === 'rlm') {
+        // RLM scaffolding: full iteration loop runs client-side
+        try {
+          resp = await askLLMRlm(_cur, model, modelInfo, _waitEl, isActive, historyForLLM, compactBlock);
+        } catch (e) {
+          console.error('[askLLM] RLM client-side error:', e);
+          resp = { error: e.message, model };
+        }
+        if (resp) resp._clientSide = true;
+      } else {
       const prompt = buildClientPrompt(_cur.currentState, historyForLLM, _cur.currentChangeMap, inputSettings, getToolsMode(), compactBlock, getPlanningMode());
       // Stash grid context for BYOK MALFORMED_FUNCTION_CALL recovery (Pyodide)
       window._lastLLMGrid = _cur.currentState.grid;
@@ -4881,6 +4895,7 @@ async function askLLM(ss) {
       }
       // Always set prompt_length for token estimation (even on error)
       if (resp) { resp.prompt_length = prompt.length; resp._clientSide = true; }
+      } // end inner else (non-RLM client-side)
     }
 
     // Attach call duration
@@ -5293,7 +5308,7 @@ async function executePlan(plan, resp, entry, expected, ss) {
       }
     }
     // For linear/default in step-once mode (not autoplay), only execute 1 step
-    const isScaffoldPlan = resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system';
+    const isScaffoldPlan = resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system' || resp?.scaffolding === 'rlm';
     if (!isScaffoldPlan && !_cur.autoPlaying && completed > 0) break;
 
     // Mark step as executing
@@ -5338,7 +5353,9 @@ async function executePlan(plan, resp, entry, expected, ss) {
     if (_ss) { _ss.currentGrid = data.grid; _ss.currentChangeMap = data.change_map; }
     else { currentState = data; currentGrid = data.grid; currentChangeMap = data.change_map; }
 
-    _cur.moveHistory.push({ step: _cur.stepCount, action: step.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId });
+    const _histObs = i === 0 ? (resp?.parsed?.observation || '') : '';
+    const _histReason = i === 0 ? (resp?.parsed?.reasoning || '') : '';
+    _cur.moveHistory.push({ step: _cur.stepCount, action: step.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: _histObs, reasoning: _histReason });
     recordStepForPersistence(step.action, step.data || {}, data.grid, data.change_map, i === 0 ? resp : null, _ss);
     if (isActive()) { updateUI(data); updateUndoBtn(); }
     completed++;
@@ -5535,7 +5552,7 @@ async function executeOneAction(resp) {
   // Guard: session changed during step execution
   if (!sessions.has(_actionSessionId)) { console.log('[executeOneAction] session closed, discarding'); return null; }
   if (data.error) { undoStack.pop(); stepCount--; alert(data.error); return null; }
-  moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId });
+  moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: p.observation || '', reasoning: p.reasoning || '' });
   recordStepForPersistence(p.action, p.data || {}, data.grid, data.change_map, resp);
   updateUI(data);
   updateUndoBtn();
@@ -6179,6 +6196,391 @@ function compressRowJS(row) {
   return parts.join(' ');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CLIENT-SIDE RLM SCAFFOLDING
+// ═══════════════════════════════════════════════════════════════════════════
+
+const _RLM_SYSTEM_PROMPT_TEMPLATE = `You are tasked with answering a query about a game environment. You can access, transform, and analyze the game context interactively in a REPL environment. You will be queried iteratively until you provide a final answer.
+
+The REPL environment is initialized with:
+1. A \`context\` variable (dict) containing the full game state: grid, history, change_map, available_actions, levels_completed, win_levels, game_id, compact_context.
+2. \`llm_query(prompt) -> str\` \u2014 fast single LLM call for analysis/reasoning.
+3. \`llm_query_batched(prompts) -> list[str]\` \u2014 concurrent batch of llm_query calls.
+4. \`SHOW_VARS()\` \u2014 lists all variables you've created in the REPL.
+5. \`print()\` to view REPL output.
+
+Write code in \`\`\`repl blocks (not \`\`\`python). Variables persist across iterations AND across turns \u2014 any variables you create will still be available in the next turn's REPL. Use this to build up game knowledge (e.g. storing discovered rules, mapping actions).
+
+When you have determined the best action, call FINAL() with a JSON object:
+  FINAL({{"action": <int>, "reasoning": "...", "observation": "..."}})
+
+{plan_instructions}Or use FINAL_VAR(variable_name) to return a variable containing the JSON.
+
+IMPORTANT: The action must be one of the available_actions integers. Do NOT provide a final answer until you have analyzed the game state.`;
+
+function buildRlmSystemPrompt(planHorizon) {
+  let planInstructions = '';
+  if (planHorizon > 1) {
+    planInstructions = `For multi-step plans (up to ${planHorizon} steps ahead):\n  FINAL({"plan": [{"action": <int>, "observation": "..."}, ...], "reasoning": "..."})\nPlan up to ${planHorizon} steps ahead if the next moves are obvious.\n\n`;
+  }
+  return _RLM_SYSTEM_PROMPT_TEMPLATE.replace('{plan_instructions}', planInstructions);
+}
+
+const RLM_USER_FIRST = `Your game context is stored in the \`context\` variable (dict). It contains:
+- context['grid']: 2D list of color values (the current game board)
+- context['available_actions']: list of valid action integers
+- context['history']: recent move history
+- context['change_map']: cells that changed since last action
+- context['levels_completed']: current progress
+- context['win_levels']: target levels to win
+- context['compact_context']: summarized game knowledge (if available)
+
+Think step-by-step about what to do using the REPL environment to analyze the game state and determine the best action. Start by examining the context.`;
+
+const RLM_USER_CONTINUE = `Continue using the REPL environment to analyze the game context and determine your next action. Your next action:`;
+
+function _rlmFindFinal(text) {
+  // Strip code blocks before checking for FINAL
+  const stripped = text.replace(/```repl\s*\n[\s\S]*?\n```/g, '');
+  // Check for FINAL(...)
+  const finalMatch = stripped.match(/^\s*FINAL\((.+)\)\s*$/ms);
+  if (finalMatch) return finalMatch[1].trim();
+  return null;
+}
+
+function _extractJsonFromText(text) {
+  // Balanced-brace JSON extraction (same logic as parseClientLLMResponse)
+  const cleaned = text.replace(/^\s*\/\/.*$/gm, '');
+  for (let i = 0; i < cleaned.length; i++) {
+    if (cleaned[i] !== '{') continue;
+    let depth = 0, inStr = false, esc = false;
+    for (let j = i; j < cleaned.length; j++) {
+      const ch = cleaned[j];
+      if (esc) { esc = false; continue; }
+      if (ch === '\\' && inStr) { esc = true; continue; }
+      if (ch === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (ch === '{') depth++;
+      else if (ch === '}') { depth--; if (depth === 0) {
+        try {
+          const parsed = JSON.parse(cleaned.substring(i, j + 1));
+          if (parsed.action !== undefined || parsed.plan) return parsed;
+        } catch {}
+        break;
+      }}
+    }
+  }
+  return null;
+}
+
+function _parseRlmClientOutput(finalAnswer, iterationsLog, planHorizon) {
+  let parsed = null;
+  if (finalAnswer) {
+    parsed = _extractJsonFromText(finalAnswer);
+    if (!parsed) {
+      try { parsed = JSON.parse(finalAnswer); } catch {}
+    }
+  }
+  // Fallback: try to extract from last response
+  if (!parsed && iterationsLog.length) {
+    const lastResp = iterationsLog[iterationsLog.length - 1].response || '';
+    parsed = _extractJsonFromText(lastResp);
+  }
+  if (!parsed) return null;
+  // Normalize: "actions" array → "plan"
+  if (parsed.actions && Array.isArray(parsed.actions) && !parsed.plan) {
+    parsed.plan = parsed.actions;
+    delete parsed.actions;
+  }
+  // If planning_horizon > 1 and single action, wrap as plan
+  if (planHorizon > 1 && parsed.action !== undefined && !parsed.plan) {
+    parsed.plan = [{ action: parsed.action, data: parsed.data || {} }];
+  }
+  // Validate plan entries
+  if (parsed.plan && Array.isArray(parsed.plan)) {
+    const cleanPlan = [];
+    for (const step of parsed.plan.slice(0, planHorizon)) {
+      if (typeof step === 'object' && step !== null && step.action !== undefined) {
+        cleanPlan.push({ action: parseInt(step.action), data: step.data || {}, observation: step.observation || '' });
+      } else if (typeof step === 'number') {
+        cleanPlan.push({ action: parseInt(step), data: {} });
+      }
+    }
+    if (cleanPlan.length) parsed.plan = cleanPlan;
+  }
+  return parsed;
+}
+
+async function _rlmCallLLMChat(messages, model, maxTokens, thinkingLevel, onChunk) {
+  const modelInfo = getModelInfo(model);
+  const provider = modelInfo?.provider;
+  const apiModel = modelInfo?.api_model || model;
+
+  if (provider === 'gemini') {
+    const key = getByokKey('gemini');
+    if (!key) throw new Error('Gemini API key not configured');
+    const systemMsg = messages.find(m => m.role === 'system');
+    const chatMsgs = messages.filter(m => m.role !== 'system');
+    const contents = chatMsgs.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }));
+    const isThinking = /2\.5|3-pro|3-flash|3\.1/.test(apiModel);
+    const thinkingConfig = isThinking ? { thinkingConfig: { thinkingBudget: THINKING_BUDGETS[thinkingLevel] ?? 1024 } } : {};
+    const body = {
+      contents,
+      generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens, ...thinkingConfig },
+    };
+    if (systemMsg) body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+    if (onChunk) {
+      // Streaming SSE endpoint
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:streamGenerateContent?key=${key}&alt=sse`;
+      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(err.error?.message || `Gemini API error ${resp.status}`); }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = '', buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const chunk = JSON.parse(line.slice(6));
+            const text = chunk.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('') || '';
+            if (text) { accumulated += text; onChunk(accumulated); }
+          } catch {}
+        }
+      }
+      return accumulated;
+    } else {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:generateContent?key=${key}`;
+      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+      return data.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('') || '';
+    }
+  } else if (provider === 'openai' || provider === 'groq' || provider === 'mistral') {
+    const key = getByokKey(provider);
+    if (!key) throw new Error(`${provider} API key not configured`);
+    const urls = { openai: 'https://api.openai.com/v1/chat/completions', groq: 'https://api.groq.com/openai/v1/chat/completions', mistral: 'https://api.mistral.ai/v1/chat/completions' };
+    const resp = await fetch(urls[provider], {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({ model: apiModel, messages: messages.map(m => ({ role: m.role, content: m.content })), temperature: 0.3, max_tokens: maxTokens }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    return data.choices?.[0]?.message?.content || '';
+  } else if (provider === 'anthropic') {
+    const key = getByokKey('anthropic');
+    if (!key) throw new Error('Anthropic API key not configured');
+    const systemMsg = messages.find(m => m.role === 'system');
+    const chatMsgs = messages.filter(m => m.role !== 'system');
+    const body = { model: apiModel, max_tokens: maxTokens, messages: chatMsgs.map(m => ({ role: m.role, content: m.content })) };
+    if (systemMsg) body.system = systemMsg.content;
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    return data.content?.map(c => c.text).filter(Boolean).join('') || '';
+  } else if (provider === 'puter') {
+    const prompt = messages.map(m => `[${m.role.toUpperCase()}]: ${m.content}`).join('\n\n');
+    return await askLLMPuter(prompt, model);
+  } else {
+    throw new Error(`Unsupported provider for RLM: ${provider || 'unknown'}`);
+  }
+}
+
+async function askLLMRlm(_cur, model, modelInfo, waitEl, isActiveFn, historyForLLM, compactBlock) {
+  const settings = getScaffoldingSettings();
+  const maxIter = parseInt(settings.max_iterations) || 10;
+  const maxTokens = parseInt(settings.max_tokens) || 16384;
+  const outputTrunc = parseInt(settings.output_truncation) || 5000;
+  const thinkingLevel = settings.thinking_level || 'low';
+  const planningMode = settings.planning_mode || 'off';
+  const planHorizon = planningMode === 'off' ? 1 : (planningMode === 'unlimited' ? 999 : parseInt(planningMode));
+
+  // Build context dict for REPL (mirrors server-side handler)
+  const context = {
+    grid: _cur.currentState.grid || [],
+    available_actions: _cur.currentState.available_actions || [],
+    history: (historyForLLM || []).slice(-20).map(h => ({
+      step: h.step, action: h.action, result_state: h.result_state,
+      change_count: h.change_map?.change_count
+    })),
+    change_map: _cur.currentChangeMap || {},
+    levels_completed: _cur.currentState.levels_completed || 0,
+    win_levels: _cur.currentState.win_levels || 0,
+    game_id: _cur.currentState.game_id || 'unknown',
+    state: _cur.currentState.state || '',
+    compact_context: compactBlock || '',
+  };
+
+  // Ensure Pyodide is ready for REPL code execution
+  await ensurePyodide();
+
+  // Set up REPL context for this turn: update context variable, define helpers if first time
+  const contextB64 = btoa(unescape(encodeURIComponent(JSON.stringify(context))));
+  const setupCode = `import json as _json, base64 as _base64
+context = _json.loads(_base64.b64decode('${contextB64}').decode('utf-8'))
+if 'SHOW_VARS' not in dir():
+    def SHOW_VARS():
+        _skip = {'context', '_json', '_base64', 'json', 'np', 'numpy', 'collections', 'itertools', 'Counter', 'defaultdict', 'math', 'grid', 'prev_grid', 'SHOW_VARS', 'FINAL_VAR', 'llm_query', 'llm_query_batched', '_io', '_sys', '_stdout_buf', '_old_stdout', '_out'}
+        _vars = {k: type(v).__name__ for k, v in globals().items() if not k.startswith('_') and k not in _skip}
+        _lines = [f"  {k}: {t}" for k, t in sorted(_vars.items())]
+        result = "User variables:\\n" + ("\\n".join(_lines) if _lines else "  (none)")
+        print(result)
+        return result
+    def FINAL_VAR(name):
+        val = globals().get(name)
+        if val is None: return f"[ERROR] Variable '{name}' not found."
+        return str(val) if not isinstance(val, str) else val
+    def llm_query(prompt):
+        return "[llm_query not available in browser mode - use REPL iterations to reason step-by-step]"
+    def llm_query_batched(prompts):
+        return ["[llm_query not available in browser mode]"] * len(prompts)`;
+  await runPyodide(setupCode, context.grid, null);
+
+  // Build conversation messages
+  const systemPrompt = buildRlmSystemPrompt(planHorizon);
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: RLM_USER_FIRST },
+  ];
+
+  const iterationsLog = [];
+  let finalAnswer = null;
+
+  // Streaming preview callback
+  const onChunk = (textSoFar) => {
+    if (isActiveFn()) {
+      const previewEl = waitEl.querySelector('.stream-preview');
+      if (previewEl) {
+        previewEl.style.display = 'block';
+        previewEl.textContent = textSoFar.length > 500 ? textSoFar.slice(-500) : textSoFar;
+        previewEl.scrollTop = previewEl.scrollHeight;
+      }
+    }
+  };
+
+  for (let iter = 0; iter < maxIter; iter++) {
+    // Update waiting label with iteration count
+    if (isActiveFn()) {
+      const label = waitEl.querySelector('.step-label');
+      if (label) {
+        const timer = label.querySelector('.wait-timer');
+        const spinner = label.querySelector('.spinner');
+        label.innerHTML = '';
+        if (spinner) label.appendChild(spinner);
+        label.appendChild(document.createTextNode(`RLM iteration ${iter + 1}/${maxIter}... `));
+        if (timer) label.appendChild(timer);
+      }
+    }
+
+    // Call LLM with multi-turn conversation
+    let responseText;
+    try {
+      responseText = await _rlmCallLLMChat(messages, model, maxTokens, thinkingLevel, modelInfo?.provider === 'gemini' ? onChunk : null);
+    } catch (e) {
+      console.error(`[RLM] Iteration ${iter} LLM call failed:`, e);
+      iterationsLog.push({ iteration: iter, error: e.message });
+      break;
+    }
+
+    if (!responseText) {
+      iterationsLog.push({ iteration: iter, error: 'Empty response from model' });
+      break;
+    }
+
+    // Extract ```repl code blocks
+    const codeBlocks = [];
+    const replPattern = /```repl\s*\n([\s\S]*?)\n```/g;
+    let match;
+    while ((match = replPattern.exec(responseText)) !== null) {
+      codeBlocks.push(match[1]);
+    }
+
+    // Execute each code block via Pyodide
+    const replOutputs = [];
+    for (const code of codeBlocks) {
+      let output = await runPyodide(code, context.grid, null);
+      if (output.length > outputTrunc) {
+        output = output.substring(0, outputTrunc) + `\n... [${output.length - outputTrunc} chars truncated]`;
+      }
+      replOutputs.push(output);
+    }
+
+    // Log iteration
+    iterationsLog.push({
+      iteration: iter,
+      response: responseText.substring(0, 2000),
+      code_blocks: codeBlocks.length,
+      repl_outputs: replOutputs.map(o => o.substring(0, 1000)),
+      sub_calls: 0,
+    });
+
+    // Check for FINAL() in response text (outside code blocks)
+    finalAnswer = _rlmFindFinal(responseText);
+    if (finalAnswer) break;
+
+    // Append to conversation
+    messages.push({ role: 'assistant', content: responseText });
+
+    // Build REPL output feedback
+    if (replOutputs.length) {
+      const feedback = replOutputs.map((out, i) => `[REPL output ${i + 1}]:\n${out}`).join('\n\n');
+      messages.push({ role: 'user', content: feedback + '\n\n' + RLM_USER_CONTINUE });
+    } else {
+      messages.push({ role: 'user', content: RLM_USER_CONTINUE });
+    }
+
+    // Clear streaming preview for next iteration
+    if (isActiveFn()) {
+      const previewEl = waitEl.querySelector('.stream-preview');
+      if (previewEl) { previewEl.style.display = 'none'; previewEl.textContent = ''; }
+    }
+  }
+
+  // Parse final answer
+  let parsed = _parseRlmClientOutput(finalAnswer, iterationsLog, planHorizon);
+
+  // Force-action fallback
+  const available = _cur.currentState.available_actions || [];
+  if (!parsed && available.length) {
+    const rawReasoning = iterationsLog.length ? (iterationsLog[iterationsLog.length - 1].response || '').substring(0, 500) : '';
+    const safeAction = available.find(a => a !== 0) ?? available[0];
+    parsed = {
+      action: safeAction, data: {},
+      observation: '(RLM did not produce parseable output \u2014 forcing action)',
+      reasoning: rawReasoning || '(no reasoning captured)',
+    };
+    console.warn(`[RLM client] No parseable output after ${iterationsLog.length} iterations, forcing action=${safeAction}`);
+  }
+
+  return {
+    raw: finalAnswer || (iterationsLog.length ? iterationsLog[iterationsLog.length - 1].response || '' : ''),
+    thinking: null,
+    parsed,
+    model,
+    scaffolding: 'rlm',
+    _clientSide: true,
+    rlm: {
+      iterations: iterationsLog.length,
+      sub_calls: 0,
+      max_iterations: maxIter,
+      final_answer: finalAnswer,
+      log: iterationsLog,
+    },
+  };
+}
+
 function buildClientPrompt(state, history, changeMap, inputSettings, toolsMode, compactContext, planningMode) {
   const grid = state.grid || [];
   const parts = [];
@@ -6199,6 +6601,7 @@ function buildClientPrompt(state, history, changeMap, inputSettings, toolsMode, 
   }
 
   if (history && history.length) {
+    const reasoningTraceOn = document.getElementById('reasoningTrace')?.checked;
     const lines = history.map(h => {
       let line = `  Step ${h.step || '?'}: ${ACTION_NAMES[h.action] || '?'} -> ${h.result_state || '?'}`;
       if (h.change_map && h.change_map.change_count > 0) {
@@ -6207,6 +6610,8 @@ function buildClientPrompt(state, history, changeMap, inputSettings, toolsMode, 
       } else if (h.change_map && h.change_map.change_count === 0) {
         line += ` (no change)`;
       }
+      if (h.observation) line += ` | ${h.observation}`;
+      if (reasoningTraceOn && h.reasoning) line += `\n    Reasoning: ${h.reasoning}`;
       if (h.grid) {
         const rle = h.grid.map((r, i) => `    Row ${i}: ${compressRowJS(r)}`).join('\n');
         line += `\n${rle}`;

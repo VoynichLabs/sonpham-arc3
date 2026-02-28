@@ -161,7 +161,9 @@ _DEFAULT_CONFIG = {
         "change_map": True,
         "color_histogram": False,
         "region_map": False,
-        "history_length": 10,
+        "history_length": 0,
+        "reasoning_trace": False,
+        "max_context_tokens": 100000,
         "memory_injection": True,
         "memory_injection_max_chars": 1500,
     },
@@ -174,6 +176,7 @@ _DEFAULT_CONFIG = {
         "world_model_model": None,
         "temperature": 0.3,
         "max_tokens": 2048,
+        "planning_horizon": 1,
         "reflection_max_tokens": 1024,
         "planner_max_tokens": 4096,
         "monitor_max_tokens": 512,
@@ -184,8 +187,8 @@ _DEFAULT_CONFIG = {
         "session_log_file": "memory/sessions.json",
         "allow_inline_memory_writes": True,
         "reflect_after_game": True,
-        "condense_every": 25,
-        "condense_threshold": 50,
+        "condense_every": 0,
+        "condense_threshold": 0,
     },
 }
 
@@ -626,10 +629,14 @@ def build_context_block(
 
     # ── History ───────────────────────────────────────────────────────────
     n = ctx["history_length"]
-    if history and n > 0:
-        recent = history[-n:]
+    reasoning_trace = ctx.get("reasoning_trace", False)
+    if history and n >= 0:  # 0 = show all, positive = last N, negative = disabled
+        recent = history[-n:] if n > 0 else history
         lines = []
         for h in recent:
+            if h.get("is_summary"):
+                lines.append(f"  [Summary]: {h.get('summary', '')}")
+                continue
             action_name = ACTION_NAMES.get(h["action"], f"ACTION{h['action']}")
             data_str = ""
             if h.get("data"):
@@ -637,16 +644,14 @@ def build_context_block(
                 if "x" in d and "y" in d:
                     data_str = f"@({d['x']},{d['y']})"
             lvl = h.get("levels", "?")
-            obs_short = (h.get("observation", "") or "")[:80]
-            lines.append(f"  Step {h['step']:3d}: {action_name}{data_str} -> levels={lvl}  | {obs_short}")
-        # Include any condensed summaries at the front
-        condensed = [h for h in history if h.get("is_summary")]
-        summary_block = ""
-        if condensed:
-            summary_block = "\n  [Earlier summary]:\n" + "\n".join(
-                f"    {s['summary']}" for s in condensed
-            ) + "\n"
-        parts.append(f"## HISTORY (last {n} of {len(history)} steps){summary_block}\n" + "\n".join(lines))
+            obs = (h.get("observation", "") or "")[:500]
+            line = f"  Step {h['step']:3d}: {action_name}{data_str} -> levels={lvl}  | {obs}"
+            if reasoning_trace and h.get("reasoning"):
+                line += f"\n    Reasoning: {h['reasoning'][:500]}"
+            lines.append(line)
+        non_summary = [h for h in recent if not h.get("is_summary")]
+        label = f"all {len(non_summary)}" if n == 0 else f"last {len(non_summary)} of {len(history)}"
+        parts.append(f"## HISTORY ({label} steps)\n" + "\n".join(lines))
 
     # ── Change map ────────────────────────────────────────────────────────
     if ctx["change_map"] and prev_grid:
@@ -670,8 +675,8 @@ def build_context_block(
     return "\n\n".join(parts)
 
 
-def build_action_prompt(context_block: str) -> str:
-    return f"""{ARC_AGI3_DESCRIPTION}
+def build_action_prompt(context_block: str, planning_horizon: int = 1) -> str:
+    header = f"""{ARC_AGI3_DESCRIPTION}
 
 COLOR PALETTE: 0=White 1=LightGray 2=Gray 3=DarkGray 4=VeryDarkGray 5=Black
                6=Magenta 7=LightMagenta 8=Red 9=Blue 10=LightBlue 11=Yellow
@@ -683,7 +688,23 @@ YOUR TASK
 ---------
 1. Identify key objects (character, walls, targets, items).
 2. Determine what must happen next to make progress.
-3. Choose the best action.
+3. Choose the best action."""
+
+    if planning_horizon > 1:
+        return header + f"""
+
+You may plan up to {planning_horizon} actions ahead. If the next steps are obvious (e.g. "move right 3 times"), include them all. If unsure, just include 1 action.
+
+Respond with EXACTLY this JSON (nothing else):
+{{"observation": "<what you see>", "reasoning": "<your plan>", "actions": [{{"action": <number>, "data": {{}}}}], "memory_update": null}}
+
+Rules:
+- "actions" is an array of 1-{planning_horizon} action objects, each with "action" (int 0-7) and "data".
+- For ACTION6 set "data" to {{"x": <0-63>, "y": <0-63>}}.
+- For all other actions set "data" to {{}}.
+- "memory_update": if you discovered a NEW rule/fact worth remembering, write it as a short string (≤ 120 chars). Otherwise null."""
+    else:
+        return header + """
 
 Respond with EXACTLY this JSON (nothing else):
 {{"observation": "<what you see>", "reasoning": "<your plan>", "action": <number>, "data": {{}}, "memory_update": null}}
@@ -706,11 +727,15 @@ def condense_history(history: list[dict], cfg: dict) -> list[dict]:
         return history
 
     model_key = effective_model(cfg, "condenser")
+    reasoning_trace = cfg.get("context", {}).get("reasoning_trace", False)
     lines = []
     for h in raw_entries:
         aname = ACTION_NAMES.get(h["action"], f"ACTION{h['action']}")
-        obs = (h.get("observation", "") or "")[:60]
-        lines.append(f"Step {h['step']}: {aname} -> levels={h.get('levels','?')}  | {obs}")
+        obs = (h.get("observation", "") or "")[:300]
+        line = f"Step {h['step']}: {aname} -> levels={h.get('levels','?')}  | {obs}"
+        if reasoning_trace and h.get("reasoning"):
+            line += f" | reasoning: {h['reasoning'][:300]}"
+        lines.append(line)
 
     prompt = (
         "You are summarising an ARC-AGI-3 game history for an AI agent.\n\n"
@@ -860,10 +885,53 @@ def _fallback_parse(raw: str, available: list[int], cfg: dict,
     return None
 
 
+def _force_extract_action(raw: str, available: list[int], cfg: dict,
+                          executor_model: str) -> dict | None:
+    """Last-resort: ask a cheap model to pick the most conservative action
+    from unparseable output. Returns parsed dict or None."""
+    fallback_model = None
+    for m in FALLBACK_PARSE_MODELS:
+        if m == executor_model:
+            continue
+        info = MODELS.get(m)
+        if not info:
+            continue
+        env_key = info.get("env_key", "")
+        if not env_key or os.environ.get(env_key):
+            fallback_model = m
+            break
+    if not fallback_model:
+        return None
+
+    non_reset = [a for a in available if a != 0]
+    safe_default = non_reset[0] if non_reset else (available[0] if available else 1)
+
+    prompt = (
+        "An LLM was asked to pick a game action and respond with JSON, but its "
+        "response was completely unparseable. Extract the most likely intended action "
+        "from the raw output below. If you truly cannot determine one, pick the most "
+        f"conservative action (use {safe_default}).\n\n"
+        f"Available actions: {available}\n"
+        f"Raw response (may be truncated):\n{raw[:2000]}\n\n"
+        "Respond with ONLY valid JSON:\n"
+        '{"action": <int>, "data": {}, "observation": "<best guess of what model saw>", '
+        '"reasoning": "<best guess of what model intended>"}'
+    )
+    try:
+        result = call_model(fallback_model, prompt, cfg, role="executor")
+        parsed = _parse_json(result["text"])
+        if parsed and "action" in parsed:
+            print(f"  [force-action] extracted action={parsed['action']} via {fallback_model}")
+            return parsed
+    except Exception as e:
+        print(f"  [force-action] failed: {e}")
+    return None
+
+
 def _fallback_action(available: list[int]) -> int:
-    import random
+    """Absolute last resort: pick first non-RESET action deterministically."""
     candidates = [a for a in available if a != 0]
-    return random.choice(candidates) if candidates else (available[0] if available else 1)
+    return candidates[0] if candidates else (available[0] if available else 1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -878,9 +946,12 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
     print(f"  Context: grid={cfg['context']['full_grid']} change={cfg['context']['change_map']} "
           f"hist={cfg['context']['history_length']} "
           f"hist_cmap={cfg['context']['color_histogram']} region={cfg['context']['region_map']}")
+    planning_horizon = cfg["reasoning"].get("planning_horizon", 1)
     print(f"  Memory:  inject={cfg['context']['memory_injection']} "
           f"condense_every={cfg['memory']['condense_every']} "
           f"reflect={cfg['memory']['reflect_after_game']}")
+    if planning_horizon > 1:
+        print(f"  Planning horizon: {planning_horizon}")
     print(f"{'='*65}\n")
 
     env = arcade.make(game_id)
@@ -918,11 +989,18 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
 
         # ── Context condensation ────────────────────────────────────────
         raw_history_len = sum(1 for h in history if not h.get("is_summary"))
+        # Step-count triggers (legacy, disabled when 0)
         should_condense = (
             condense_every > 0 and steps_since_condense >= condense_every
         ) or (
             condense_threshold > 0 and raw_history_len >= condense_threshold
         )
+        # Token-based trigger: compact when history portion exceeds ~60% of budget
+        max_ctx_tokens = cfg["context"].get("max_context_tokens", 100000)
+        if max_ctx_tokens > 0 and raw_history_len > 0 and not should_condense:
+            estimated_tokens = len(str(history)) // 4  # rough estimate
+            if estimated_tokens > max_ctx_tokens * 0.6:
+                should_condense = True
         if should_condense and raw_history_len > 0:
             history = condense_history(history, cfg)
             steps_since_condense = 0
@@ -932,20 +1010,22 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
             grid, state_str, available, levels_done, win_levels,
             game_id, history, cfg, prev_grid, hard_memory,
         )
-        prompt = build_action_prompt(context_block)
+        prompt = build_action_prompt(context_block, planning_horizon)
 
         # ── Call LLM ────────────────────────────────────────────────────
         model_key = effective_model(cfg, "executor")
+        turn_start_time = time.time()
         llm_result = call_model_with_metadata(model_key, prompt, cfg, role="executor")
         raw = llm_result.text
         elapsed = llm_result.duration_ms / 1000
+        turn_num = step_num + 1  # turn number before executing any steps
 
         if session_id:
             from db import _log_llm_call
             _log_llm_call(
                 session_id, "executor", model_key,
                 step_num=step_num + 1,
-                turn_num=step_num + 1,
+                turn_num=turn_num,
                 prompt_preview=prompt[:500],
                 prompt_length=len(prompt),
                 response_preview=(raw or "")[:1000],
@@ -959,14 +1039,18 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
         parsed = _parse_json(raw) if raw else None
         if parsed is None and raw:
             parsed = _fallback_parse(raw, available, cfg, model_key)
+        if parsed is None and raw:
+            parsed = _force_extract_action(raw, available, cfg, model_key)
+        raw_reasoning_saved = None
         if parsed is None:
             action_id = _fallback_action(available)
             action_data = {}
             observation = "parse error / LLM unavailable"
             reasoning = "fallback"
+            if raw:
+                raw_reasoning_saved = raw[:2000]
+                print(f"  [force-action] could not parse, forcing action={action_id}, reasoning saved")
         else:
-            action_id = parsed.get("action", 1)
-            action_data = parsed.get("data") or {}
             observation = parsed.get("observation", "")
             reasoning = parsed.get("reasoning", "")
             memory_update = parsed.get("memory_update")
@@ -982,71 +1066,113 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
                 hard_memory = load_hard_memory(cfg)  # reload
                 print(f"  [memory inline] {memory_update[:80]}")
 
-        # Validate action
-        if action_id not in available:
-            action_id = available[0] if available else 1
+        # ── Build action list ─────────────────────────────────────────
+        # Multi-action: parse "actions" array; single-action: wrap single "action"
+        if parsed and "actions" in parsed and isinstance(parsed["actions"], list):
+            action_list = []
+            for a in parsed["actions"][:planning_horizon]:
+                aid = a.get("action", 1) if isinstance(a, dict) else int(a)
+                adata = (a.get("data") or {}) if isinstance(a, dict) else {}
+                action_list.append((aid, adata))
+        elif parsed:
+            action_list = [(parsed.get("action", 1), parsed.get("data") or {})]
+        else:
+            action_list = [(action_id, action_data)]
 
-        # ── Execute ─────────────────────────────────────────────────────
-        try:
-            action = GameAction.from_id(int(action_id))
-        except (ValueError, KeyError):
-            action = GameAction.ACTION1
+        # ── Execute action(s) ─────────────────────────────────────────
+        steps_planned = len(action_list)
+        steps_executed = 0
+        turn_step_start = step_num + 1
+        terminal_hit = False
 
-        step_num += 1
-        steps_since_condense += 1
-        aname = ACTION_NAMES.get(action_id, f"ACTION{action_id}")
-        coord_str = f"@({action_data.get('x','?')},{action_data.get('y','?')})" if action_id == 6 and action_data else ""
-        print(f"  Step {step_num:3d} | {aname}{coord_str:12s} | lvl {levels_done}/{win_levels} | {elapsed:.1f}s")
-        if observation:
-            print(f"           obs: {observation[:100]}")
-        if reasoning:
-            print(f"           why: {reasoning[:100]}")
+        for action_idx, (act_id, act_data) in enumerate(action_list):
+            # Validate action against currently available actions
+            if act_id not in available:
+                act_id = available[0] if available else 1
 
-        prev_grid = grid
-        frame = env.step(action, data=action_data or None, reasoning=reasoning)
-        if frame is None:
-            print("  [ERROR] env.step returned None")
-            break
-
-        new_levels = frame.levels_completed if frame else levels_done
-        new_grid = frame.frame[-1].tolist() if frame.frame else grid
-        state_val = frame.state.value if frame and hasattr(frame.state, "value") else "?"
-        history.append({
-            "step": step_num,
-            "action": action_id,
-            "data": action_data,
-            "state": state_val,
-            "levels": new_levels,
-            "observation": observation,
-        })
-
-        # Invoke step callback (used by batch_runner for DB persistence)
-        if step_callback:
-            llm_resp = {"observation": observation, "reasoning": reasoning,
-                        "action": action_id, "data": action_data} if parsed else None
             try:
-                step_callback(
-                    session_id=session_id, step_num=step_num,
-                    action=action_id, data=action_data,
-                    grid=new_grid, llm_response=llm_resp,
-                    state=state_val, levels=new_levels,
-                )
-            except Exception as cb_err:
-                print(f"  [callback error] {cb_err}")
+                action = GameAction.from_id(int(act_id))
+            except (ValueError, KeyError):
+                action = GameAction.ACTION1
 
-        # Log single-agent turn (1 turn = 1 step)
+            step_num += 1
+            steps_since_condense += 1
+            steps_executed += 1
+            aname = ACTION_NAMES.get(act_id, f"ACTION{act_id}")
+            coord_str = f"@({act_data.get('x','?')},{act_data.get('y','?')})" if act_id == 6 and act_data else ""
+            plan_tag = f" [{action_idx+1}/{steps_planned}]" if steps_planned > 1 else ""
+            print(f"  Step {step_num:3d} | {aname}{coord_str:12s} | lvl {levels_done}/{win_levels} | {elapsed:.1f}s{plan_tag}")
+            if action_idx == 0:
+                if observation:
+                    print(f"           obs: {observation[:100]}")
+                if reasoning:
+                    print(f"           why: {reasoning[:100]}")
+                if raw_reasoning_saved:
+                    print(f"           raw: {raw_reasoning_saved[:100]}...")
+
+            prev_grid = grid
+            frame = env.step(action, data=act_data or None, reasoning=reasoning if action_idx == 0 else None)
+            if frame is None:
+                print("  [ERROR] env.step returned None")
+                terminal_hit = True
+                break
+
+            new_levels = frame.levels_completed if frame else levels_done
+            new_grid = frame.frame[-1].tolist() if frame.frame else grid
+            state_val = frame.state.value if frame and hasattr(frame.state, "value") else "?"
+            levels_done = new_levels
+            grid = new_grid
+            available = frame.available_actions
+
+            hist_entry = {
+                "step": step_num,
+                "action": act_id,
+                "data": act_data,
+                "state": state_val,
+                "levels": new_levels,
+                "observation": observation if action_idx == 0 else "",
+                "reasoning": reasoning if action_idx == 0 else "",
+            }
+            if raw_reasoning_saved and action_idx == 0:
+                hist_entry["raw_reasoning"] = raw_reasoning_saved
+            history.append(hist_entry)
+
+            # Invoke step callback (used by batch_runner for DB persistence)
+            if step_callback:
+                llm_resp = {"observation": observation, "reasoning": reasoning,
+                            "action": act_id, "data": act_data} if parsed else None
+                try:
+                    step_callback(
+                        session_id=session_id, step_num=step_num,
+                        action=act_id, data=act_data,
+                        grid=new_grid, llm_response=llm_resp,
+                        state=state_val, levels=new_levels,
+                    )
+                except Exception as cb_err:
+                    print(f"  [callback error] {cb_err}")
+
+            # Check for terminal state — break plan early
+            if frame.state in (GameState.WIN, GameState.GAME_OVER):
+                terminal_hit = True
+                break
+
+            # Check step budget
+            if step_num >= max_steps:
+                break
+
+        # Log single-agent turn (1 turn, possibly multiple steps)
         if session_id:
             from db import _log_turn as _log_turn_db
             _log_turn_db(
-                session_id, step_num, "single_agent",
+                session_id, turn_num, "single_agent",
                 goal=reasoning,
-                steps_planned=1, steps_executed=1,
-                step_start=step_num, step_end=step_num,
+                steps_planned=steps_planned, steps_executed=steps_executed,
+                step_start=turn_step_start, step_end=step_num,
                 llm_calls=1,
                 total_input_tokens=llm_result.input_tokens,
                 total_output_tokens=llm_result.output_tokens,
                 total_duration_ms=llm_result.duration_ms,
-                timestamp_start=time.time() - elapsed,
+                timestamp_start=turn_start_time,
                 timestamp_end=time.time(),
             )
 
@@ -1088,6 +1214,8 @@ def main() -> None:
     parser.add_argument("--list-models", action="store_true")
     parser.add_argument("--show-config", action="store_true", help="Print resolved config and exit")
     parser.add_argument("--scaffolding", action="store_true", help="Use 3-system scaffold agent")
+    parser.add_argument("--planning-horizon", type=int, default=None,
+                        help="Max actions per LLM call (1=single-action, >1=multi-action planning)")
     args = parser.parse_args()
 
     cfg = load_config(Path(args.config) if args.config else None)
@@ -1095,6 +1223,8 @@ def main() -> None:
     # CLI overrides
     if args.model:
         cfg["reasoning"]["executor_model"] = args.model
+    if args.planning_horizon is not None:
+        cfg["reasoning"]["planning_horizon"] = args.planning_horizon
 
     if args.list_models:
         print("\nAvailable models:\n")

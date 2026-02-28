@@ -278,17 +278,23 @@ class PlannerSystem:
 
         history_block = ""
         n = ctx.cfg["context"]["history_length"]
-        if ctx.history and n > 0:
-            recent = ctx.history[-n:]
+        reasoning_trace = ctx.cfg["context"].get("reasoning_trace", False)
+        if ctx.history and n >= 0:  # 0 = show all, positive = last N
+            recent = ctx.history[-n:] if n > 0 else ctx.history
             lines = []
             for h in recent:
                 if h.get("is_summary"):
-                    lines.append(f"  [Summary]: {h.get('summary', '')[:120]}")
+                    lines.append(f"  [Summary]: {h.get('summary', '')}")
                     continue
                 aname = ACTION_NAMES.get(h["action"], f"ACTION{h['action']}")
-                obs = (h.get("observation", "") or "")[:80]
-                lines.append(f"  Step {h['step']:3d}: {aname} -> levels={h.get('levels','?')} | {obs}")
-            history_block = f"## HISTORY (last {len(recent)})\n" + "\n".join(lines)
+                obs = (h.get("observation", "") or "")[:500]
+                line = f"  Step {h['step']:3d}: {aname} -> levels={h.get('levels','?')} | {obs}"
+                if reasoning_trace and h.get("reasoning"):
+                    line += f"\n    Reasoning: {h['reasoning'][:500]}"
+                lines.append(line)
+            non_summary = [h for h in recent if not h.get("is_summary")]
+            label = f"all {len(non_summary)}" if n == 0 else f"last {len(non_summary)}"
+            history_block = f"## HISTORY ({label})\n" + "\n".join(lines)
 
         change_map_block = ""
         if ctx.prev_grid:

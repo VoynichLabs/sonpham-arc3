@@ -89,6 +89,12 @@ def play_game_scaffold(arcade, game_id: str, cfg: dict, max_steps: int = 200,
         ) or (
             condense_threshold > 0 and raw_history_len >= condense_threshold
         )
+        # Token-based trigger: compact when history portion exceeds ~60% of budget
+        max_ctx_tokens = cfg["context"].get("max_context_tokens", 100000)
+        if max_ctx_tokens > 0 and raw_history_len > 0 and not should_condense:
+            estimated_tokens = len(str(ctx.history)) // 4
+            if estimated_tokens > max_ctx_tokens * 0.6:
+                should_condense = True
         if should_condense and raw_history_len > 0:
             ctx.history = condense_history(ctx.history, cfg)
             ctx.steps_since_condense = 0
@@ -184,6 +190,7 @@ def play_game_scaffold(arcade, game_id: str, cfg: dict, max_steps: int = 200,
                 "state": ctx.state_str,
                 "levels": ctx.levels_done,
                 "observation": expected,
+                "reasoning": ctx.plan_goal,
             })
 
             # Step callback (batch_runner DB persistence)

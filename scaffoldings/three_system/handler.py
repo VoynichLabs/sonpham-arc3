@@ -368,17 +368,19 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
         f"{a}={action_names.get(a, f'ACTION{a}')}" for a in context["available_actions"]
     )
 
-    # History block
+    # History block — show all history (client controls length)
     history_block = ""
     hist = context["history"]
     if hist:
-        recent = hist[-15:]
         lines = []
-        for h in recent:
+        for h in hist:
             aname = action_names.get(h.get("action", 0), "?")
-            obs = (h.get("observation", "") or "")[:80]
-            lines.append(f"  Step {h.get('step', '?'):3d}: {aname} -> levels={h.get('levels', '?')} | {obs}")
-        history_block = f"## HISTORY (last {len(recent)})\n" + "\n".join(lines)
+            obs = (h.get("observation", "") or "")[:500]
+            line = f"  Step {h.get('step', '?'):3d}: {aname} -> levels={h.get('levels', '?')} | {obs}"
+            if h.get("reasoning"):
+                line += f"\n    Reasoning: {h['reasoning'][:500]}"
+            lines.append(line)
+        history_block = f"## HISTORY (all {len(hist)})\n" + "\n".join(lines)
 
     # Change map block
     change_map_block = ""
