@@ -2,7 +2,7 @@
 
 import re
 
-RLM_SYSTEM_PROMPT = """\
+_RLM_SYSTEM_PROMPT_TEMPLATE = """\
 You are tasked with answering a query about a game environment. You can access, transform, \
 and analyze the game context interactively in a REPL environment that can recursively query \
 sub-LLMs. You will be queried iteratively until you provide a final answer.
@@ -15,18 +15,35 @@ available_actions, levels_completed, win_levels, game_id, compact_context.
 4. `SHOW_VARS()` — lists all variables you've created in the REPL.
 5. `print()` to view REPL output.
 
-Write code in ```repl blocks (not ```python). Variables persist across iterations.
+Write code in ```repl blocks (not ```python). Variables persist across iterations AND \
+across turns — any variables you create will still be available in the next turn's REPL. \
+Use this to build up game knowledge (e.g. storing discovered rules, mapping actions).
 
 When you have determined the best action, call FINAL() with a JSON object:
-  FINAL({"action": <int>, "reasoning": "...", "observation": "..."})
+  FINAL({{"action": <int>, "reasoning": "...", "observation": "..."}})
 
-For multi-step plans:
-  FINAL({"plan": [{"action": <int>, "observation": "..."}, ...], "reasoning": "..."})
-
+{plan_instructions}\
 Or use FINAL_VAR(variable_name) to return a variable containing the JSON.
 
 IMPORTANT: The action must be one of the available_actions integers. \
 Do NOT provide a final answer until you have analyzed the game state."""
+
+
+def build_rlm_system_prompt(planning_horizon: int = 1) -> str:
+    """Build the RLM system prompt with planning horizon."""
+    if planning_horizon > 1:
+        plan_instructions = (
+            f"For multi-step plans (up to {planning_horizon} steps ahead):\n"
+            f"  FINAL({{\"plan\": [{{\"action\": <int>, \"observation\": \"...\"}}, ...], \"reasoning\": \"...\"}})\n"
+            f"Plan up to {planning_horizon} steps ahead if the next moves are obvious.\n\n"
+        )
+    else:
+        plan_instructions = ""
+    return _RLM_SYSTEM_PROMPT_TEMPLATE.format(plan_instructions=plan_instructions)
+
+
+# Default for backward compatibility
+RLM_SYSTEM_PROMPT = build_rlm_system_prompt(1)
 
 RLM_USER_PROMPT_FIRST = """\
 Your game context is stored in the `context` variable (dict). It contains:
