@@ -308,6 +308,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
     max_plan = int(settings.get("max_plan_length", 15))
     min_plan = int(settings.get("min_plan_length", 3))
     wm_update_every = int(settings.get("wm_update_every", 5))
+    logger.info(f"[ts_planner] min_plan={min_plan}, max_plan={max_plan}, max_turns={max_turns}, wm_enabled={wm_enabled}")
     wm_model = settings.get("wm_model")  # empty/None = WM disabled (two_system mode)
     wm_enabled = bool(wm_model)
     scaffolding_type = settings.get("scaffolding", "three_system")
@@ -502,14 +503,22 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
                         "expected": step.get("expected", ""),
                     })
 
+            logger.info(f"[ts_planner] LLM committed {len(plan)} raw actions, {len(valid_plan)} valid (min_plan={min_plan})")
             if len(valid_plan) < min_plan:
+                pad_count = min_plan - len(valid_plan)
                 exploratory = [a for a in context["available_actions"] if a != 0]
                 idx = 0
                 while len(valid_plan) < min_plan and exploratory:
                     valid_plan.append({"action": exploratory[idx % len(exploratory)], "data": {}, "expected": "explore"})
                     idx += 1
+                logger.info(f"[ts_planner] padded {pad_count} exploratory actions -> {len(valid_plan)} total")
 
-            planner_log.append({"turn": turn, "type": "commit", "plan_length": len(valid_plan), "duration_ms": dur_ms})
+            planner_log.append({
+                "turn": turn, "type": "commit",
+                "plan_length": len(valid_plan),
+                "raw_plan_length": len(plan),
+                "duration_ms": dur_ms,
+            })
 
             total_dur = int((time.time() - t0_total) * 1000)
             return {
@@ -534,8 +543,14 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
             }
 
     # ── Fallback: max turns reached or errors — return exploratory plan ──
+    logger.info(f"[ts_planner] FALLBACK — planner did not commit, using exploratory plan (min_plan={min_plan})")
     exploratory = [a for a in context["available_actions"] if a != 0]
-    fallback_plan = [{"action": a, "data": {}, "expected": "explore"} for a in exploratory[:6]]
+    fallback_plan = []
+    idx = 0
+    target = max(min_plan, 6)
+    while len(fallback_plan) < target and exploratory:
+        fallback_plan.append({"action": exploratory[idx % len(exploratory)], "data": {}, "expected": "explore"})
+        idx += 1
     total_dur = int((time.time() - t0_total) * 1000)
 
     return {

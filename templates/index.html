@@ -4952,7 +4952,10 @@ async function askLLM(ss) {
           } else if (lg.type === 'analyze') {
             return `<div class="ts-col-row ts-analyze">analyze: ${lg.tool || '?'}${dur}</div>`;
           } else if (lg.type === 'commit') {
-            return `<div class="ts-col-row ts-commit">commit: ${lg.plan_length || '?'} steps${dur}</div>`;
+            const rawLen = lg.raw_plan_length;
+            const padNote = rawLen !== undefined && rawLen < (lg.plan_length || 0)
+              ? ` <span style="color:var(--yellow);font-size:8px;">(LLM: ${rawLen}, padded)</span>` : '';
+            return `<div class="ts-col-row ts-commit">commit: ${lg.plan_length || '?'} steps${padNote}${dur}</div>`;
           } else if (lg.type === 'error') {
             return `<div class="ts-col-row" style="color:var(--red);">error${dur}</div>`;
           }
@@ -5241,6 +5244,15 @@ async function executePlan(plan, resp, entry, expected, ss) {
             }),
           });
           const monData = await monResp.json();
+          // Show monitor verdict inline on plan step
+          if (isActive() && planSteps[i]) {
+            const monDur = monData.duration_ms ? `${(monData.duration_ms/1000).toFixed(1)}s` : '';
+            const monColor = monData.verdict === 'REPLAN' ? 'var(--yellow)' : 'var(--dim)';
+            const monLabel = document.createElement('div');
+            monLabel.style.cssText = `font-size:9px;color:${monColor};margin-top:1px;`;
+            monLabel.textContent = `${monData.verdict}${monData.reason ? ': ' + monData.reason : ''} ${monDur}`;
+            planSteps[i].appendChild(monLabel);
+          }
           if (monData.verdict === 'REPLAN') {
             if (isActive()) {
               for (let j = i + 1; j < plan.length; j++)
