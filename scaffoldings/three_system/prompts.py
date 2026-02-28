@@ -33,6 +33,39 @@ Rules:
 - For ACTION6, set "data" to {{"x": <0-63>, "y": <0-63>}}.
 - Always commit a plan before your turns run out."""
 
+# Variant without World Model (for 2-System scaffolding)
+PLANNER_SYSTEM_PROMPT_BODY_NO_WM = """\
+You are the PLANNER — you decide what actions to take in the game.
+You have analysis tools to inspect the current grid.
+
+Each turn, respond with EXACTLY one JSON object (no markdown, no extra text):
+
+Option 1 — Analyze the current grid:
+{{"type": "analyze", "tool": "<region_map|histogram|change_map>"}}
+
+Option 2 — Commit a plan to execute:
+{{"type": "commit", "observation": "<what you see>", "reasoning": "<your reasoning>", "goal": "<what you're trying to achieve>", "plan": [{{"action": <int>, "data": {{}}, "expected": "<what should happen>"}}]}}
+
+Rules:
+- Early in the game, explore systematically (try each action direction).
+- Plans should be 3-15 actions long.
+- For ACTION6, set "data" to {{"x": <0-63>, "y": <0-63>}}.
+- Always commit a plan before your turns run out."""
+
+PLANNER_CONTEXT_TEMPLATE_NO_WM = """## CURRENT STATE
+Game: {game_id} | State: {state} | Levels: {levels_done}/{win_levels} | Step: {step_num}
+Available actions: {action_desc}
+
+{memory_block}
+{history_block}
+{change_map_block}
+{grid_block}
+
+## YOUR TASK
+Plan your next sequence of actions. You can analyze the grid for more info,
+or commit a plan when ready.
+Turn {turn_num}/{max_turns} — commit before running out of turns."""
+
 PLANNER_CONTEXT_TEMPLATE = """## CURRENT STATE
 Game: {game_id} | State: {state} | Levels: {levels_done}/{win_levels} | Step: {step_num}
 Available actions: {action_desc}

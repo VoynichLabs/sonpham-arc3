@@ -6,7 +6,9 @@ import time
 
 from scaffoldings.three_system.prompts import (
     PLANNER_SYSTEM_PROMPT_BODY,
+    PLANNER_SYSTEM_PROMPT_BODY_NO_WM,
     PLANNER_CONTEXT_TEMPLATE,
+    PLANNER_CONTEXT_TEMPLATE_NO_WM,
     WORLD_MODEL_SYSTEM_PROMPT,
     WORLD_MODEL_CONTEXT_TEMPLATE,
     MONITOR_PROMPT_TEMPLATE,
@@ -305,6 +307,9 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
     max_turns = int(settings.get("planner_max_turns", 10))
     max_plan = int(settings.get("max_plan_length", 15))
     wm_update_every = int(settings.get("wm_update_every", 5))
+    wm_model = settings.get("wm_model")  # empty/None = WM disabled (two_system mode)
+    wm_enabled = bool(wm_model)
+    scaffolding_type = settings.get("scaffolding", "three_system")
 
     # Injected deps for sub-functions
     deps = dict(
@@ -328,14 +333,17 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
         "compact_context": payload.get("compact_context", ""),
     }
 
-    # ── 1. World Model update if enough observations ──
+    # ── 1. World Model update if enough observations (skip if WM disabled) ──
     wm_info = {"ran_update": False, "wm_log": [], "rules_version": ss["rules_version"], "rules_preview": (ss["rules_doc"] or "")[:200]}
-    if len(ss["observations"]) >= wm_update_every:
+    if wm_enabled and len(ss["observations"]) >= wm_update_every:
         wm_info = ts_run_wm_update(ss, context, settings, session_id, **deps)
 
     # ── 2. Planner REPL ──
     # Build the full planner system prompt with ARC_AGI3_DESCRIPTION
-    planner_system_prompt = arc_agi3_description + "\n\n" + PLANNER_SYSTEM_PROMPT_BODY
+    if wm_enabled:
+        planner_system_prompt = arc_agi3_description + "\n\n" + PLANNER_SYSTEM_PROMPT_BODY
+    else:
+        planner_system_prompt = arc_agi3_description + "\n\n" + PLANNER_SYSTEM_PROMPT_BODY_NO_WM
 
     action_desc = ", ".join(
         f"{a}={action_names.get(a, f'ACTION{a}')}" for a in context["available_actions"]
@@ -372,21 +380,36 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
     planner_log = []
 
     for turn in range(1, max_turns + 1):
-        ctx_text = PLANNER_CONTEXT_TEMPLATE.format(
-            game_id=context["game_id"],
-            state=context["state"],
-            levels_done=context.get("levels_completed", 0),
-            win_levels=context.get("win_levels", 0),
-            step_num=context.get("step_num", 0),
-            action_desc=action_desc,
-            memory_block="",
-            history_block=history_block,
-            change_map_block=change_map_block,
-            grid_block=grid_block,
-            rules_version=ss["rules_version"],
-            rules_doc=rules_doc,
-            turn_num=turn, max_turns=max_turns,
-        )
+        if wm_enabled:
+            ctx_text = PLANNER_CONTEXT_TEMPLATE.format(
+                game_id=context["game_id"],
+                state=context["state"],
+                levels_done=context.get("levels_completed", 0),
+                win_levels=context.get("win_levels", 0),
+                step_num=context.get("step_num", 0),
+                action_desc=action_desc,
+                memory_block="",
+                history_block=history_block,
+                change_map_block=change_map_block,
+                grid_block=grid_block,
+                rules_version=ss["rules_version"],
+                rules_doc=rules_doc,
+                turn_num=turn, max_turns=max_turns,
+            )
+        else:
+            ctx_text = PLANNER_CONTEXT_TEMPLATE_NO_WM.format(
+                game_id=context["game_id"],
+                state=context["state"],
+                levels_done=context.get("levels_completed", 0),
+                win_levels=context.get("win_levels", 0),
+                step_num=context.get("step_num", 0),
+                action_desc=action_desc,
+                memory_block="",
+                history_block=history_block,
+                change_map_block=change_map_block,
+                grid_block=grid_block,
+                turn_num=turn, max_turns=max_turns,
+            )
         if conversation:
             ctx_text += "\n\n## PLANNER CONVERSATION\n" + "\n\n".join(conversation)
 
@@ -424,6 +447,10 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
         msg_type = parsed["type"]
 
         if msg_type == "simulate":
+            if not wm_enabled:
+                conversation.append(f"[Turn {turn}] No World Model available — cannot simulate. Use 'analyze' or 'commit' instead.")
+                planner_log.append({"turn": turn, "type": "simulate_skipped", "duration_ms": dur_ms})
+                continue
             actions = parsed.get("actions", [])
             question = parsed.get("question", "")
             predictions = ts_simulate_actions(actions, ss, context, settings, session_id,
@@ -492,7 +519,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
                     "plan": valid_plan,
                 },
                 "model": planner_model,
-                "scaffolding": "three_system",
+                "scaffolding": scaffolding_type,
                 "three_system": {
                     "turn": ss["turn_count"],
                     "goal": goal,
@@ -518,7 +545,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
             "plan": fallback_plan,
         },
         "model": planner_model,
-        "scaffolding": "three_system",
+        "scaffolding": scaffolding_type,
         "_fallbackAction": True,
         "three_system": {
             "turn": ss["turn_count"],

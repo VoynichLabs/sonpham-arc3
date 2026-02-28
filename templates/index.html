@@ -1270,6 +1270,90 @@ const SCAFFOLDING_SCHEMAS = {
         }
       }
     ]
+  },
+
+  two_system: {
+    id: 'two_system',
+    name: '2-System (PM)',
+    description: 'Planner reasons via analysis, Monitor checks each step. No World Model.',
+    pipeline: [
+      { id: 'planner', label: 'Planner', color: 'var(--accent)', settingsRef: 'planner_model' },
+      { id: 'executor', label: 'Executor', color: 'var(--green)', settingsRef: null },
+      { id: 'monitor', label: 'Monitor', color: 'var(--yellow)', settingsRef: 'monitor_model' },
+    ],
+    edges: [
+      { from: 'planner', to: 'executor', label: 'commit plan' },
+      { from: 'executor', to: 'monitor', label: 'check step' },
+      { from: 'monitor', to: 'planner', label: 'replan' },
+    ],
+    sections: [
+      {
+        id: 'sf_2s_secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
+        fields: [
+          { type: 'toggle', id: 'sf_2s_inputGrid', label: 'Full grid (RLE)', default: true },
+          { type: 'toggle', id: 'sf_2s_inputImage', label: 'Image', default: false },
+          { type: 'toggle', id: 'sf_2s_inputDiff', label: 'Diff (change map)', default: true },
+          { type: 'toggle', id: 'sf_2s_inputHistogram', label: 'Color histogram', default: false },
+        ]
+      },
+      {
+        id: 'sf_2s_secPlanner', label: 'Planner', open: true,
+        groups: [{
+          subHeader: 'Planner Model',
+          fields: [
+            { type: 'model-select', id: 'sf_2s_plannerModelSelect', capsId: 'sf_2s_plannerModelCaps' },
+            { type: 'grid-2col', marginBottom: '8px', children: [
+              { type: 'quadswitch', id: 'sf_2s_plannerThinking', name: 'sf_2s_plannerThinking', label: 'Thinking',
+                options: [{v:'off',l:'Off'},{v:'low',l:'Low',checked:true},{v:'med',l:'Med'},{v:'high',l:'High'}],
+                hint: 'Thinking token budget' },
+              { type: 'number-spin', id: 'sf_2s_plannerMaxTokens', label: 'Max tokens',
+                default: 16384, min: 1024, max: 65536, step: 1024, spinFn: null, inline: true },
+            ]},
+          ]
+        }]
+      },
+      {
+        id: 'sf_2s_secMonitor', label: 'Monitor', open: true,
+        groups: [{
+          subHeader: 'Monitor Model',
+          fields: [
+            { type: 'model-select', id: 'sf_2s_monitorModelSelect', capsId: 'sf_2s_monitorModelCaps' },
+            { type: 'grid-2col', marginBottom: '8px', children: [
+              { type: 'quadswitch', id: 'sf_2s_monitorThinking', name: 'sf_2s_monitorThinking', label: 'Thinking',
+                options: [{v:'off',l:'Off',checked:true},{v:'low',l:'Low'},{v:'med',l:'Med'},{v:'high',l:'High'}],
+                hint: 'Thinking token budget' },
+              { type: 'number-spin', id: 'sf_2s_monitorMaxTokens', label: 'Max tokens',
+                default: 4096, min: 1024, max: 16384, step: 1024, spinFn: null, inline: true },
+            ]},
+          ]
+        }]
+      },
+      {
+        id: 'sf_2s_secParams', label: 'Parameters', open: true,
+        groups: [{
+          subHeader: 'Tuning',
+          fields: [
+            { type: 'number-input', id: 'sf_2s_plannerMaxTurns', label: 'Planner max turns', default: 10, min: 1, max: 15, width: '55px' },
+            { type: 'number-input', id: 'sf_2s_maxPlanLength', label: 'Max plan length', default: 15, min: 3, max: 30, width: '55px' },
+          ]
+        }]
+      },
+      {
+        id: 'sf_2s_secKeys', label: 'Model Keys', open: true,
+        customHtml: function() {
+          let h = '<div id="sf_2s_keysHint" style="padding:8px 0;font-size:11px;color:var(--text-dim);font-style:italic;">Required keys will appear when models are selected.</div>';
+          h += '<div id="sf_2s_plannerByokPrompt" class="scaffold-byok" style="display:none;margin-bottom:8px;">';
+          h += '<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Planner model key</div>';
+          h += '<input type="password" class="text-input scaffold-byok-key" id="sf_2s_plannerByokKey" placeholder="Paste API key here..." style="margin-bottom:4px;">';
+          h += '<div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only \u2014 never sent to our server.</div></div>';
+          h += '<div id="sf_2s_monitorByokPrompt" class="scaffold-byok" style="display:none;margin-bottom:8px;">';
+          h += '<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">Monitor model key</div>';
+          h += '<input type="password" class="text-input scaffold-byok-key" id="sf_2s_monitorByokKey" placeholder="Paste API key here..." style="margin-bottom:4px;">';
+          h += '<div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only \u2014 never sent to our server.</div></div>';
+          return h;
+        }
+      }
+    ]
   }
 };
 
@@ -1554,6 +1638,17 @@ function loadScaffoldingFromStorage(schemaId) {
       _setVal('sf_ts_wmMaxTurns', s.wm_max_turns || 5);
       _setVal('sf_ts_wmUpdateEvery', s.wm_update_every || 5);
       _setVal('sf_ts_maxPlanLength', s.max_plan_length || 15);
+    } else if (schemaId === 'two_system') {
+      _setChecked('sf_2s_inputGrid', s.input?.full_grid ?? true);
+      _setChecked('sf_2s_inputImage', s.input?.image ?? false);
+      _setChecked('sf_2s_inputDiff', s.input?.diff ?? true);
+      _setChecked('sf_2s_inputHistogram', s.input?.color_histogram ?? false);
+      _setRadio('sf_2s_plannerThinking', s.planner_thinking_level || 'low');
+      _setVal('sf_2s_plannerMaxTokens', s.planner_max_tokens || 16384);
+      _setRadio('sf_2s_monitorThinking', s.monitor_thinking_level || 'off');
+      _setVal('sf_2s_monitorMaxTokens', s.monitor_max_tokens || 4096);
+      _setVal('sf_2s_plannerMaxTurns', s.planner_max_turns || 10);
+      _setVal('sf_2s_maxPlanLength', s.max_plan_length || 15);
     }
     updatePipelineOpacity();
   } catch {}
@@ -1629,10 +1724,11 @@ function attachSettingsListeners() {
     });
   }
 
-  // RLM / Three-System model select changes — update BYOK key prompts
+  // RLM / Three-System / Two-System model select changes — update BYOK key prompts
   for (const selId of [
     'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
-    'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect'
+    'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
+    'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect'
   ]) {
     const el = document.getElementById(selId);
     if (el) el.addEventListener('change', updateAllScaffoldByok);
@@ -2987,6 +3083,9 @@ function updateAllScaffoldByok() {
   updateScaffoldByok('sf_ts_plannerModelSelect', 'sf_ts_plannerByokPrompt', 'sf_ts_plannerByokKey', 'sf_ts_keysHint');
   updateScaffoldByok('sf_ts_monitorModelSelect', 'sf_ts_monitorByokPrompt', 'sf_ts_monitorByokKey', 'sf_ts_keysHint');
   updateScaffoldByok('sf_ts_wmModelSelect', 'sf_ts_wmByokPrompt', 'sf_ts_wmByokKey', 'sf_ts_keysHint');
+  // Two-System
+  updateScaffoldByok('sf_2s_plannerModelSelect', 'sf_2s_plannerByokPrompt', 'sf_2s_plannerByokKey', 'sf_2s_keysHint');
+  updateScaffoldByok('sf_2s_monitorModelSelect', 'sf_2s_monitorByokPrompt', 'sf_2s_monitorByokKey', 'sf_2s_keysHint');
 }
 // Auto-save scaffold BYOK keys on input
 document.addEventListener('input', (e) => {
@@ -3985,6 +4084,22 @@ function getScaffoldingSettings() {
     s.max_plan_length = parseInt(document.getElementById('sf_ts_maxPlanLength')?.value) || 15;
     // Also set model to planner_model for DB tracking
     s.model = s.planner_model;
+  } else if (type === 'two_system') {
+    s.input = {
+      diff: document.getElementById('sf_2s_inputDiff')?.checked ?? true,
+      full_grid: document.getElementById('sf_2s_inputGrid')?.checked ?? true,
+      image: document.getElementById('sf_2s_inputImage')?.checked ?? false,
+      color_histogram: document.getElementById('sf_2s_inputHistogram')?.checked ?? false,
+    };
+    s.planner_model = document.getElementById('sf_2s_plannerModelSelect')?.value || '';
+    s.planner_thinking_level = document.querySelector('input[name="sf_2s_plannerThinking"]:checked')?.value || 'low';
+    s.planner_max_tokens = parseInt(document.getElementById('sf_2s_plannerMaxTokens')?.value) || 16384;
+    s.monitor_model = document.getElementById('sf_2s_monitorModelSelect')?.value || '';
+    s.monitor_thinking_level = document.querySelector('input[name="sf_2s_monitorThinking"]:checked')?.value || 'off';
+    s.monitor_max_tokens = parseInt(document.getElementById('sf_2s_monitorMaxTokens')?.value) || 4096;
+    s.planner_max_turns = parseInt(document.getElementById('sf_2s_plannerMaxTurns')?.value) || 10;
+    s.max_plan_length = parseInt(document.getElementById('sf_2s_maxPlanLength')?.value) || 15;
+    s.model = s.planner_model;
   }
 
   return s;
@@ -4356,8 +4471,8 @@ async function askLLM(ss) {
       };
       if (inputSettings.image) payload.image_b64 = getCanvasScreenshotB64();
       resp = await fetchJSON('/api/llm/ask', payload);
-      // Stash three_system settings on response for monitor calls during plan execution
-      if (resp && resp.scaffolding === 'three_system') {
+      // Stash three_system/two_system settings on response for monitor calls during plan execution
+      if (resp && (resp.scaffolding === 'three_system' || resp.scaffolding === 'two_system')) {
         resp._tsSettings = payload.settings || {};
       }
       // Guard: session changed during LLM call — discard response
@@ -4672,12 +4787,12 @@ async function askLLM(ss) {
           <div style="color:var(--yellow);font-size:11px;">RLM did not produce a parseable action after ${rlm.iterations} iterations.</div>
           ${iterHtml}`;
       }
-    } else if (resp.scaffolding === 'three_system' && resp.three_system) {
+    } else if ((resp.scaffolding === 'three_system' || resp.scaffolding === 'two_system') && resp.three_system) {
       // ── Three-system scaffolding: show planner REPL + WM details ──
       const ts = resp.three_system;
       const durationHtml = resp.call_duration_ms
         ? `<span style="font-size:10px;color:var(--dim);margin-left:6px;">${(resp.call_duration_ms / 1000).toFixed(1)}s</span>` : '';
-      const tsBadge = '<span class="tools-badge" style="background:#58a6ff33;color:var(--accent);">3-SYS</span>';
+      const tsBadge = `<span class="tools-badge" style="background:#58a6ff33;color:var(--accent);">${resp.scaffolding === 'two_system' ? '2-SYS' : '3-SYS'}</span>`;
       const turnBadge = `<span class="tools-badge" style="background:#bc8cff22;color:var(--purple);">Turn ${ts.turn}</span>`;
       const plannerTurns = ts.planner_log ? ts.planner_log.length : 0;
       const plannerBadge = `<span class="tools-badge" style="background:#58a6ff22;color:var(--accent);">${plannerTurns} REPL</span>`;
@@ -4943,7 +5058,7 @@ async function executePlan(plan, resp, entry, expected, ss) {
     }
 
     // ── Three-system: post observation and run monitor ──
-    if (resp?.scaffolding === 'three_system') {
+    if (resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system') {
       // Post observation to WM accumulator
       try {
         await fetch('/api/three_system/observe', {
@@ -5656,6 +5771,30 @@ async function loadModels() {
         sf_ts_wmModelSelect: tsS.wm_model,
       };
       for (const [id, val] of Object.entries(tsMap)) {
+        const el = document.getElementById(id);
+        if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
+      }
+    }
+  } catch {}
+
+  // Populate Two-System model selects if they exist
+  for (const tsSelId of ['sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect']) {
+    const tsSel = document.getElementById(tsSelId);
+    if (!tsSel) continue;
+    const tsSaved = tsSel.value;
+    tsSel.innerHTML = '<option value="">Select a model...</option>';
+    _populateSubModelSelect(tsSel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, tsSaved);
+  }
+  // Restore Two-System model selections from saved settings
+  try {
+    const ts2Raw = localStorage.getItem('arc_scaffolding_two_system');
+    if (ts2Raw) {
+      const ts2S = JSON.parse(ts2Raw);
+      const ts2Map = {
+        sf_2s_plannerModelSelect: ts2S.planner_model,
+        sf_2s_monitorModelSelect: ts2S.monitor_model,
+      };
+      for (const [id, val] of Object.entries(ts2Map)) {
         const el = document.getElementById(id);
         if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
       }

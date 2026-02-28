@@ -2403,8 +2403,8 @@ def llm_ask():
             _db_update_session(session_id, model=model_key)
         return jsonify(result)
 
-    # ── Three-system scaffolding: Planner/Monitor/World Model ──
-    if scaffolding_type == "three_system":
+    # ── Three-system / Two-system scaffolding: Planner/Monitor/(World Model) ──
+    if scaffolding_type in ("three_system", "two_system"):
         session_id = payload.get("session_id")
         result = _handle_three_system_scaffolding(payload, settings)
         if session_id and feature_enabled("session_db"):
