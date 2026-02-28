@@ -480,6 +480,7 @@
   .tab-dot-running { background: var(--yellow); animation: pulse 1.5s ease-in-out infinite; }
   .tab-dot-win { background: var(--green); }
   .tab-dot-gameover { background: var(--red); }
+  .session-tab .tab-steps { font-size: 9px; color: var(--text-dim); font-weight: 600; min-width: 12px; text-align: center; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
   .session-tab .tab-label { overflow: hidden; text-overflow: ellipsis; }
   .session-tab .tab-countdown { display: none; }
@@ -5509,12 +5510,12 @@ async function toggleAutoPlay() {
   updateAutoBtn();
   if (ss) {
     ss.autoPlaying = true;
-    // Generate session tab name on first autoplay: model + task + random
+    // Generate session tab name on first autoplay: game - model - random
     if (!ss.tabLabel) {
       const model = (getSelectedModel() || 'agent').split('/').pop().split('-').slice(0, 2).join('-');
       const game = (ss.currentState.game_id || currentState.game_id || 'game').split('-')[0];
       const rand = Math.random().toString(36).slice(2, 5);
-      ss.tabLabel = `${model} · ${game} · ${rand}`;
+      ss.tabLabel = `${game} · ${model} · ${rand}`;
       ss.model = getSelectedModel() || '';
     }
   }
@@ -7873,8 +7874,9 @@ function renderSessionTabs() {
     tab.className = 'session-tab' + (id === activeSessionId ? ' active' : '');
     const label = s.tabLabel || s.gameId || (id.startsWith('pending_') ? 'New Session' : id.slice(0, 8));
     const dotClass = getTabDotClass(s);
+    const stepBadge = s.stepCount > 0 ? `<span class="tab-steps">${s.stepCount}</span>` : '';
     tab.innerHTML = `
-      <span class="tab-dot ${dotClass}"></span>
+      <span class="tab-dot ${dotClass}"></span>${stepBadge}
       <span class="tab-label">${label}</span>
       <span class="tab-countdown" id="tabCountdown_${id}"></span>
       <button class="tab-close" onclick="event.stopPropagation(); closeSession('${id}');">&times;</button>`;
