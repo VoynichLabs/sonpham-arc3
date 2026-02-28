@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -62,6 +63,19 @@ SYSTEM_MSG = (
     "You are an expert puzzle-solving AI. Analyse game grids and output ONLY "
     "valid JSON — no markdown, no explanation outside JSON."
 )
+
+
+@dataclass
+class LLMResult:
+    """Metadata from a single LLM call (text + tokens + timing)."""
+    text: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    duration_ms: int = 0
+    model: str = ""
+    error: str | None = None
+    attempt: int = 0
+
 
 # ── Model registry ─────────────────────────────────────────────────────────
 
@@ -155,9 +169,15 @@ _DEFAULT_CONFIG = {
         "executor_model": DEFAULT_MODEL,
         "condenser_model": None,
         "reflector_model": None,
+        "planner_model": None,
+        "monitor_model": None,
+        "world_model_model": None,
         "temperature": 0.3,
         "max_tokens": 2048,
         "reflection_max_tokens": 1024,
+        "planner_max_tokens": 4096,
+        "monitor_max_tokens": 512,
+        "world_model_max_tokens": 2048,
     },
     "memory": {
         "hard_memory_file": "memory/MEMORY.md",
@@ -403,7 +423,7 @@ def compute_region_map(grid: list) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _call_openai_compatible(url: str, api_key: str, model: str, messages: list,
-                             temperature: float, max_tokens: int) -> str:
+                             temperature: float, max_tokens: int) -> dict:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -414,11 +434,17 @@ def _call_openai_compatible(url: str, api_key: str, model: str, messages: list,
         timeout=90.0,
     )
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    data = resp.json()
+    usage = data.get("usage", {})
+    return {
+        "text": data["choices"][0]["message"]["content"],
+        "input_tokens": usage.get("prompt_tokens", 0),
+        "output_tokens": usage.get("completion_tokens", 0),
+    }
 
 
 def _call_anthropic(model: str, messages: list, system: str,
-                    temperature: float, max_tokens: int) -> str:
+                    temperature: float, max_tokens: int) -> dict:
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     resp = httpx.post(
         "https://api.anthropic.com/v1/messages",
@@ -437,40 +463,71 @@ def _call_anthropic(model: str, messages: list, system: str,
         timeout=90.0,
     )
     resp.raise_for_status()
-    return resp.json()["content"][0]["text"]
+    data = resp.json()
+    usage = data.get("usage", {})
+    return {
+        "text": data["content"][0]["text"],
+        "input_tokens": usage.get("input_tokens", 0),
+        "output_tokens": usage.get("output_tokens", 0),
+    }
 
 
-def _call_gemini(model_name: str, prompt: str, temperature: float, max_tokens: int) -> str:
+def _call_gemini(model_name: str, prompt: str, temperature: float, max_tokens: int) -> dict:
     from google import genai
+    import re as _re
     api_key = os.environ.get("GEMINI_API_KEY", "")
     client = genai.Client(api_key=api_key)
+
+    # Thinking models (2.5+, 3.x) need an explicit thinking budget,
+    # otherwise thinking eats the entire max_output_tokens and the
+    # actual response gets truncated.
+    is_thinking = bool(_re.search(r"2\.5|3-pro|3-flash|3\.1", model_name))
+    thinking_cfg = None
+    if is_thinking:
+        thinking_cfg = genai.types.ThinkingConfig(thinking_budget=1024)
+
     response = client.models.generate_content(
         model=model_name,
         contents=f"{SYSTEM_MSG}\n\n{prompt}",
         config=genai.types.GenerateContentConfig(
             temperature=temperature,
             max_output_tokens=max_tokens,
+            thinking_config=thinking_cfg,
         ),
     )
-    return response.text
+    usage = getattr(response, "usage_metadata", None)
+    return {
+        "text": response.text,
+        "input_tokens": getattr(usage, "prompt_token_count", 0) if usage else 0,
+        "output_tokens": getattr(usage, "candidates_token_count", 0) if usage else 0,
+    }
 
 
-def _call_cloudflare(model: str, messages: list, temperature: float, max_tokens: int) -> str:
+def _call_cloudflare(model: str, messages: list, temperature: float, max_tokens: int) -> dict:
     api_key = os.environ.get("CLOUDFLARE_API_KEY", "")
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
     url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions"
     return _call_openai_compatible(url, api_key, model, messages, temperature, max_tokens)
 
 
-def call_model(model_key: str, prompt: str, cfg: dict, role: str = "executor") -> str:
-    """Route to the right provider.  role affects temperature/max_tokens."""
+def call_model(model_key: str, prompt: str, cfg: dict, role: str = "executor") -> dict:
+    """Route to the right provider. Returns dict with {text, input_tokens, output_tokens}."""
     info = MODELS.get(model_key)
     if info is None:
         raise ValueError(f"Unknown model: {model_key}")
 
     r = cfg["reasoning"]
     temp = r["temperature"]
-    max_tok = r["reflection_max_tokens"] if role != "executor" else r["max_tokens"]
+    # Role-based max_tokens
+    role_token_keys = {
+        "executor": "max_tokens",
+        "planner": "planner_max_tokens",
+        "monitor": "monitor_max_tokens",
+        "world_model": "world_model_max_tokens",
+        "condenser": "reflection_max_tokens",
+        "reflector": "reflection_max_tokens",
+    }
+    max_tok = r.get(role_token_keys.get(role, "max_tokens"), r["max_tokens"])
 
     provider = info["provider"]
     api_model = info["api_model"]
@@ -491,23 +548,44 @@ def call_model(model_key: str, prompt: str, cfg: dict, role: str = "executor") -
     return _call_openai_compatible(info["url"], api_key, api_model, messages, temp, max_tok)
 
 
-def call_model_with_retry(model_key: str, prompt: str, cfg: dict, role: str = "executor",
-                           retries: int = 2) -> str | None:
+def call_model_with_metadata(model_key: str, prompt: str, cfg: dict, role: str = "executor",
+                              retries: int = 2) -> LLMResult:
+    """Call LLM with retries, returning full metadata (tokens, timing, errors)."""
+    t0 = time.time()
     for attempt in range(retries + 1):
         try:
-            return call_model(model_key, prompt, cfg, role)
+            result = call_model(model_key, prompt, cfg, role)
+            duration_ms = int((time.time() - t0) * 1000)
+            return LLMResult(
+                text=result["text"],
+                input_tokens=result.get("input_tokens", 0),
+                output_tokens=result.get("output_tokens", 0),
+                duration_ms=duration_ms,
+                model=model_key,
+                attempt=attempt,
+            )
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 wait = 10 * (attempt + 1)
                 print(f"  [Rate limited] waiting {wait}s...")
                 time.sleep(wait)
             else:
+                duration_ms = int((time.time() - t0) * 1000)
                 print(f"  [HTTP error {e.response.status_code}]: {e}")
-                return None
+                return LLMResult(error=str(e), duration_ms=duration_ms, model=model_key, attempt=attempt)
         except Exception as e:
+            duration_ms = int((time.time() - t0) * 1000)
             print(f"  [LLM error]: {e}")
-            return None
-    return None
+            return LLMResult(error=str(e), duration_ms=duration_ms, model=model_key, attempt=attempt)
+    duration_ms = int((time.time() - t0) * 1000)
+    return LLMResult(error="max retries exceeded", duration_ms=duration_ms, model=model_key, attempt=retries)
+
+
+def call_model_with_retry(model_key: str, prompt: str, cfg: dict, role: str = "executor",
+                           retries: int = 2) -> str | None:
+    """Thin wrapper: returns just the text (or None). For backward compatibility."""
+    result = call_model_with_metadata(model_key, prompt, cfg, role, retries)
+    return result.text
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -735,6 +813,53 @@ def _parse_json(content: str) -> dict | None:
     return None
 
 
+FALLBACK_PARSE_MODELS = [
+    "gemini-2.5-flash",
+    "groq/llama-3.3-70b-versatile",
+    "mistral/mistral-small-latest",
+]
+
+
+def _fallback_parse(raw: str, available: list[int], cfg: dict,
+                    executor_model: str) -> dict | None:
+    """Use a cheap model to extract action from an unparseable LLM response."""
+    # Pick a fallback model different from the executor (avoid same failure mode)
+    fallback_model = None
+    for m in FALLBACK_PARSE_MODELS:
+        if m == executor_model:
+            continue
+        info = MODELS.get(m)
+        if not info:
+            continue
+        env_key = info.get("env_key", "")
+        if not env_key or os.environ.get(env_key):
+            fallback_model = m
+            break
+    if not fallback_model:
+        return None
+
+    prompt = (
+        "An LLM was asked to pick a game action and respond with JSON, but its "
+        "response was malformed or truncated. Extract the intended action from "
+        "the response below.\n\n"
+        f"Available actions: {available}\n"
+        f"Raw response (may be truncated):\n{raw[:1500]}\n\n"
+        "Respond with ONLY valid JSON: "
+        '{"action": <int>, "data": {}, "observation": "<what the model saw>", '
+        '"reasoning": "<what the model intended>"}'
+    )
+    try:
+        fallback_result = call_model(fallback_model, prompt, cfg, role="executor")
+        fallback_raw = fallback_result["text"]
+        parsed = _parse_json(fallback_raw)
+        if parsed and "action" in parsed:
+            print(f"  [fallback parse] recovered action={parsed['action']} via {fallback_model}")
+            return parsed
+    except Exception as e:
+        print(f"  [fallback parse] failed: {e}")
+    return None
+
+
 def _fallback_action(available: list[int]) -> int:
     import random
     candidates = [a for a in available if a != 0]
@@ -810,12 +935,29 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
         prompt = build_action_prompt(context_block)
 
         # ── Call LLM ────────────────────────────────────────────────────
-        t0 = time.time()
         model_key = effective_model(cfg, "executor")
-        raw = call_model_with_retry(model_key, prompt, cfg, role="executor")
-        elapsed = time.time() - t0
+        llm_result = call_model_with_metadata(model_key, prompt, cfg, role="executor")
+        raw = llm_result.text
+        elapsed = llm_result.duration_ms / 1000
+
+        if session_id:
+            from db import _log_llm_call
+            _log_llm_call(
+                session_id, "executor", model_key,
+                step_num=step_num + 1,
+                prompt_preview=prompt[:500],
+                prompt_length=len(prompt),
+                response_preview=(raw or "")[:1000],
+                input_tokens=llm_result.input_tokens,
+                output_tokens=llm_result.output_tokens,
+                duration_ms=llm_result.duration_ms,
+                error=llm_result.error,
+                attempt=llm_result.attempt,
+            )
 
         parsed = _parse_json(raw) if raw else None
+        if parsed is None and raw:
+            parsed = _fallback_parse(raw, available, cfg, model_key)
         if parsed is None:
             action_id = _fallback_action(available)
             action_data = {}
@@ -891,6 +1033,22 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
             except Exception as cb_err:
                 print(f"  [callback error] {cb_err}")
 
+        # Log single-agent turn (1 turn = 1 step)
+        if session_id:
+            from db import _log_turn as _log_turn_db
+            _log_turn_db(
+                session_id, step_num, "single_agent",
+                goal=reasoning,
+                steps_planned=1, steps_executed=1,
+                step_start=step_num, step_end=step_num,
+                llm_calls=1,
+                total_input_tokens=llm_result.input_tokens,
+                total_output_tokens=llm_result.output_tokens,
+                total_duration_ms=llm_result.duration_ms,
+                timestamp_start=time.time() - elapsed,
+                timestamp_end=time.time(),
+            )
+
     # Timed out
     final_state = frame.state.value if frame and hasattr(frame.state, "value") else "TIMEOUT"
     print(f"\n  >>> Max steps reached ({max_steps}).  Final: {final_state} <<<\n")
@@ -928,6 +1086,7 @@ def main() -> None:
     parser.add_argument("--config", default=None, help="Path to config.yaml")
     parser.add_argument("--list-models", action="store_true")
     parser.add_argument("--show-config", action="store_true", help="Print resolved config and exit")
+    parser.add_argument("--scaffolding", action="store_true", help="Use 3-system scaffold agent")
     args = parser.parse_args()
 
     cfg = load_config(Path(args.config) if args.config else None)
@@ -987,9 +1146,16 @@ def main() -> None:
     print(f"  Config file    : {args.config or 'config.yaml (default)'}")
     print(f"{'#'*65}")
 
+    # Select game loop
+    game_fn = play_game
+    if args.scaffolding:
+        from agent_scaffold import play_game_scaffold
+        game_fn = play_game_scaffold
+        cfg.setdefault("scaffolding", {}).setdefault("mode", "three_system")
+
     results = {}
     for game_id in games:
-        results[game_id] = play_game(arcade, game_id, cfg, args.max_steps)
+        results[game_id] = game_fn(arcade, game_id, cfg, args.max_steps)
 
     print(f"\n{'='*65}")
     print("  RESULTS")

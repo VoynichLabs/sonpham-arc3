@@ -25,6 +25,7 @@ from scaffoldings.three_system.game_loop import play_game_scaffold
 from db import (
     _get_db, _db_insert_session, _db_insert_step, _db_update_session,
     _compress_grid, _turso_import_session,
+    _get_session_calls, _get_session_turns,
 )
 
 ROOT = Path(__file__).parent
@@ -56,29 +57,32 @@ def _get_provider_semaphore(provider: str) -> threading.Semaphore:
 
 
 def _install_rate_limiting(model_key: str):
-    """Monkey-patch call_model_with_retry to add per-provider semaphore."""
+    """Monkey-patch call_model (the lowest-level LLM call) to add per-provider semaphore.
+
+    This rate-limits both call_model_with_metadata and call_model_with_retry since
+    they both delegate to call_model internally.
+    """
     import agent
-    original = agent.call_model_with_retry
+    original = agent.call_model
 
     if getattr(original, '_rate_limited', False):
         return  # already patched
 
-    # Unwrap to the real function if already wrapped
     real_fn = getattr(original, '__wrapped__', original)
 
-    def rate_limited_call(mk, prompt, cfg, role="executor", retries=2):
+    def rate_limited_call(mk, prompt, cfg, role="executor"):
         info = MODELS.get(mk)
         provider = info["provider"] if info else "unknown"
         sem = _get_provider_semaphore(provider)
         sem.acquire()
         try:
-            return real_fn(mk, prompt, cfg, role, retries)
+            return real_fn(mk, prompt, cfg, role)
         finally:
             sem.release()
 
     rate_limited_call._rate_limited = True
     rate_limited_call.__wrapped__ = real_fn
-    agent.call_model_with_retry = rate_limited_call
+    agent.call_model = rate_limited_call
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -455,6 +459,8 @@ def _upload_batch_to_turso(results: list[dict]):
             payload = {
                 "session": dict(sess_row),
                 "steps": [dict(s) for s in step_rows],
+                "llm_calls": _get_session_calls(r["session_id"]),
+                "session_turns": _get_session_turns(r["session_id"]),
             }
             if _turso_import_session(payload):
                 uploaded += 1
@@ -485,9 +491,48 @@ def main():
                         help="Resume a previous batch by ID")
     parser.add_argument("--upload-turso", action="store_true",
                         help="Upload completed sessions to Turso")
+    parser.add_argument("--upload-session", default=None,
+                        help="Upload a single session to Turso by ID (no batch run)")
     parser.add_argument("--config", default=None,
                         help="Path to config.yaml")
     args = parser.parse_args()
+
+    # ── Standalone session upload ────────────────────────────────────────
+    if args.upload_session:
+        sid = args.upload_session
+        conn = _get_db()
+        sess_row = conn.execute("SELECT * FROM sessions WHERE id = ?", (sid,)).fetchone()
+        if not sess_row:
+            # Try prefix match
+            rows = conn.execute(
+                "SELECT id, game_id, steps, result FROM sessions WHERE id LIKE ? ORDER BY created_at DESC LIMIT 5",
+                (f"%{sid}%",),
+            ).fetchall()
+            conn.close()
+            if rows:
+                print(f"Session '{sid}' not found. Did you mean:")
+                for r in rows:
+                    print(f"  {r['id']}  ({r['game_id']}, {r['steps']} steps, {r['result']})")
+            else:
+                print(f"Session '{sid}' not found in local DB.")
+            sys.exit(1)
+        step_rows = conn.execute(
+            "SELECT * FROM session_steps WHERE session_id = ? ORDER BY step_num", (sid,)
+        ).fetchall()
+        conn.close()
+        payload = {
+            "session": dict(sess_row),
+            "steps": [dict(s) for s in step_rows],
+            "llm_calls": _get_session_calls(sid),
+            "session_turns": _get_session_turns(sid),
+        }
+        print(f"Uploading session {sid} ({sess_row['steps']} steps, {sess_row['result']})...")
+        ok = _turso_import_session(payload)
+        if ok:
+            print(f"Done! View at: https://arc3.sonpham.net/share/{sid}")
+        else:
+            print("Upload failed. Check TURSO_DATABASE_URL and TURSO_AUTH_TOKEN env vars.")
+        sys.exit(0)
 
     cfg = load_config(Path(args.config) if args.config else None)
     if args.model:

@@ -1,12 +1,27 @@
 import json
+import os
+import sys
 import numpy as np
 from pathlib import Path
 from arcengine import ARCBaseGame, Camera, Level, RenderableUserDisplay
 
 IMG_W, IMG_H = 30, 62
 
-CUSTOM_SCENES_FILE = Path(__file__).parent / "custom_scenes.json"
-CUSTOM_DIFFS_FILE  = Path(__file__).parent / "custom_diffs.json"
+# Resolve data directory: __file__ isn't set when loaded via exec(),
+# so fall back to searching environment_files for this game's directory.
+def _resolve_data_dir() -> Path:
+    try:
+        return Path(__file__).parent
+    except NameError:
+        # Loaded via exec() — find the directory from environment_files
+        candidates = sorted(Path("environment_files/fd01").glob("*/fd01.py"))
+        if candidates:
+            return candidates[0].parent
+        return Path(".")
+
+_DATA_DIR = _resolve_data_dir()
+CUSTOM_SCENES_FILE = _DATA_DIR / "custom_scenes.json"
+CUSTOM_DIFFS_FILE  = _DATA_DIR / "custom_diffs.json"
 
 
 def _load_custom_scenes() -> dict:

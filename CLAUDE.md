@@ -3,9 +3,9 @@
 ## Terminology
 
 - **"Replay"** = the share page (`share.html` / `/share/<id>` endpoint), NOT the in-app replay in `index.html`
-- **"Step"** = a single game step (one action executed in the environment)
-- **"Turn"** = one complete agent invocation (an LLM call + all steps in its plan), or one human action. Each turn gets a unique `turnId`. Undo reverts an entire turn, not individual steps.
-- **"Call"** = one LLM agent invocation (may produce a multi-step plan). Compact context triggers after N Calls, not Steps.
+- **"Step"** = a single game step (one action executed in the environment via `env.step()`). Stored in `session_steps`.
+- **"Turn"** = one complete planning cycle. In scaffold mode: planner REPL → execute plan steps → monitor checks → world model update. In single-agent mode: one LLM call → one step. Each turn gets a unique `turnId`. Undo reverts an entire turn, not individual steps. Stored in `session_turns`.
+- **"Call"** = one individual LLM invocation. A single turn may contain many calls (planner REPL iterations, monitor checks, world model queries). In single-agent mode, one turn = one call. Stored in `llm_calls`. Compact context triggers after N Calls, not Steps.
 
 ## Reasoning View Consistency
 
@@ -108,6 +108,16 @@ Only two environments — no separate "local" mode:
 - **Prod** (`SERVER_MODE=prod`) — same features, but games in `HIDDEN_GAMES` list are hidden from `/api/games` unless `?show_all=1` is passed.
 
 The `HIDDEN_GAMES` list is a hardcoded Python list in `server.py`. `SERVER_MODE` env var controls which mode is active.
+
+## Model Select Checklist (recurring bug)
+
+Every `{ type: 'model-select', id: '...' }` field in `SCAFFOLDING_SCHEMAS` **must** be wired up in three places:
+
+1. **`loadModels()`** — populate the `<select>` with model options via `_populateSubModelSelect()`. Without this, the select stays at "Loading..." forever.
+2. **`loadModels()` restore block** — after populating, restore saved value from `localStorage.getItem('arc_scaffolding_<type>')`. Without this, model choices reset when switching scaffoldings.
+3. **`attachSettingsListeners()`** — add a `change` listener to trigger BYOK key prompt updates (if the scaffold has a Model Keys section).
+
+This has been missed repeatedly (Three-System selects, REPL selects, etc.). When adding a new `model-select` to any scaffold, always update all three places.
 
 ## Pre-Push QC
 

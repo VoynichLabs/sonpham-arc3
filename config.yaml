@@ -66,6 +66,23 @@ reasoning:
   # Max output tokens for condensation / reflection passes.
   reflection_max_tokens: 1024
 
+  # ── Scaffolding models (3-system mode) ──────────────────────────────────
+  # Set to null to reuse executor_model.
+
+  # Model for the Planner REPL (expensive, needs strong reasoning).
+  planner_model: null
+
+  # Model for the Monitor (cheap, fast single-shot check).
+  monitor_model: null
+
+  # Model for the World Model REPL (medium, builds game understanding).
+  world_model_model: null
+
+  # Max output tokens per system role.
+  planner_max_tokens: 4096
+  monitor_max_tokens: 512
+  world_model_max_tokens: 2048
+
 
 # ┌──────────────────────────────────────────────────────────────────────────┐
 # │  MEMORY MANAGEMENT BLOCK                                                 │
@@ -99,3 +116,26 @@ memory:
   # If accumulated history exceeds this many entries, force a condensation
   # pass regardless of the condense_every counter.
   condense_threshold: 50
+
+
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │  SCAFFOLDING BLOCK                                                       │
+# │  Controls the 3-system agent architecture (Planner/Monitor/World Model).│
+# └──────────────────────────────────────────────────────────────────────────┘
+scaffolding:
+
+  # "single" = original play_game, "three_system" = scaffold agent
+  mode: "single"
+
+  # Max REPL iterations for the Planner (simulate/analyze/commit loop).
+  planner_max_turns: 10
+
+  # Max REPL iterations for the World Model (query/commit loop).
+  world_model_max_turns: 5
+
+  # How often (in executed steps) to trigger a World Model update.
+  world_model_update_every: 5
+
+  # Plan length bounds.
+  max_plan_length: 15
+  min_plan_length: 3

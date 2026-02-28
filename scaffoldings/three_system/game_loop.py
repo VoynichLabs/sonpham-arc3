@@ -1,5 +1,8 @@
 """Three-System CLI/batch game loop — drop-in replacement for play_game."""
 
+import json
+import time
+
 from arcengine import GameAction, GameState
 
 from agent import (
@@ -12,6 +15,7 @@ from agent import (
     condense_history,
     append_memory_bullet,
 )
+from db import _log_turn
 
 from scaffoldings.three_system.systems import (
     StepSnapshot,
@@ -49,11 +53,13 @@ def play_game_scaffold(arcade, game_id: str, cfg: dict, max_steps: int = 200,
         game_id=game_id,
         cfg=cfg,
         hard_memory=load_hard_memory(cfg),
+        session_id=session_id or "",
     )
 
     mcfg = cfg["memory"]
     condense_every = mcfg["condense_every"]
     condense_threshold = mcfg["condense_threshold"]
+    turn_num = 0
 
     while ctx.step_num < max_steps:
         # Update context from frame
@@ -88,6 +94,16 @@ def play_game_scaffold(arcade, game_id: str, cfg: dict, max_steps: int = 200,
             ctx.steps_since_condense = 0
 
         # ── PLANNER: generate plan ──────────────────────────────────────
+        turn_num += 1
+        turn_start_time = time.time()
+        step_start = ctx.step_num + 1
+        # Reset per-turn accumulators
+        ctx.turn_input_tokens = 0
+        ctx.turn_output_tokens = 0
+        ctx.turn_duration_ms = 0
+        ctx.turn_llm_calls = 0
+        replan_reason = None
+
         print(f"\n  [step {ctx.step_num}] Generating plan...")
         plan_result = planner.generate_plan(ctx)
         ctx.current_plan = plan_result["plan"]
@@ -207,13 +223,37 @@ def play_game_scaffold(arcade, game_id: str, cfg: dict, max_steps: int = 200,
 
             # Replan if monitor says so
             if monitor_result["verdict"] == "REPLAN":
+                replan_reason = monitor_result.get("reason", "monitor triggered replan")
                 print(f"    [replan] breaking plan at step {ctx.plan_index}/{len(ctx.current_plan)}")
                 break
 
         # ── WORLD MODEL: update rules periodically ──────────────────────
+        wm_updated = False
         if world_model.should_update(ctx):
             print(f"\n  [world_model] updating rules (buffer={len(ctx.observations_buffer)} obs)...")
             world_model.update(ctx)
+            wm_updated = True
+
+        # ── LOG TURN ─────────────────────────────────────────────────────
+        if ctx.session_id:
+            _log_turn(
+                ctx.session_id, turn_num, "three_system",
+                goal=ctx.plan_goal,
+                plan_json=json.dumps(ctx.current_plan),
+                steps_planned=len(ctx.current_plan),
+                steps_executed=ctx.plan_index,
+                step_start=step_start,
+                step_end=ctx.step_num,
+                llm_calls=ctx.turn_llm_calls,
+                total_input_tokens=ctx.turn_input_tokens,
+                total_output_tokens=ctx.turn_output_tokens,
+                total_duration_ms=ctx.turn_duration_ms,
+                replan_reason=replan_reason,
+                world_model_updated=wm_updated,
+                rules_version=ctx.rules_version,
+                timestamp_start=turn_start_time,
+                timestamp_end=time.time(),
+            )
 
     # Timed out
     final_state = frame.state.value if frame and hasattr(frame.state, "value") else "TIMEOUT"

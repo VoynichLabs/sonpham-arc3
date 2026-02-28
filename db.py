@@ -107,6 +107,36 @@ def _init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id)")
     except sqlite3.OperationalError:
         pass
+    # Session turns table (planning cycles)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS session_turns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            turn_num INTEGER NOT NULL,
+            turn_type TEXT NOT NULL,
+            goal TEXT,
+            plan_json TEXT,
+            steps_planned INTEGER DEFAULT 0,
+            steps_executed INTEGER DEFAULT 0,
+            step_start INTEGER,
+            step_end INTEGER,
+            llm_calls INTEGER DEFAULT 0,
+            total_input_tokens INTEGER DEFAULT 0,
+            total_output_tokens INTEGER DEFAULT 0,
+            total_cost REAL DEFAULT 0,
+            total_duration_ms INTEGER DEFAULT 0,
+            replan_reason TEXT,
+            world_model_updated INTEGER DEFAULT 0,
+            rules_version INTEGER DEFAULT 0,
+            timestamp_start REAL NOT NULL,
+            timestamp_end REAL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id)")
+    except sqlite3.OperationalError:
+        pass
     # Batch tables
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS batch_runs (
@@ -317,6 +347,36 @@ def _init_turso_db():
             conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id)")
         except Exception:
             pass
+        # Session turns table (planning cycles)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS session_turns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                turn_num INTEGER NOT NULL,
+                turn_type TEXT NOT NULL,
+                goal TEXT,
+                plan_json TEXT,
+                steps_planned INTEGER DEFAULT 0,
+                steps_executed INTEGER DEFAULT 0,
+                step_start INTEGER,
+                step_end INTEGER,
+                llm_calls INTEGER DEFAULT 0,
+                total_input_tokens INTEGER DEFAULT 0,
+                total_output_tokens INTEGER DEFAULT 0,
+                total_cost REAL DEFAULT 0,
+                total_duration_ms INTEGER DEFAULT 0,
+                replan_reason TEXT,
+                world_model_updated INTEGER DEFAULT 0,
+                rules_version INTEGER DEFAULT 0,
+                timestamp_start REAL NOT NULL,
+                timestamp_end REAL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        """)
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id)")
+        except Exception:
+            pass
         # Schema migration: add columns (idempotent)
         for col, defn in [("prompts_json", "TEXT DEFAULT NULL"),
                           ("timeline_json", "TEXT DEFAULT NULL"),
@@ -400,6 +460,45 @@ def _turso_import_session(payload):
                  json.dumps(s.get("change_map")) if s.get("change_map") else None,
                  json.dumps(s.get("llm_response")) if s.get("llm_response") else None,
                  s.get("timestamp", time.time())),
+            )
+        # Import llm_calls if present
+        for call in payload.get("llm_calls", []):
+            conn.execute(
+                """INSERT OR IGNORE INTO llm_calls
+                   (session_id, call_type, step_num, parent_call_id, model,
+                    prompt_preview, prompt_length, response_preview, response_json,
+                    input_tokens, output_tokens, cost, duration_ms,
+                    thinking_level, tools_active, cache_active, error, attempt, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (sess["id"], call.get("call_type", ""), call.get("step_num"),
+                 call.get("parent_call_id"), call.get("model", ""),
+                 call.get("prompt_preview"), call.get("prompt_length", 0),
+                 call.get("response_preview"), call.get("response_json"),
+                 call.get("input_tokens", 0), call.get("output_tokens", 0),
+                 call.get("cost", 0), call.get("duration_ms", 0),
+                 call.get("thinking_level"), call.get("tools_active", 0),
+                 call.get("cache_active", 0), call.get("error"),
+                 call.get("attempt", 0), call.get("timestamp", time.time())),
+            )
+        # Import session_turns if present
+        for turn in payload.get("session_turns", []):
+            conn.execute(
+                """INSERT OR IGNORE INTO session_turns
+                   (session_id, turn_num, turn_type, goal, plan_json,
+                    steps_planned, steps_executed, step_start, step_end,
+                    llm_calls, total_input_tokens, total_output_tokens,
+                    total_cost, total_duration_ms, replan_reason,
+                    world_model_updated, rules_version, timestamp_start, timestamp_end)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (sess["id"], turn.get("turn_num", 0), turn.get("turn_type", ""),
+                 turn.get("goal"), turn.get("plan_json"),
+                 turn.get("steps_planned", 0), turn.get("steps_executed", 0),
+                 turn.get("step_start"), turn.get("step_end"),
+                 turn.get("llm_calls", 0), turn.get("total_input_tokens", 0),
+                 turn.get("total_output_tokens", 0), turn.get("total_cost", 0),
+                 turn.get("total_duration_ms", 0), turn.get("replan_reason"),
+                 turn.get("world_model_updated", 0), turn.get("rules_version", 0),
+                 turn.get("timestamp_start", time.time()), turn.get("timestamp_end")),
             )
         conn.commit()
         conn.sync()
@@ -674,6 +773,62 @@ def _get_session_calls(session_id: str) -> list[dict]:
         return [dict(r) for r in rows]
     except Exception as e:
         log.warning(f"_get_session_calls failed: {e}")
+        return []
+
+
+def _log_turn(session_id: str, turn_num: int, turn_type: str, *,
+               goal: str = "", plan_json: str | None = None,
+               steps_planned: int = 0, steps_executed: int = 0,
+               step_start: int | None = None, step_end: int | None = None,
+               llm_calls: int = 0,
+               total_input_tokens: int = 0, total_output_tokens: int = 0,
+               total_cost: float = 0, total_duration_ms: int = 0,
+               replan_reason: str | None = None,
+               world_model_updated: bool = False, rules_version: int = 0,
+               timestamp_start: float = 0, timestamp_end: float | None = None) -> int | None:
+    """Insert a turn log row. Returns turn_id or None on failure."""
+    try:
+        conn = _get_db()
+        cur = conn.execute(
+            "INSERT INTO session_turns "
+            "(session_id, turn_num, turn_type, goal, plan_json, "
+            " steps_planned, steps_executed, step_start, step_end, "
+            " llm_calls, total_input_tokens, total_output_tokens, "
+            " total_cost, total_duration_ms, replan_reason, "
+            " world_model_updated, rules_version, timestamp_start, timestamp_end) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id, turn_num, turn_type,
+                goal[:500] if goal else None, plan_json,
+                steps_planned, steps_executed, step_start, step_end,
+                llm_calls, total_input_tokens, total_output_tokens,
+                total_cost, total_duration_ms, replan_reason,
+                int(world_model_updated), rules_version,
+                timestamp_start or time.time(),
+                timestamp_end,
+            ),
+        )
+        turn_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return turn_id
+    except Exception as e:
+        log.warning(f"_log_turn failed: {e}")
+        return None
+
+
+def _get_session_turns(session_id: str) -> list[dict]:
+    """Return all session_turns for a session, ordered by turn_num."""
+    try:
+        conn = _get_db()
+        rows = conn.execute(
+            "SELECT * FROM session_turns WHERE session_id = ? ORDER BY turn_num",
+            (session_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.warning(f"_get_session_turns failed: {e}")
         return []
 
 
