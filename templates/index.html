@@ -3348,11 +3348,12 @@ document.addEventListener('mouseout', (e) => {
 // API
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function fetchJSON(url, body) {
+async function fetchJSON(url, body, signal) {
   const r = await fetch(url, {
     method: body ? 'POST' : 'GET',
     headers: body ? {'Content-Type': 'application/json'} : {},
     body: body ? JSON.stringify(body) : undefined,
+    signal: signal || undefined,
   });
   return r.json();
 }
@@ -4511,8 +4512,10 @@ async function askLLM(ss) {
   const _callSession = _ss || getActiveSession();
   const isActive = () => activeSessionId === _callSessionId;
 
-  // Create AbortController for this call
-  if (_ss) { _ss.abortController = new AbortController(); _ss.waitStartTime = performance.now(); }
+  // Create AbortController for this call (used to cancel on pause)
+  const _abortCtrl = new AbortController();
+  if (_ss) { _ss.abortController = _abortCtrl; _ss.waitStartTime = performance.now(); }
+  else { window._globalAbortCtrl = _abortCtrl; }
 
   if (isActive()) {
     document.getElementById('llmSpinner').style.display = 'inline';
@@ -4621,7 +4624,7 @@ async function askLLM(ss) {
         } : { model: model }),
       };
       if (inputSettings.image) payload.image_b64 = getCanvasScreenshotB64();
-      resp = await fetchJSON('/api/llm/ask', payload);
+      resp = await fetchJSON('/api/llm/ask', payload, _abortCtrl.signal);
       // Stash three_system/two_system settings on response for monitor calls during plan execution
       if (resp && (resp.scaffolding === 'three_system' || resp.scaffolding === 'two_system')) {
         resp._tsSettings = payload.settings || {};
@@ -5149,6 +5152,7 @@ async function executePlan(plan, resp, entry, expected, ss) {
   let consecutiveNoChange = 0;
   const levelsBefore = _cur.currentState.levels_completed || 0;
   let completed = 0;
+  const wasAutoPlaying = _ss ? _ss.autoPlaying : autoPlaying; // snapshot at plan start
 
   // Assign a turn ID for the entire plan
   _cur.turnCounter++;
@@ -5158,8 +5162,15 @@ async function executePlan(plan, resp, entry, expected, ss) {
 
   for (let i = 0; i < plan.length; i++) {
     const step = plan[i];
-    // For scaffold plans (three_system/two_system), always execute the full plan — it IS the turn.
-    // For linear/default, only execute 1 step in step-once mode (user clicks "Step").
+    // Pause check: if user paused mid-plan during autoplay, stop remaining steps immediately
+    if (wasAutoPlaying && completed > 0) {
+      const nowPaused = _ss ? !_ss.autoPlaying : !autoPlaying;
+      if (nowPaused) {
+        if (isActive()) { for (let j = i; j < planSteps.length; j++) planSteps[j].className = 'plan-step skipped'; }
+        break;
+      }
+    }
+    // For linear/default in step-once mode (not autoplay), only execute 1 step
     const isScaffoldPlan = resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system';
     if (!isScaffoldPlan && !_cur.autoPlaying && completed > 0) break;
 
@@ -5522,6 +5533,9 @@ async function toggleAutoPlay() {
   if (ss ? ss.autoPlaying : autoPlaying) {
     autoPlaying = false;
     if (ss) { ss.autoPlaying = false; ss.waitingForLLM = false; }
+    // Abort any in-flight LLM request immediately
+    if (ss?.abortController) { ss.abortController.abort(); ss.abortController = null; }
+    if (window._globalAbortCtrl) { window._globalAbortCtrl.abort(); window._globalAbortCtrl = null; }
     updateAutoBtn();
     unlockSettings();
     // Clear spinners immediately so UI doesn't look like it's still working

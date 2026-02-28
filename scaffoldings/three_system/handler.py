@@ -541,6 +541,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
 
             ss["plans_since_replan"] = ss.get("plans_since_replan", 0) + 1
             total_dur = int((time.time() - t0_total) * 1000)
+            logger.info(f"[ts_planner] RETURNING plan with {len(valid_plan)} steps: {[s['action'] for s in valid_plan]}")
             return {
                 "raw": raw,
                 "thinking": None,
