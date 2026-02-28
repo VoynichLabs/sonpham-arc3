@@ -4,8 +4,10 @@ import base64
 import json
 import logging
 import os
+import secrets
 import sqlite3
 import time
+import uuid
 import zlib
 from pathlib import Path
 
@@ -57,7 +59,8 @@ def _init_db():
                       ("branch_at_step", "INTEGER DEFAULT NULL"),
                       ("total_cost", "REAL DEFAULT 0"),
                       ("prompts_json", "TEXT DEFAULT NULL"),
-                      ("timeline_json", "TEXT DEFAULT NULL")]:
+                      ("timeline_json", "TEXT DEFAULT NULL"),
+                      ("user_id", "TEXT DEFAULT NULL")]:
         try:
             conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {defn}")
         except sqlite3.OperationalError:
@@ -316,11 +319,37 @@ def _init_turso_db():
             pass
         # Schema migration: add columns (idempotent)
         for col, defn in [("prompts_json", "TEXT DEFAULT NULL"),
-                          ("timeline_json", "TEXT DEFAULT NULL")]:
+                          ("timeline_json", "TEXT DEFAULT NULL"),
+                          ("user_id", "TEXT DEFAULT NULL")]:
             try:
                 conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {defn}")
             except Exception:
                 pass  # column already exists
+        # Auth tables (Turso only)
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                created_at REAL NOT NULL,
+                last_login_at REAL,
+                display_name TEXT DEFAULT NULL
+            );
+            CREATE TABLE IF NOT EXISTS auth_tokens (
+                token TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL,
+                last_used_at REAL,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            CREATE TABLE IF NOT EXISTS magic_links (
+                code TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL,
+                used INTEGER DEFAULT 0
+            );
+        """)
         conn.commit()
         conn.sync()
         conn.close()
@@ -339,20 +368,22 @@ def _turso_import_session(payload):
         steps = payload.get("steps", [])
         prompts_json = json.dumps(sess.get("prompts")) if sess.get("prompts") else None
         timeline_json = json.dumps(sess.get("timeline")) if sess.get("timeline") else None
+        user_id = sess.get("user_id")
         conn.execute(
             """INSERT INTO sessions (id, game_id, model, mode, created_at, result, steps, levels,
-                                     parent_session_id, branch_at_step, prompts_json, timeline_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     parent_session_id, branch_at_step, prompts_json, timeline_json, user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  result = excluded.result, steps = excluded.steps, levels = excluded.levels,
                  model = COALESCE(excluded.model, sessions.model),
                  prompts_json = COALESCE(excluded.prompts_json, sessions.prompts_json),
-                 timeline_json = COALESCE(excluded.timeline_json, sessions.timeline_json)""",
+                 timeline_json = COALESCE(excluded.timeline_json, sessions.timeline_json),
+                 user_id = COALESCE(excluded.user_id, sessions.user_id)""",
             (sess["id"], sess["game_id"], sess.get("model", ""),
              sess.get("mode", "online"), sess.get("created_at", time.time()),
              sess.get("result", "NOT_FINISHED"), sess.get("steps", 0),
              sess.get("levels", 0), sess.get("parent_session_id"),
-             sess.get("branch_at_step"), prompts_json, timeline_json),
+             sess.get("branch_at_step"), prompts_json, timeline_json, user_id),
         )
         for s in steps:
             grid_snapshot = None
@@ -378,6 +409,211 @@ def _turso_import_session(payload):
     except Exception as e:
         log.warning(f"Turso import failed: {e}")
         return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AUTH HELPERS (Turso only)
+# ═══════════════════════════════════════════════════════════════════════════
+
+AUTH_TOKEN_TTL = 30 * 24 * 3600  # 30 days
+MAGIC_LINK_TTL = 15 * 60         # 15 minutes
+
+
+def _turso_find_or_create_user(email: str) -> dict | None:
+    """Find existing user by email or create a new one. Returns user dict."""
+    conn = _get_turso_db()
+    if not conn:
+        return None
+    try:
+        email = email.lower().strip()
+        cur = conn.execute("SELECT * FROM users WHERE email = ?", (email,))
+        user = _turso_dict_fetchone(cur)
+        if user:
+            conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?",
+                         (time.time(), user["id"]))
+            conn.commit()
+            conn.sync()
+            conn.close()
+            user["last_login_at"] = time.time()
+            return user
+        user_id = str(uuid.uuid4())
+        now = time.time()
+        conn.execute(
+            "INSERT INTO users (id, email, created_at, last_login_at) VALUES (?, ?, ?, ?)",
+            (user_id, email, now, now),
+        )
+        conn.commit()
+        conn.sync()
+        conn.close()
+        return {"id": user_id, "email": email, "created_at": now,
+                "last_login_at": now, "display_name": None}
+    except Exception as e:
+        log.warning(f"_turso_find_or_create_user failed: {e}")
+        return None
+
+
+def _turso_create_auth_token(user_id: str) -> str | None:
+    """Create a 30-day auth token for a user. Returns token string."""
+    conn = _get_turso_db()
+    if not conn:
+        return None
+    try:
+        token = secrets.token_urlsafe(32)
+        now = time.time()
+        conn.execute(
+            "INSERT INTO auth_tokens (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (token, user_id, now, now + AUTH_TOKEN_TTL),
+        )
+        conn.commit()
+        conn.sync()
+        conn.close()
+        return token
+    except Exception as e:
+        log.warning(f"_turso_create_auth_token failed: {e}")
+        return None
+
+
+def _turso_verify_auth_token(token: str) -> dict | None:
+    """Verify an auth token and return the user dict, or None."""
+    conn = _get_turso_db()
+    if not conn:
+        return None
+    try:
+        cur = conn.execute(
+            "SELECT u.id, u.email, u.display_name FROM auth_tokens t "
+            "JOIN users u ON t.user_id = u.id "
+            "WHERE t.token = ? AND t.expires_at > ?",
+            (token, time.time()),
+        )
+        user = _turso_dict_fetchone(cur)
+        if user:
+            conn.execute("UPDATE auth_tokens SET last_used_at = ? WHERE token = ?",
+                         (time.time(), token))
+            conn.commit()
+            conn.sync()
+        conn.close()
+        return user
+    except Exception as e:
+        log.warning(f"_turso_verify_auth_token failed: {e}")
+        return None
+
+
+def _turso_create_magic_link(email: str) -> str | None:
+    """Create a single-use magic link code (15-min expiry). Returns code."""
+    conn = _get_turso_db()
+    if not conn:
+        return None
+    try:
+        code = secrets.token_urlsafe(32)
+        now = time.time()
+        conn.execute(
+            "INSERT INTO magic_links (code, email, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (code, email.lower().strip(), now, now + MAGIC_LINK_TTL),
+        )
+        conn.commit()
+        conn.sync()
+        conn.close()
+        return code
+    except Exception as e:
+        log.warning(f"_turso_create_magic_link failed: {e}")
+        return None
+
+
+def _turso_verify_magic_link(code: str) -> str | None:
+    """Verify and consume a magic link code. Returns email or None."""
+    conn = _get_turso_db()
+    if not conn:
+        return None
+    try:
+        cur = conn.execute(
+            "SELECT email FROM magic_links WHERE code = ? AND expires_at > ? AND used = 0",
+            (code, time.time()),
+        )
+        row = _turso_dict_fetchone(cur)
+        if not row:
+            conn.close()
+            return None
+        conn.execute("UPDATE magic_links SET used = 1 WHERE code = ?", (code,))
+        conn.commit()
+        conn.sync()
+        conn.close()
+        return row["email"]
+    except Exception as e:
+        log.warning(f"_turso_verify_magic_link failed: {e}")
+        return None
+
+
+def _turso_delete_auth_token(token: str):
+    """Delete an auth token (logout)."""
+    conn = _get_turso_db()
+    if not conn:
+        return
+    try:
+        conn.execute("DELETE FROM auth_tokens WHERE token = ?", (token,))
+        conn.commit()
+        conn.sync()
+        conn.close()
+    except Exception as e:
+        log.warning(f"_turso_delete_auth_token failed: {e}")
+
+
+def _turso_claim_sessions(user_id: str, session_ids: list[str]) -> int:
+    """Claim unowned sessions for a user. Returns count of claimed sessions."""
+    conn = _get_turso_db()
+    if not conn or not session_ids:
+        return 0
+    try:
+        placeholders = ",".join("?" for _ in session_ids)
+        cur = conn.execute(
+            f"UPDATE sessions SET user_id = ? WHERE id IN ({placeholders}) AND user_id IS NULL",
+            [user_id] + session_ids,
+        )
+        count = cur.rowcount if hasattr(cur, 'rowcount') else 0
+        conn.commit()
+        conn.sync()
+        conn.close()
+        return count
+    except Exception as e:
+        log.warning(f"_turso_claim_sessions failed: {e}")
+        return 0
+
+
+def _turso_get_user_sessions(user_id: str) -> list[dict]:
+    """Get all sessions owned by a user from Turso."""
+    conn = _get_turso_db()
+    if not conn:
+        return []
+    try:
+        cur = conn.execute(
+            "SELECT id, game_id, model, mode, created_at, result, steps, levels, "
+            "parent_session_id, branch_at_step, total_cost, user_id "
+            "FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
+            (user_id,),
+        )
+        rows = _turso_dict_fetchall(cur)
+        conn.close()
+        return rows
+    except Exception as e:
+        log.warning(f"_turso_get_user_sessions failed: {e}")
+        return []
+
+
+def _turso_count_recent_magic_links(email: str, window: float = 900) -> int:
+    """Count magic links created for an email in the last `window` seconds."""
+    conn = _get_turso_db()
+    if not conn:
+        return 0
+    try:
+        cur = conn.execute(
+            "SELECT COUNT(*) as cnt FROM magic_links WHERE email = ? AND created_at > ?",
+            (email.lower().strip(), time.time() - window),
+        )
+        row = _turso_dict_fetchone(cur)
+        conn.close()
+        return row["cnt"] if row else 0
+    except Exception as e:
+        log.warning(f"_turso_count_recent_magic_links failed: {e}")
+        return 0
 
 
 def _log_llm_call(session_id: str, call_type: str, model: str, *,
