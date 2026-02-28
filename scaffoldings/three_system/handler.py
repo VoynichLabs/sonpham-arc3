@@ -134,7 +134,9 @@ def ts_run_wm_update(ss: dict, context: dict, settings: dict, session_id: str,
         log_llm_call(
             session_id, "ts_world_model", wm_model,
             prompt_preview=prompt[:500], prompt_length=len(prompt),
-            response_preview=raw[:1000], duration_ms=dur_ms,
+            response_preview=raw[:1000],
+            response_json={"raw": raw},
+            duration_ms=dur_ms,
             thinking_level=wm_thinking,
         )
 
@@ -273,7 +275,9 @@ If uncertain, say "uncertain — <best guess>". Keep each prediction under 100 c
     log_llm_call(
         session_id, "ts_simulate", wm_model,
         prompt_preview=prompt[:500], prompt_length=len(prompt),
-        response_preview=raw[:500], duration_ms=dur_ms,
+        response_preview=raw[:500],
+        response_json={"raw": raw},
+        duration_ms=dur_ms,
         thinking_level=wm_thinking,
     )
 
@@ -436,13 +440,16 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
         log_llm_call(
             session_id, "ts_planner", planner_model,
             prompt_preview=prompt[:500], prompt_length=len(prompt),
-            response_preview=raw[:1000], duration_ms=dur_ms,
+            response_preview=raw[:1000],
+            response_json={"raw": raw},
+            duration_ms=dur_ms,
             thinking_level=planner_thinking,
         )
 
         parsed = extract_json(raw)
         if not parsed or "type" not in parsed:
-            planner_log.append({"turn": turn, "type": "error", "error": "unparseable", "duration_ms": dur_ms})
+            logger.warning(f"[ts_planner] Turn {turn}: unparseable response (parsed={parsed is not None}, keys={list(parsed.keys()) if parsed else []}). Raw[:300]: {(raw or '')[:300]}")
+            planner_log.append({"turn": turn, "type": "error", "error": "unparseable", "duration_ms": dur_ms, "raw": raw})
             if turn == max_turns:
                 break
             conversation.append(f"[Turn {turn}] (unparseable response, trying again)")
@@ -453,7 +460,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
         if msg_type == "simulate":
             if not wm_enabled:
                 conversation.append(f"[Turn {turn}] No World Model available — cannot simulate. Use 'analyze' or 'commit' instead.")
-                planner_log.append({"turn": turn, "type": "simulate_skipped", "duration_ms": dur_ms})
+                planner_log.append({"turn": turn, "type": "simulate_skipped", "duration_ms": dur_ms, "raw": raw, "parsed": parsed})
                 continue
             actions = parsed.get("actions", [])
             question = parsed.get("question", "")
@@ -472,6 +479,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
                 "actions": [act.get("action", 0) for act in actions],
                 "predictions": predictions[:5],
                 "duration_ms": dur_ms,
+                "raw": raw, "parsed": parsed,
             })
 
         elif msg_type == "analyze":
@@ -485,7 +493,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
             else:
                 result_text = "(no data available)"
             conversation.append(f"[Turn {turn}] Analyzed '{tool}':\n{result_text}")
-            planner_log.append({"turn": turn, "type": "analyze", "tool": tool, "duration_ms": dur_ms})
+            planner_log.append({"turn": turn, "type": "analyze", "tool": tool, "duration_ms": dur_ms, "raw": raw, "parsed": parsed})
 
         elif msg_type == "commit":
             plan = parsed.get("plan", [])
@@ -519,6 +527,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
                     "plan_length": len(valid_plan),
                     "min_required": min_plan,
                     "duration_ms": dur_ms,
+                    "raw": raw, "parsed": parsed,
                 })
                 continue
 
@@ -537,6 +546,7 @@ def handle_three_system_scaffolding(payload: dict, settings: dict, *,
                 "plan_length": len(valid_plan),
                 "raw_plan_length": len(plan),
                 "duration_ms": dur_ms,
+                "raw": raw, "parsed": parsed,
             })
 
             ss["plans_since_replan"] = ss.get("plans_since_replan", 0) + 1
