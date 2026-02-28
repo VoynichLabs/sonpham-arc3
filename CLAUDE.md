@@ -119,6 +119,12 @@ Every `{ type: 'model-select', id: '...' }` field in `SCAFFOLDING_SCHEMAS` **mus
 
 This has been missed repeatedly (Three-System selects, REPL selects, etc.). When adding a new `model-select` to any scaffold, always update all three places.
 
+## After Every Fix
+
+After completing any fix or feature, **always**:
+1. Push to `staging`
+2. Run all non-LLM tests (import check + any unit/integration tests that don't require API keys)
+
 ## Pre-Push QC
 
 Before every push to staging, run:
