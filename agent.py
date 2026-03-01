@@ -121,6 +121,11 @@ MODELS = {
         "url": "https://router.huggingface.co/v1/chat/completions",
     },
     # Ollama (local)
+    "ollama/qwen3.5": {
+        "provider": "ollama",
+        "api_model": "qwen3.5:35b-a3b",
+        "url": "http://localhost:11434/v1/chat/completions",
+    },
     "ollama/llama3.3": {
         "provider": "ollama",
         "api_model": "llama3.3",
@@ -674,27 +679,15 @@ YOUR TASK
 2. Determine what must happen next to make progress.
 3. Choose the best action."""
 
-    if planning_horizon > 1:
-        return header + f"""
+    return header + f"""
 
-You may plan up to {planning_horizon} actions ahead. If the next steps are obvious (e.g. "move right 3 times"), include them all. If unsure, just include 1 action.
+Output a plan of 1-{planning_horizon} actions. If the next steps are obvious (e.g. "move right 3 times"), include them all. If unsure, output a plan of just 1 action.
 
 Respond with EXACTLY this JSON (nothing else):
 {{"observation": "<what you see>", "reasoning": "<your plan>", "actions": [{{"action": <number>, "data": {{}}}}], "memory_update": null}}
 
 Rules:
 - "actions" is an array of 1-{planning_horizon} action objects, each with "action" (int 0-7) and "data".
-- For ACTION6 set "data" to {{"x": <0-63>, "y": <0-63>}}.
-- For all other actions set "data" to {{}}.
-- "memory_update": if you discovered a NEW rule/fact worth remembering, write it as a short string (≤ 120 chars). Otherwise null."""
-    else:
-        return header + """
-
-Respond with EXACTLY this JSON (nothing else):
-{{"observation": "<what you see>", "reasoning": "<your plan>", "action": <number>, "data": {{}}, "memory_update": null}}
-
-Rules:
-- "action" must be a plain integer (0-7).
 - For ACTION6 set "data" to {{"x": <0-63>, "y": <0-63>}}.
 - For all other actions set "data" to {{}}.
 - "memory_update": if you discovered a NEW rule/fact worth remembering, write it as a short string (≤ 120 chars). Otherwise null."""
@@ -1051,7 +1044,7 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
                 print(f"  [memory inline] {memory_update[:80]}")
 
         # ── Build action list ─────────────────────────────────────────
-        # Multi-action: parse "actions" array; single-action: wrap single "action"
+        # Always expect "actions" array; wrap single "action" as 1-element plan
         if parsed and "actions" in parsed and isinstance(parsed["actions"], list):
             action_list = []
             for a in parsed["actions"][:planning_horizon]:

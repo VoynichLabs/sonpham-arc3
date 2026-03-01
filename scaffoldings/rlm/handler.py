@@ -117,7 +117,7 @@ def handle_rlm_scaffolding(payload: dict, settings: dict, *,
     # Build conversation history for the iteration loop
     messages = [
         {"role": "system", "content": build_rlm_system_prompt(planning_horizon)},
-        {"role": "user", "content": RLM_USER_PROMPT_FIRST.replace("{plan_instruction}", f"Plan up to {planning_horizon} steps ahead." if planning_horizon > 1 else "Pick the single best action.")},
+        {"role": "user", "content": RLM_USER_PROMPT_FIRST.replace("{plan_instruction}", f"Output a plan of 1-{planning_horizon} actions.")},
     ]
 
     iterations_log = []  # track each iteration for the client
@@ -195,11 +195,11 @@ def handle_rlm_scaffolding(payload: dict, settings: dict, *,
             repl_feedback = "\n\n".join(
                 f"[REPL output {i+1}]:\n{out}" for i, out in enumerate(repl_outputs)
             )
-            _plan_instr = f"Plan up to {planning_horizon} steps ahead." if planning_horizon > 1 else "Pick the single best action."
+            _plan_instr = f"Output a plan of 1-{planning_horizon} actions."
             _continue = RLM_USER_PROMPT_CONTINUE.replace("{plan_instruction}", _plan_instr)
             messages.append({"role": "user", "content": repl_feedback + "\n\n" + _continue})
         else:
-            _plan_instr = f"Plan up to {planning_horizon} steps ahead." if planning_horizon > 1 else "Pick the single best action."
+            _plan_instr = f"Output a plan of 1-{planning_horizon} actions."
             messages.append({"role": "user", "content": RLM_USER_PROMPT_CONTINUE.replace("{plan_instruction}", _plan_instr)})
 
     # Parse the final answer into the standard response format
@@ -274,8 +274,8 @@ def _parse_rlm_output(final_answer: str | None, iterations_log: list,
     if "actions" in parsed and isinstance(parsed["actions"], list) and "plan" not in parsed:
         parsed["plan"] = parsed.pop("actions")
 
-    # If planning_horizon > 1 and model returned single action, wrap as 1-step plan
-    if planning_horizon > 1 and "action" in parsed and "plan" not in parsed:
+    # Always wrap single action as 1-step plan
+    if "action" in parsed and "plan" not in parsed:
         parsed["plan"] = [{"action": parsed["action"], "data": parsed.get("data", {})}]
 
     # Validate plan entries have proper structure

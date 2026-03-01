@@ -173,7 +173,7 @@
   .model-caps { display: flex; gap: 4px; margin-top: 4px; }
 
   /* Reasoning content */
-  .reasoning-scroll { flex: 1; overflow-y: auto; padding: 10px 14px; }
+  .reasoning-scroll { flex: 1; overflow-y: auto; padding: 10px 14px; min-height: 0; }
   .reasoning-entry { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
     font-size: 12px; line-height: 1.6; position: relative; }
   .reasoning-entry .branch-btn { position: absolute; top: 0; right: 0; opacity: 0; transition: opacity 0.15s;
@@ -429,7 +429,7 @@
     border-bottom: 2px solid transparent; transition: all 0.15s; }
   .subtab-bar button:hover { color: var(--text); }
   .subtab-bar button.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .subtab-pane { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .subtab-pane { display: none; flex-direction: column; flex: 1; overflow: hidden; min-height: 0; }
   .subtab-pane.active { display: flex; }
 
   /* ── Settings single-column layout ────────────────────────────────── */
@@ -454,7 +454,7 @@
 
   /* ── Multi-session: App container + top nav + tab bar ───────────────── */
   .app-container { display: flex; flex-direction: column; height: 100vh; }
-  .layout { flex: 1; min-height: 0; }
+  .layout { flex: 1; min-height: 0; display: flex; }
 
   .top-nav { display: flex; align-items: center; gap: 16px; padding: 10px 20px;
     background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
@@ -6021,14 +6021,9 @@ function compressRowJS(row) {
 const _RLM_SYSTEM_PROMPT_TEMPLATE = getPrompt('rlm.system_prompt');
 
 function buildRlmSystemPrompt(planHorizon) {
-  let planInstructions;
-  if (planHorizon > 1) {
-    planInstructions = `For multi-step plans (up to ${planHorizon} steps ahead):\n` +
-      `  FINAL({"plan": [{"action": <int>, "observation": "..."}, ...], "reasoning": "..."})\n` +
-      `Plan up to ${planHorizon} steps ahead if the next moves are obvious.\n\n`;
-  } else {
-    planInstructions = '';
-  }
+  const planInstructions = `For multi-step plans (up to ${planHorizon} steps ahead):\n` +
+    `  FINAL({"plan": [{"action": <int>, "observation": "..."}, ...], "reasoning": "..."})\n` +
+    `Output a plan of 1-${planHorizon} actions. If the next moves are obvious, include them all. If unsure, output a plan of just 1 action.\n\n`;
   return _RLM_SYSTEM_PROMPT_TEMPLATE
     .replace('{plan_instructions}', planInstructions)
     .replace(/\{\{/g, '{').replace(/\}\}/g, '}');
@@ -6038,7 +6033,7 @@ const _RLM_USER_FIRST_TEMPLATE = getPrompt('rlm.user_first');
 const _RLM_USER_CONTINUE_TEMPLATE = getPrompt('rlm.user_continue');
 
 function _rlmPlanInstruction(planHorizon) {
-  return planHorizon > 1 ? `Plan up to ${planHorizon} steps ahead.` : 'Pick the single best action.';
+  return `Output a plan of 1-${planHorizon} actions.`;
 }
 function buildRlmUserFirst(planHorizon) {
   return _RLM_USER_FIRST_TEMPLATE.replace('{plan_instruction}', _rlmPlanInstruction(planHorizon));
@@ -6072,7 +6067,7 @@ function _extractJsonFromText(text) {
       else if (ch === '}') { depth--; if (depth === 0) {
         try {
           const parsed = JSON.parse(cleaned.substring(i, j + 1));
-          if (parsed.action !== undefined || parsed.plan) return parsed;
+          if (parsed.action !== undefined || parsed.plan || parsed.actions) return parsed;
         } catch {}
         break;
       }}
@@ -6100,8 +6095,8 @@ function _parseRlmClientOutput(finalAnswer, iterationsLog, planHorizon) {
     parsed.plan = parsed.actions;
     delete parsed.actions;
   }
-  // If planning_horizon > 1 and single action, wrap as plan
-  if (planHorizon > 1 && parsed.action !== undefined && !parsed.plan) {
+  // Always wrap single action as 1-element plan
+  if (parsed.action !== undefined && !parsed.plan) {
     parsed.plan = [{ action: parsed.action, data: parsed.data || {} }];
   }
   // Validate plan entries

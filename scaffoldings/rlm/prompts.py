@@ -9,14 +9,11 @@ _RLM_SYSTEM_PROMPT_TEMPLATE = (_PROMPT_DIR / "system_prompt.txt").read_text()
 
 def build_rlm_system_prompt(planning_horizon: int = 1) -> str:
     """Build the RLM system prompt with planning horizon."""
-    if planning_horizon > 1:
-        plan_instructions = (
-            f"For multi-step plans (up to {planning_horizon} steps ahead):\n"
-            f"  FINAL({{\"plan\": [{{\"action\": <int>, \"observation\": \"...\"}}, ...], \"reasoning\": \"...\"}})\n"
-            f"Plan up to {planning_horizon} steps ahead if the next moves are obvious.\n\n"
-        )
-    else:
-        plan_instructions = ""
+    plan_instructions = (
+        f"For multi-step plans (up to {planning_horizon} steps ahead):\n"
+        f"  FINAL({{\"plan\": [{{\"action\": <int>, \"observation\": \"...\"}}, ...], \"reasoning\": \"...\"}})\n"
+        f"Output a plan of 1-{planning_horizon} actions. If the next moves are obvious, include them all. If unsure, output a plan of just 1 action.\n\n"
+    )
     return _RLM_SYSTEM_PROMPT_TEMPLATE.format(plan_instructions=plan_instructions)
 
 
