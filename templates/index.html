@@ -1344,6 +1344,81 @@ const SCAFFOLDING_SCHEMAS = {
         customHtml: function() { return '<div id="byokKeysContainer"></div>'; }
       }
     ]
+  },
+  agent_spawn: {
+    id: 'agent_spawn',
+    name: 'Agent Spawn',
+    description: 'Orchestrator spawns bounded explorer/solver subagents with shared memory.',
+    pipeline: [
+      { id: 'orchestrator', label: 'Orchestrator', color: 'var(--accent)', settingsRef: 'orchestrator_model' },
+      { id: 'explorer', label: 'Explorer', color: 'var(--green)', settingsRef: null },
+      { id: 'solver', label: 'Solver', color: 'var(--purple)', settingsRef: null },
+      { id: 'memory', label: 'Shared Memory', color: 'var(--yellow)', settingsRef: null },
+    ],
+    edges: [
+      { from: 'orchestrator', to: 'explorer', label: 'spawn' },
+      { from: 'orchestrator', to: 'solver', label: 'spawn' },
+      { from: 'explorer', to: 'memory', label: 'findings' },
+      { from: 'solver', to: 'memory', label: 'results' },
+      { from: 'memory', to: 'orchestrator', label: 'context' },
+    ],
+    sections: [
+      {
+        id: 'sf_as_secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
+        fields: [
+          { type: 'toggle', id: 'sf_as_inputGrid', label: 'Full grid (RLE)', default: true },
+          { type: 'toggle', id: 'sf_as_inputImage', label: 'Image', default: false },
+          { type: 'toggle', id: 'sf_as_inputDiff', label: 'Diff (change map)', default: true },
+          { type: 'toggle', id: 'sf_as_inputHistogram', label: 'Color histogram', default: false },
+        ]
+      },
+      {
+        id: 'sf_as_secOrchestrator', label: 'Orchestrator', open: true,
+        groups: [{
+          subHeader: 'Orchestrator Model',
+          fields: [
+            { type: 'model-select', id: 'sf_as_orchestratorModelSelect', capsId: 'sf_as_orchestratorModelCaps' },
+            { type: 'grid-2col', marginBottom: '8px', children: [
+              { type: 'quadswitch', id: 'sf_as_orchestratorThinking', name: 'sf_as_orchestratorThinking', label: 'Thinking',
+                options: [{v:'off',l:'Off'},{v:'low',l:'Low',checked:true},{v:'med',l:'Med'},{v:'high',l:'High'}],
+                hint: 'Thinking token budget' },
+              { type: 'number-spin', id: 'sf_as_orchestratorMaxTokens', label: 'Max tokens',
+                default: 16384, min: 1024, max: 65536, step: 1024, spinFn: null, inline: true },
+            ]},
+          ]
+        }]
+      },
+      {
+        id: 'sf_as_secSubagent', label: 'Subagent', open: true,
+        groups: [{
+          subHeader: 'Subagent Model',
+          fields: [
+            { type: 'model-select', id: 'sf_as_subagentModelSelect', capsId: 'sf_as_subagentModelCaps' },
+            { type: 'grid-2col', marginBottom: '8px', children: [
+              { type: 'quadswitch', id: 'sf_as_subagentThinking', name: 'sf_as_subagentThinking', label: 'Thinking',
+                options: [{v:'off',l:'Off'},{v:'low',l:'Low',checked:true},{v:'med',l:'Med'},{v:'high',l:'High'}],
+                hint: 'Thinking token budget' },
+              { type: 'number-spin', id: 'sf_as_subagentMaxTokens', label: 'Max tokens',
+                default: 16384, min: 1024, max: 65536, step: 1024, spinFn: null, inline: true },
+            ]},
+          ]
+        }]
+      },
+      {
+        id: 'sf_as_secParams', label: 'Parameters', open: true,
+        groups: [{
+          subHeader: 'Tuning',
+          fields: [
+            { type: 'number-input', id: 'sf_as_maxSubagentBudget', label: 'Max subagent budget', default: 5, min: 1, max: 10, width: '55px' },
+            { type: 'number-input', id: 'sf_as_orchestratorMaxTurns', label: 'Orchestrator max turns', default: 5, min: 1, max: 15, width: '55px' },
+          ]
+        }]
+      },
+      {
+        id: 'secKeys', label: 'Model Keys', open: true,
+        customHtml: function() { return '<div id="byokKeysContainer"></div>'; }
+      }
+    ]
   }
 };
 
@@ -1724,7 +1799,8 @@ function attachSettingsListeners() {
   for (const selId of [
     'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
     'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
-    'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect'
+    'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect',
+    'sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect'
   ]) {
     const el = document.getElementById(selId);
     if (el) el.addEventListener('change', updateAllByokKeys);
@@ -2913,6 +2989,9 @@ function getSelectedModel() {
   if (activeScaffoldingType === 'two_system') {
     return document.getElementById('sf_2s_plannerModelSelect')?.value || '';
   }
+  if (activeScaffoldingType === 'agent_spawn') {
+    return document.getElementById('sf_as_orchestratorModelSelect')?.value || '';
+  }
   return document.getElementById('modelSelect')?.value || '';
 }
 
@@ -2940,7 +3019,8 @@ function updateAllByokKeys() {
   const allSelectIds = ['modelSelect', 'compactModelSelectTop', 'interruptModelSelect',
     'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
     'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
-    'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect'];
+    'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect',
+    'sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect'];
 
   // 2. Collect unique providers that need keys
   const neededProviders = new Set();
@@ -4041,6 +4121,22 @@ function getScaffoldingSettings() {
     s.min_plan_length = parseInt(document.querySelector('input[name="sf_2s_planHorizon"]:checked')?.value) || 5;
     s.max_plan_length = parseInt(document.getElementById('sf_2s_maxPlanLength')?.value) || 15;
     s.model = s.planner_model;
+  } else if (type === 'agent_spawn') {
+    s.input = {
+      diff: document.getElementById('sf_as_inputDiff')?.checked ?? true,
+      full_grid: document.getElementById('sf_as_inputGrid')?.checked ?? true,
+      image: document.getElementById('sf_as_inputImage')?.checked ?? false,
+      color_histogram: document.getElementById('sf_as_inputHistogram')?.checked ?? false,
+    };
+    s.orchestrator_model = document.getElementById('sf_as_orchestratorModelSelect')?.value || '';
+    s.orchestrator_thinking_level = document.querySelector('input[name="sf_as_orchestratorThinking"]:checked')?.value || 'low';
+    s.orchestrator_max_tokens = parseInt(document.getElementById('sf_as_orchestratorMaxTokens')?.value) || 16384;
+    s.subagent_model = document.getElementById('sf_as_subagentModelSelect')?.value || '';
+    s.subagent_thinking_level = document.querySelector('input[name="sf_as_subagentThinking"]:checked')?.value || 'low';
+    s.subagent_max_tokens = parseInt(document.getElementById('sf_as_subagentMaxTokens')?.value) || 16384;
+    s.max_subagent_budget = parseInt(document.getElementById('sf_as_maxSubagentBudget')?.value) || 5;
+    s.orchestrator_max_turns = parseInt(document.getElementById('sf_as_orchestratorMaxTurns')?.value) || 5;
+    s.model = s.orchestrator_model;
   }
 
   return s;
@@ -4666,6 +4762,15 @@ async function askLLM(ss) {
           resp = { error: e.message, model };
         }
         if (resp) resp._clientSide = true;
+      } else if (_scaffType === 'agent_spawn') {
+        // Agent Spawn scaffolding: orchestrator + subagent loops
+        try {
+          resp = await askLLMAgentSpawn(_cur, model, modelInfo, _waitEl, isActive, historyForLLM, compactBlock, _snap);
+        } catch (e) {
+          console.error('[askLLM] Agent Spawn client-side error:', e);
+          resp = { error: e.message, model };
+        }
+        if (resp) resp._clientSide = true;
       } else {
       const prompt = buildClientPrompt(_cur.currentState, historyForLLM, _cur.currentChangeMap, inputSettings, _snap?.tools_mode || getToolsMode(), compactBlock, _snap?.planning_mode || getPlanningMode());
       window._lastLLMGrid = _cur.currentState.grid;
@@ -5212,7 +5317,7 @@ async function executePlan(plan, resp, entry, expected, ss) {
       }
     }
     // For linear/default in step-once mode (not autoplay), only execute 1 step
-    const isScaffoldPlan = resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system' || resp?.scaffolding === 'rlm';
+    const isScaffoldPlan = resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system' || resp?.scaffolding === 'rlm' || resp?.scaffolding === 'agent_spawn';
     if (!isScaffoldPlan && !_cur.autoPlaying && completed > 0) break;
 
     // Mark step as executing
@@ -6046,6 +6151,30 @@ async function loadModels() {
         sf_2s_monitorModelSelect: ts2S.monitor_model,
       };
       for (const [id, val] of Object.entries(ts2Map)) {
+        const el = document.getElementById(id);
+        if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
+      }
+    }
+  } catch {}
+
+  // Populate Agent Spawn model selects if they exist
+  for (const asSelId of ['sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect']) {
+    const asSel = document.getElementById(asSelId);
+    if (!asSel) continue;
+    const asSaved = asSel.value;
+    asSel.innerHTML = '<option value="">Select a model...</option>';
+    _populateSubModelSelect(asSel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, asSaved);
+  }
+  // Restore Agent Spawn model selections from saved settings
+  try {
+    const asRaw = localStorage.getItem('arc_scaffolding_agent_spawn');
+    if (asRaw) {
+      const asS = JSON.parse(asRaw);
+      const asMap = {
+        sf_as_orchestratorModelSelect: asS.orchestrator_model,
+        sf_as_subagentModelSelect: asS.subagent_model,
+      };
+      for (const [id, val] of Object.entries(asMap)) {
         const el = document.getElementById(id);
         if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
       }
@@ -7030,6 +7159,432 @@ async function askLLMThreeSystem(_cur, model, modelInfo, waitEl, isActiveFn, his
     three_system: {
       turn: ss.turn_count, goal: 'explore — planner fallback',
       planner_log: plannerLog, world_model: wmInfo,
+    },
+    call_duration_ms: totalDur,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// AGENT SPAWN — Client-side orchestrator + subagent loop
+// ═══════════════════════════════════════════════════════════════════════════
+
+const AS_ORCHESTRATOR_SYSTEM = `You are the Orchestrator for an ARC-AGI-3 game-playing system.
+You coordinate specialized subagents to solve puzzle games on a grid.
+
+Your job:
+1. Observe the current game state (grid, available actions, level progress).
+2. Decide which subagent to spawn and what task to give it.
+3. Review subagent results and incorporate findings into shared memory.
+4. Decide the next action(s) to submit.
+
+Available subagent types:
+- explorer: Tries actions to discover what they do. Good for early-game mapping.
+- solver: Executes a sequence of actions toward a specific goal.
+
+You respond in JSON only.`;
+
+const AS_ORCHESTRATOR_TURN = `# Current State
+- Game: {game_id}
+- Step: {step_num}
+- Level: {levels_done} / {win_levels}
+- State: {state_str}
+- Available actions: {action_desc}
+
+# Grid
+{grid_block}
+
+# Change from last step
+{change_map_block}
+
+# Shared Memories
+{memories}
+
+# History (last {history_len} steps)
+{history_block}
+
+# Instructions
+Decide your next move. You MUST respond with exactly one JSON object:
+
+Option A — Spawn a subagent:
+{
+  "command": "spawn",
+  "agent_type": "explorer" or "solver",
+  "task": "description of what the subagent should do",
+  "budget": <max steps for subagent, 1-10>
+}
+
+Option B — Submit action(s) directly (a plan of 1+ actions):
+{
+  "command": "act",
+  "plan": [{"action": <0-7>, "data": {}, "reasoning": "why"}],
+  "observation": "what I see",
+  "reasoning": "why these actions"
+}
+
+Option C — Record a finding and continue:
+{
+  "command": "think",
+  "facts": ["fact1", ...],
+  "hypotheses": ["hypothesis1", ...],
+  "next": "what to do next"
+}
+
+Choose the option that best advances your goal. Early in the game, prefer spawning an explorer.
+When you have a clear plan, use "act" or spawn a solver.`;
+
+const AS_SUBAGENT_SYSTEM = {
+  explorer: `You are an Explorer subagent for an ARC-AGI-3 game.
+Your job: try actions to discover what they do. Report your findings clearly.
+
+You have a limited action budget. Use it wisely — try different actions to
+map out the game mechanics. Focus on discovering:
+- What each action does to the grid
+- Which actions advance the level
+- Any patterns in how the grid changes
+
+You respond in JSON only.`,
+  solver: `You are a Solver subagent for an ARC-AGI-3 game.
+Your job: execute a specific plan to achieve a goal.
+
+Follow the orchestrator's instructions and execute actions toward the goal.
+Report results after each action so the orchestrator can evaluate progress.
+
+You respond in JSON only.`,
+};
+
+const AS_SUBAGENT_TURN = `# Task from Orchestrator
+{task}
+
+# Current State
+- Step: {step_num} (budget remaining: {budget_remaining})
+- Level: {levels_done} / {win_levels}
+- State: {state_str}
+- Available actions: {action_desc}
+
+# Grid
+{grid_block}
+
+# Change from last step
+{change_map_block}
+
+# Shared Memories
+{memories}
+
+# My Previous Actions This Session
+{session_history}
+
+# Instructions
+Choose your next action. Respond with exactly one JSON object:
+
+Option A — Take an action:
+{
+  "command": "act",
+  "action": <action_id 0-7>,
+  "data": {},
+  "reasoning": "why this action"
+}
+
+Option B — Report findings and yield back to orchestrator:
+{
+  "command": "report",
+  "findings": ["finding1", ...],
+  "hypotheses": ["hypothesis1", ...],
+  "summary": "what I learned"
+}
+
+If you've exhausted your budget or have enough findings, use "report".
+Otherwise, take actions to fulfill your task.`;
+
+function _asFill(template, vars) {
+  let s = template;
+  for (const [k, v] of Object.entries(vars)) s = s.replaceAll('{' + k + '}', String(v));
+  return s;
+}
+
+function _asFormatMemories(mem) {
+  const parts = [];
+  if (mem.facts.length) parts.push('## Facts\n' + mem.facts.map((f, i) => `${i + 1}. ${f}`).join('\n'));
+  if (mem.hypotheses.length) parts.push('## Hypotheses\n' + mem.hypotheses.map((h, i) => `${i + 1}. ${h}`).join('\n'));
+  if (mem.observations.length) {
+    const recent = mem.observations.slice(-10);
+    parts.push('## Recent Observations\n' + recent.map(o => `- Step ${o.step}: ${o.text}`).join('\n'));
+  }
+  return parts.length ? parts.join('\n\n') : '(none yet)';
+}
+
+async function askLLMAgentSpawn(_cur, model, modelInfo, waitEl, isActiveFn, historyForLLM, compactBlock, _snap) {
+  const t0Total = performance.now();
+  const settings = _snap?.scaffolding || getScaffoldingSettings();
+  const orchModel = settings.orchestrator_model || settings.model || model;
+  const orchThinking = settings.orchestrator_thinking_level || 'low';
+  const orchMaxTokens = Math.min(parseInt(settings.orchestrator_max_tokens) || 16384, 65536);
+  const subModel = settings.subagent_model || orchModel;
+  const subThinking = settings.subagent_thinking_level || 'low';
+  const subMaxTokens = Math.min(parseInt(settings.subagent_max_tokens) || 16384, 65536);
+  const maxSubBudget = parseInt(settings.max_subagent_budget) || 5;
+  const orchMaxTurns = parseInt(settings.orchestrator_max_turns) || 5;
+
+  // Init shared memory on session
+  if (!_cur._asState) {
+    _cur._asState = { facts: [], hypotheses: [], observations: [], turn_count: 0 };
+  }
+  const mem = _cur._asState;
+  mem.turn_count++;
+
+  const context = {
+    grid: _cur.currentState.grid || [],
+    available_actions: _cur.currentState.available_actions || [],
+    history: historyForLLM || [],
+    change_map: _cur.currentChangeMap || {},
+    game_id: _cur.currentState.game_id || 'unknown',
+    state: _cur.currentState.state || '',
+    step_num: _cur.stepCount || 0,
+    levels_completed: _cur.currentState.levels_completed || 0,
+    win_levels: _cur.currentState.win_levels || 0,
+  };
+
+  const actionDesc = context.available_actions.map(a => `${a}=${ACTION_NAMES[a] || 'ACTION' + a}`).join(', ');
+  const gridText = context.grid.length ? context.grid.map((r, i) => `Row ${i}: ${compressRowJS(r)}`).join('\n') : '(no grid)';
+
+  let historyBlock = '';
+  if (context.history.length) {
+    const lines = context.history.slice(-15).map(h => {
+      const aname = ACTION_NAMES[h.action] || '?';
+      return `  Step ${h.step || '?'}: ${aname} -> levels=${h.levels || '?'} | ${(h.observation || '').substring(0, 300)}`;
+    });
+    historyBlock = lines.join('\n');
+  }
+
+  const cm = context.change_map;
+  let changeMapBlock = '';
+  if (typeof cm === 'object' && cm?.change_map_text) changeMapBlock = cm.change_map_text;
+  else if (typeof cm === 'string' && cm) changeMapBlock = cm;
+  else changeMapBlock = '(no changes)';
+
+  const orchestratorLog = [];
+  const allPlanSteps = [];
+
+  // Orchestrator REPL loop
+  for (let turn = 1; turn <= orchMaxTurns; turn++) {
+    if (!isActiveFn()) break;
+
+    // Update wait label
+    const label = waitEl?.querySelector('.step-label');
+    if (label) {
+      const timer = label.querySelector('.wait-timer');
+      const spinner = label.querySelector('.spinner');
+      label.innerHTML = '';
+      if (spinner) label.appendChild(spinner);
+      label.appendChild(document.createTextNode(`Orchestrator turn ${turn}/${orchMaxTurns}... `));
+      if (timer) label.appendChild(timer);
+    }
+
+    const turnVars = {
+      game_id: context.game_id, step_num: context.step_num, levels_done: context.levels_completed,
+      win_levels: context.win_levels, state_str: context.state, action_desc: actionDesc,
+      grid_block: gridText, change_map_block: changeMapBlock,
+      memories: _asFormatMemories(mem), history_len: Math.min(context.history.length, 15),
+      history_block: historyBlock || '(none)',
+    };
+
+    const prompt = AS_ORCHESTRATOR_SYSTEM + '\n\n' + _asFill(AS_ORCHESTRATOR_TURN, turnVars);
+    const t0 = performance.now();
+    let raw;
+    try {
+      raw = await callLLM([{role: 'system', content: prompt}], orchModel, { maxTokens: orchMaxTokens, thinkingLevel: orchThinking });
+    } catch (e) {
+      console.error(`[agent_spawn] orchestrator turn ${turn} failed:`, e);
+      orchestratorLog.push({turn, type: 'error', error: e.message});
+      break;
+    }
+    const durMs = Math.round(performance.now() - t0);
+    const parsed = _extractJsonFromText(raw) || (() => { try { return JSON.parse(raw); } catch { return null; } })();
+
+    if (!parsed || !parsed.command) {
+      orchestratorLog.push({turn, type: 'error', error: 'unparseable', duration_ms: durMs});
+      continue;
+    }
+
+    const command = parsed.command;
+
+    if (command === 'think') {
+      // Record facts/hypotheses to shared memory
+      const facts = parsed.facts || [];
+      const hypotheses = parsed.hypotheses || [];
+      for (const f of facts) { if (!mem.facts.includes(f)) mem.facts.push(f); }
+      for (const h of hypotheses) { if (!mem.hypotheses.includes(h)) mem.hypotheses.push(h); }
+      orchestratorLog.push({turn, type: 'think', facts: facts.length, hypotheses: hypotheses.length, duration_ms: durMs});
+      continue;
+
+    } else if (command === 'act') {
+      // Direct action(s) — return as plan
+      const planRaw = parsed.plan || [{action: parsed.action || 0, data: parsed.data || {}, reasoning: parsed.reasoning || ''}];
+      const avail = new Set(context.available_actions);
+      const validPlan = [];
+      for (const step of planRaw.slice(0, 15)) {
+        if (step.action !== undefined && avail.has(parseInt(step.action))) {
+          validPlan.push({action: parseInt(step.action), data: step.data || {}, expected: step.reasoning || ''});
+        }
+      }
+      if (!validPlan.length) {
+        orchestratorLog.push({turn, type: 'act_invalid', duration_ms: durMs});
+        continue;
+      }
+
+      orchestratorLog.push({turn, type: 'act', plan_length: validPlan.length, duration_ms: durMs});
+      const totalDur = Math.round(performance.now() - t0Total);
+
+      return {
+        raw, thinking: null,
+        parsed: {
+          observation: parsed.observation || '',
+          reasoning: parsed.reasoning || '',
+          action: validPlan[0].action,
+          data: validPlan[0].data || {},
+          plan: validPlan,
+        },
+        model: orchModel, scaffolding: 'agent_spawn',
+        _clientSide: true,
+        agent_spawn: {
+          turn: mem.turn_count,
+          orchestrator_log: orchestratorLog,
+          memories: { facts: [...mem.facts], hypotheses: [...mem.hypotheses] },
+        },
+        call_duration_ms: totalDur,
+      };
+
+    } else if (command === 'spawn') {
+      // Spawn a subagent — run its loop client-side
+      const agentType = parsed.agent_type === 'solver' ? 'solver' : 'explorer';
+      const task = parsed.task || 'explore the game';
+      const budget = Math.min(parseInt(parsed.budget) || 3, maxSubBudget);
+      const systemPrompt = AS_SUBAGENT_SYSTEM[agentType];
+
+      orchestratorLog.push({turn, type: 'spawn', agent_type: agentType, task: task.substring(0, 80), budget, duration_ms: durMs});
+
+      // Update wait label for subagent
+      if (label) {
+        const timer = label.querySelector('.wait-timer');
+        const spinner = label.querySelector('.spinner');
+        label.innerHTML = '';
+        if (spinner) label.appendChild(spinner);
+        label.appendChild(document.createTextNode(`[${agentType}] running (budget ${budget})... `));
+        if (timer) label.appendChild(timer);
+      }
+
+      // Subagent loop — each iteration produces one plan step
+      const subActions = [];
+      let subGrid = gridText;
+      let subChangeMap = changeMapBlock;
+      for (let si = 0; si < budget + 1; si++) {
+        if (!isActiveFn()) break;
+
+        const subVars = {
+          task, step_num: context.step_num + subActions.length,
+          budget_remaining: budget - subActions.length,
+          levels_done: context.levels_completed, win_levels: context.win_levels,
+          state_str: context.state, action_desc: actionDesc,
+          grid_block: subGrid, change_map_block: subChangeMap,
+          memories: _asFormatMemories(mem),
+          session_history: subActions.length
+            ? subActions.map((a, i) => `  ${i + 1}. ${ACTION_NAMES[a.action] || '?'}: ${a.reasoning || ''}`).join('\n')
+            : '(none yet)',
+        };
+
+        const subPrompt = systemPrompt + '\n\n' + _asFill(AS_SUBAGENT_TURN, subVars);
+        let subRaw;
+        try {
+          subRaw = await callLLM([{role: 'system', content: subPrompt}], subModel, { maxTokens: subMaxTokens, thinkingLevel: subThinking });
+        } catch (e) {
+          console.error(`[agent_spawn] ${agentType} step ${si} failed:`, e);
+          break;
+        }
+
+        const subParsed = _extractJsonFromText(subRaw) || (() => { try { return JSON.parse(subRaw); } catch { return null; } })();
+        if (!subParsed || !subParsed.command) break;
+
+        if (subParsed.command === 'report') {
+          // Subagent reports findings and yields
+          const findings = subParsed.findings || [];
+          const hypotheses = subParsed.hypotheses || [];
+          for (const f of findings) { if (!mem.facts.includes(f)) mem.facts.push(f); }
+          for (const h of hypotheses) { if (!mem.hypotheses.includes(h)) mem.hypotheses.push(h); }
+          if (subParsed.summary) {
+            mem.observations.push({step: context.step_num, text: `[${agentType}] ${subParsed.summary}`});
+          }
+          break;
+        }
+
+        if (subParsed.command === 'act') {
+          const actionId = parseInt(subParsed.action);
+          const avail = new Set(context.available_actions);
+          if (actionId === undefined || !avail.has(actionId)) break;
+          subActions.push({
+            action: actionId,
+            data: subParsed.data || {},
+            expected: `[${agentType}] ${subParsed.reasoning || ''}`,
+            reasoning: subParsed.reasoning || '',
+          });
+          if (subActions.length >= budget) break;
+        }
+      }
+
+      // Convert subagent actions into plan steps
+      if (subActions.length > 0) {
+        for (const sa of subActions) allPlanSteps.push(sa);
+      }
+      // Continue orchestrator loop — it may spawn more subagents or commit
+    }
+  }
+
+  // Return collected plan steps (or fallback)
+  if (allPlanSteps.length > 0) {
+    const totalDur = Math.round(performance.now() - t0Total);
+    return {
+      raw: '', thinking: null,
+      parsed: {
+        observation: `Agent spawn completed — ${allPlanSteps.length} action(s) from subagents`,
+        reasoning: orchestratorLog.map(l => `Turn ${l.turn}: ${l.type}`).join(', '),
+        action: allPlanSteps[0].action,
+        data: allPlanSteps[0].data || {},
+        plan: allPlanSteps,
+      },
+      model: orchModel, scaffolding: 'agent_spawn',
+      _clientSide: true,
+      agent_spawn: {
+        turn: mem.turn_count,
+        orchestrator_log: orchestratorLog,
+        memories: { facts: [...mem.facts], hypotheses: [...mem.hypotheses] },
+      },
+      call_duration_ms: totalDur,
+    };
+  }
+
+  // Fallback: exploratory plan
+  const exploratory = context.available_actions.filter(a => a !== 0);
+  const fallbackPlan = [];
+  let fbIdx = 0;
+  while (fallbackPlan.length < 3 && exploratory.length) {
+    fallbackPlan.push({action: exploratory[fbIdx % exploratory.length], data: {}, expected: 'explore'});
+    fbIdx++;
+  }
+  const totalDur = Math.round(performance.now() - t0Total);
+
+  return {
+    raw: '', thinking: null,
+    parsed: {
+      observation: 'Orchestrator could not produce a plan',
+      reasoning: 'Max turns reached or errors occurred, falling back to exploration',
+      action: fallbackPlan.length ? fallbackPlan[0].action : 0,
+      data: {},
+      plan: fallbackPlan,
+    },
+    model: orchModel, scaffolding: 'agent_spawn',
+    _clientSide: true, _fallbackAction: true,
+    agent_spawn: {
+      turn: mem.turn_count,
+      orchestrator_log: orchestratorLog,
+      memories: { facts: [...mem.facts], hypotheses: [...mem.hypotheses] },
     },
     call_duration_ms: totalDur,
   };
