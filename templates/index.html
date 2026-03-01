@@ -2160,6 +2160,9 @@ function captureSessionTemplate() {
   if (!ml) return;
   _sessionTemplate = ml.cloneNode(true);
   _sessionTemplate.removeAttribute('id');
+  // Ensure cloned template has loading overlay hidden (Pyodide may be loading when captured)
+  const overlay = _sessionTemplate.querySelector('#pyodideGameLoading');
+  if (overlay) overlay.style.display = 'none';
 }
 
 function createSessionView() {
@@ -2722,6 +2725,9 @@ async function pyodideStartGame(gameId) {
     _updatePyodideGameLoadingUI();
   }
   await ensurePyodideGame();
+  // Hide loading overlay (current DOM's copy — may differ from the one shown above)
+  const loadingDone = document.getElementById('pyodideGameLoading');
+  if (loadingDone) loadingDone.style.display = 'none';
 
   // Load game in worker
   const state = await _sendGameWorkerMsg({
@@ -2918,7 +2924,7 @@ const PROVIDER_LABELS = {
 
 const _BYOK_FREE_PROVIDERS = new Set(['puter', 'copilot', 'ollama', 'local']);
 const _BYOK_PROVIDER_EXTRA_FIELDS = {
-  cloudflare: [{ key: 'byok_cf_account_id', label: 'Cloudflare Account ID', placeholder: 'Paste Account ID here...', hint: 'Found in Cloudflare dashboard → Workers & Pages.', type: 'text' }],
+  cloudflare: [{ key: 'byok_cf_account_id', label: 'Cloudflare Account ID', placeholder: 'Paste Account ID here...', hint: 'Found in Cloudflare dashboard → Workers & Pages.', type: 'password' }],
 };
 
 function updateAllByokKeys() {
@@ -6026,9 +6032,18 @@ function buildRlmSystemPrompt(planHorizon) {
     .replace(/\{\{/g, '{').replace(/\}\}/g, '}');
 }
 
-const RLM_USER_FIRST = getPrompt('rlm.user_first');
+const _RLM_USER_FIRST_TEMPLATE = getPrompt('rlm.user_first');
+const _RLM_USER_CONTINUE_TEMPLATE = getPrompt('rlm.user_continue');
 
-const RLM_USER_CONTINUE = getPrompt('rlm.user_continue');
+function _rlmPlanInstruction(planHorizon) {
+  return planHorizon > 1 ? `Plan up to ${planHorizon} steps ahead.` : 'Pick the single best action.';
+}
+function buildRlmUserFirst(planHorizon) {
+  return _RLM_USER_FIRST_TEMPLATE.replace('{plan_instruction}', _rlmPlanInstruction(planHorizon));
+}
+function buildRlmUserContinue(planHorizon) {
+  return _RLM_USER_CONTINUE_TEMPLATE.replace('{plan_instruction}', _rlmPlanInstruction(planHorizon));
+}
 
 function _rlmFindFinal(text) {
   // Strip code blocks before checking for FINAL
@@ -6281,7 +6296,7 @@ if 'SHOW_VARS' not in dir():
   const systemPrompt = buildRlmSystemPrompt(planHorizon);
   const messages = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: RLM_USER_FIRST },
+    { role: 'user', content: buildRlmUserFirst(planHorizon) },
   ];
 
   const iterationsLog = [];
@@ -6365,9 +6380,9 @@ if 'SHOW_VARS' not in dir():
     // Build REPL output feedback
     if (replOutputs.length) {
       const feedback = replOutputs.map((out, i) => `[REPL output ${i + 1}]:\n${out}`).join('\n\n');
-      messages.push({ role: 'user', content: feedback + '\n\n' + RLM_USER_CONTINUE });
+      messages.push({ role: 'user', content: feedback + '\n\n' + buildRlmUserContinue(planHorizon) });
     } else {
-      messages.push({ role: 'user', content: RLM_USER_CONTINUE });
+      messages.push({ role: 'user', content: buildRlmUserContinue(planHorizon) });
     }
 
     // Clear streaming preview for next iteration
