@@ -21,7 +21,6 @@ from agent import (
     MODELS, DEFAULT_MODEL, call_model_with_retry,
     load_config, effective_model, play_game,
 )
-from scaffoldings.three_system.game_loop import play_game_scaffold
 from db import (
     _get_db, _db_insert_session, _db_insert_step, _db_update_session,
     _compress_grid, _turso_import_session, _turso_sync_session,
@@ -193,8 +192,10 @@ def run_single_game(arcade, game_id: str, cfg: dict, max_steps: int,
     levels = 0
 
     # Select game loop based on scaffolding mode
+    from scaffoldings import SCAFFOLDING_REGISTRY
     scfg = cfg.get("scaffolding", {})
-    game_fn = play_game_scaffold if scfg.get("mode") == "three_system" else play_game
+    mode = scfg.get("mode", "")
+    game_fn = SCAFFOLDING_REGISTRY.get(mode, play_game)
 
     try:
         result = game_fn(
@@ -477,6 +478,8 @@ def main():
                         help="Upload completed sessions to Turso")
     parser.add_argument("--upload-session", default=None,
                         help="Upload a single session to Turso by ID (no batch run)")
+    parser.add_argument("--scaffolding", default=None,
+                        help="Override scaffolding mode (e.g. agent_spawn, three_system)")
     parser.add_argument("--config", default=None,
                         help="Path to config.yaml")
     args = parser.parse_args()
@@ -513,6 +516,8 @@ def main():
     cfg = load_config(Path(args.config) if args.config else None)
     if args.model:
         cfg["reasoning"]["executor_model"] = args.model
+    if args.scaffolding:
+        cfg.setdefault("scaffolding", {})["mode"] = args.scaffolding
 
     # Validate model
     exec_model = cfg["reasoning"]["executor_model"]
