@@ -442,15 +442,15 @@
     background-size: 1px 100%; background-position: center top; background-repeat: no-repeat; }
   .settings-grid .span-full { grid-column: 1 / -1; }
 
-  /* ── Prompt subtab (formerly Memory) ─────────────────────────────── */
-  .memory-tab { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 12px 14px; gap: 12px; }
-  .memory-tab .mem-section { display: flex; flex-direction: column; gap: 4px; }
-  .memory-tab .mem-section label { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase;
+  /* ── Prompt fields (inside Agent Settings collapsible) ────────────── */
+  .prompt-fields { display: flex; flex-direction: column; gap: 12px; }
+  .prompt-fields .mem-section { display: flex; flex-direction: column; gap: 4px; }
+  .prompt-fields .mem-section label { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase;
     letter-spacing: 0.3px; flex-shrink: 0; }
-  .memory-tab textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  .prompt-fields textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
     border-radius: 4px; font-family: inherit; font-size: 11px; line-height: 1.5; padding: 8px; resize: vertical; }
-  .memory-tab .memory-actions { display: flex; gap: 6px; flex-shrink: 0; padding-top: 4px; }
-  .memory-tab .memory-actions .btn { font-size: 11px; padding: 5px 14px; }
+  .prompt-fields .memory-actions { display: flex; gap: 6px; flex-shrink: 0; padding-top: 4px; }
+  .prompt-fields .memory-actions .btn { font-size: 11px; padding: 5px 14px; }
 
   /* ── Multi-session: App container + top nav + tab bar ───────────────── */
   .app-container { display: flex; flex-direction: column; height: 100vh; }
@@ -748,7 +748,6 @@
           <div class="subtab-bar">
             <button class="active" onclick="switchSubTab('settings')">Agent Settings</button>
             <button onclick="switchSubTab('graphics')">Graphics</button>
-            <button onclick="switchSubTab('memory')">Prompt</button>
             <button onclick="switchSubTab('reasoning')">
               Reasoning <span id="llmSpinner" style="display:none;margin-left:4px;"><span class="spinner"></span></span>
             </button>
@@ -778,43 +777,6 @@
             <div class="opt-row">
               <span class="opt-label">Highlight color</span>
               <input type="color" id="changeColor" value="#ff0000" style="width:28px;height:20px;border:none;background:none;cursor:pointer;">
-            </div>
-          </div>
-
-          <!-- ── Prompt subtab (formerly Memory) ── -->
-          <div class="subtab-pane" id="subtabMemory">
-            <div class="memory-tab">
-              <div class="mem-section">
-                <label>System Prompt</label>
-                <textarea id="memorySystemPrompt" rows="8" placeholder="ARC-AGI-3 description and action mappings..."></textarea>
-              </div>
-              <div class="mem-section">
-                <label>Agent Priors</label>
-                <textarea id="memoryHardMemory" rows="8" placeholder="Agent strategy priors..."></textarea>
-              </div>
-              <div class="mem-section">
-                <label>Compact Prompt <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(sent to compact model)</span></label>
-                <textarea id="memoryCompactPrompt" rows="6" placeholder="Compact prompt template..."></textarea>
-              </div>
-              <div class="mem-section">
-                <label>Compact Summary <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(auto-generated, editable)</span></label>
-                <textarea id="memoryCompactSummary" rows="5" placeholder="No compact summary yet. Play a game and compact context to see the LLM-generated summary here."></textarea>
-              </div>
-              <div class="mem-section">
-                <label>Interrupt Prompt <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(sent to interrupt model)</span></label>
-                <textarea id="memoryInterruptPrompt" rows="5" placeholder="Interrupt prompt template..."></textarea>
-              </div>
-              <div class="mem-section">
-                <label>Interrupt Result <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(last response, read-only)</span></label>
-                <textarea id="memoryInterruptResult" rows="2" readonly placeholder="—" style="opacity:0.8;"></textarea>
-              </div>
-              <div class="memory-actions">
-                <button class="btn btn-primary" onclick="saveMemoryEdits()">Save</button>
-                <button class="btn" onclick="resetMemoryDefaults()">Reset defaults</button>
-                <button class="btn" onclick="applyCompactEdit()" style="background:#445;">Apply compact</button>
-                <span id="memorySaveStatus" style="font-size:10px;color:var(--green);display:none;">Saved!</span>
-              </div>
-              <div style="font-size:9px;color:var(--dim);margin-top:4px;font-style:italic;">Prompts are saved locally in your browser and persist across sessions.</div>
             </div>
           </div>
 
@@ -1360,6 +1322,32 @@ function renderScaffoldingSettings(schemaId) {
     }
     html += '</div>';
   }
+  // ── Prompts collapsible section (always appended) ──
+  html += '<div class="opt-section" id="sectionPrompts">';
+  html += '<div class="opt-header" onclick="toggleSection(\'sectionPrompts\')">';
+  html += '<span>Prompts</span><span class="chevron">&#9654;</span></div>';
+  html += '<div class="opt-body"><div class="prompt-fields">';
+  html += '<div class="mem-section"><label>System Prompt</label>';
+  html += '<textarea id="memorySystemPrompt" rows="8" placeholder="ARC-AGI-3 description and action mappings..."></textarea></div>';
+  html += '<div class="mem-section"><label>Agent Priors</label>';
+  html += '<textarea id="memoryHardMemory" rows="8" placeholder="Agent strategy priors..."></textarea></div>';
+  html += '<div class="mem-section"><label>Compact Prompt <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(sent to compact model)</span></label>';
+  html += '<textarea id="memoryCompactPrompt" rows="6" placeholder="Compact prompt template..."></textarea></div>';
+  html += '<div class="mem-section"><label>Compact Summary <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(auto-generated, editable)</span></label>';
+  html += '<textarea id="memoryCompactSummary" rows="5" placeholder="No compact summary yet. Play a game and compact context to see the LLM-generated summary here."></textarea></div>';
+  html += '<div class="mem-section"><label>Interrupt Prompt <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(sent to interrupt model)</span></label>';
+  html += '<textarea id="memoryInterruptPrompt" rows="5" placeholder="Interrupt prompt template..."></textarea></div>';
+  html += '<div class="mem-section"><label>Interrupt Result <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(last response, read-only)</span></label>';
+  html += '<textarea id="memoryInterruptResult" rows="2" readonly placeholder="—" style="opacity:0.8;"></textarea></div>';
+  html += '<div class="memory-actions">';
+  html += '<button class="btn btn-primary" onclick="saveMemoryEdits()">Save</button>';
+  html += '<button class="btn" onclick="resetMemoryDefaults()">Reset defaults</button>';
+  html += '<button class="btn" onclick="applyCompactEdit()" style="background:#445;">Apply compact</button>';
+  html += '<span id="memorySaveStatus" style="font-size:10px;color:var(--green);display:none;">Saved!</span>';
+  html += '</div>';
+  html += '<div style="font-size:9px;color:var(--dim);margin-top:4px;font-style:italic;">Prompts are saved locally in your browser and persist across sessions.</div>';
+  html += '</div></div></div>';
+
   html += '</div>'; // close #settingsBody
 
   container.innerHTML = html;
@@ -1369,6 +1357,9 @@ function renderScaffoldingSettings(schemaId) {
 
   // Render pipeline SVG
   renderPipelineVisualizer(schema);
+
+  // Populate prompt textareas
+  loadMemoryContent();
 }
 
 function switchScaffolding(schemaId) {
@@ -2726,13 +2717,12 @@ function switchTopTab(tab) {
 function switchSubTab(tab) {
   document.querySelectorAll('.subtab-bar button').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.subtab-pane').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
-  const tabMap = { settings: 'subtabSettings', graphics: 'subtabGraphics', memory: 'subtabMemory', reasoning: 'subtabReasoning', timeline: 'subtabTimeline' };
+  const tabMap = { settings: 'subtabSettings', graphics: 'subtabGraphics', reasoning: 'subtabReasoning', timeline: 'subtabTimeline' };
   const buttons = document.querySelectorAll('.subtab-bar button');
-  const idx = { settings: 0, graphics: 1, memory: 2, reasoning: 3, timeline: 4 }[tab] || 0;
+  const idx = { settings: 0, graphics: 1, reasoning: 2, timeline: 3 }[tab] || 0;
   if (buttons[idx]) buttons[idx].classList.add('active');
   const pane = document.getElementById(tabMap[tab]);
   if (pane) { pane.classList.add('active'); pane.style.display = 'flex'; }
-  if (tab === 'memory') loadMemoryContent();
   if (tab === 'timeline') renderTimeline(getActiveSession());
 }
 
@@ -8214,17 +8204,7 @@ async function branchHere() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const MEMORY_DEFAULTS = {
-  system_prompt: `ARC-AGI-3 is an interactive reasoning benchmark. Each game is a 64x64 pixel grid with 16 colors (0-15). You must discover the rules and goals by experimenting.
-Action mappings:
-- ACTION1 = UP, ACTION2 = DOWN, ACTION3 = LEFT, ACTION4 = RIGHT (directional movement)
-- ACTION5 = context-dependent (cycle, toggle, interact — varies by game)
-- ACTION6 = CLICK at (x, y) — for selecting, placing, or interacting with specific cells
-- ACTION7 = context-dependent (secondary interact, rotate, swap — varies by game)
-- ACTION0 = RESET — restarts the current level. Use only as a last resort.
-Key facts:
-- States: NOT_FINISHED (playing), WIN (all levels done), GAME_OVER (failed).
-- Large uniform regions = background/walls. Small shapes = player/items.
-- Edge bars = health/energy/progress meters.`,
+  system_prompt: ARC_DESCRIPTION,
   hard_memory: `- Simplify the state of the game whenever possible for understanding (but not too simple).
 - Bar/meter changes along edges tend to be health bars, not real progress.
 - Large uniform regions = background/walls. Small shapes = player/items.
@@ -8245,35 +8225,40 @@ Write a concise briefing (max 400 words) covering:
 Write ONLY the briefing text. Be specific and actionable — vague summaries are useless. Include concrete details like action numbers, grid positions, and observed cause-and-effect relationships.`,
 };
 
-let memoryLoaded = false;
+let _memoryCache = null;
 
 async function loadMemoryContent() {
   const spEl = document.getElementById('memorySystemPrompt');
   const hmEl = document.getElementById('memoryHardMemory');
-  if (memoryLoaded) return; // only load once per session
-
-  if (FEATURES.memory_md) {
-    // Staging mode: fetch from server (memory.md file)
-    try {
-      const data = await fetchJSON('/api/memory');
-      spEl.value = data.system_prompt || MEMORY_DEFAULTS.system_prompt;
-      hmEl.value = data.hard_memory || MEMORY_DEFAULTS.hard_memory;
-    } catch {
-      spEl.value = MEMORY_DEFAULTS.system_prompt;
-      hmEl.value = MEMORY_DEFAULTS.hard_memory;
-    }
-  } else {
-    // Online mode: load from localStorage
-    spEl.value = localStorage.getItem('arc_system_prompt') || MEMORY_DEFAULTS.system_prompt;
-    hmEl.value = localStorage.getItem('arc_hard_memory') || MEMORY_DEFAULTS.hard_memory;
-  }
-  // Load compact prompt
   const cpEl = document.getElementById('memoryCompactPrompt');
-  cpEl.value = localStorage.getItem('arc_compact_prompt') || MEMORY_DEFAULTS.compact_prompt;
-  // Load interrupt prompt
   const ipEl = document.getElementById('memoryInterruptPrompt');
-  if (ipEl) ipEl.value = localStorage.getItem('arc_interrupt_prompt') || MEMORY_DEFAULTS.interrupt_prompt;
-  memoryLoaded = true;
+  if (!spEl || !hmEl) return;
+
+  if (!_memoryCache) {
+    // First load: fetch from server or localStorage
+    _memoryCache = {};
+    if (FEATURES.memory_md) {
+      try {
+        const data = await fetchJSON('/api/memory');
+        _memoryCache.system_prompt = data.system_prompt || MEMORY_DEFAULTS.system_prompt;
+        _memoryCache.hard_memory = data.hard_memory || MEMORY_DEFAULTS.hard_memory;
+      } catch {
+        _memoryCache.system_prompt = MEMORY_DEFAULTS.system_prompt;
+        _memoryCache.hard_memory = MEMORY_DEFAULTS.hard_memory;
+      }
+    } else {
+      _memoryCache.system_prompt = localStorage.getItem('arc_system_prompt') || MEMORY_DEFAULTS.system_prompt;
+      _memoryCache.hard_memory = localStorage.getItem('arc_hard_memory') || MEMORY_DEFAULTS.hard_memory;
+    }
+    _memoryCache.compact_prompt = localStorage.getItem('arc_compact_prompt') || MEMORY_DEFAULTS.compact_prompt;
+    _memoryCache.interrupt_prompt = localStorage.getItem('arc_interrupt_prompt') || MEMORY_DEFAULTS.interrupt_prompt;
+  }
+
+  // Populate DOM from cache (works even after DOM rebuild)
+  spEl.value = _memoryCache.system_prompt;
+  hmEl.value = _memoryCache.hard_memory;
+  if (cpEl) cpEl.value = _memoryCache.compact_prompt;
+  if (ipEl) ipEl.value = _memoryCache.interrupt_prompt;
 }
 
 async function saveMemoryEdits() {
@@ -8299,9 +8284,15 @@ async function saveMemoryEdits() {
   const ip = document.getElementById('memoryInterruptPrompt')?.value || '';
   localStorage.setItem('arc_interrupt_prompt', ip);
 
-  // Update client-side prompt description for buildClientPrompt
+  // Update caches
   _customArcDescription = sp;
   _customHardMemory = hm;
+  if (_memoryCache) {
+    _memoryCache.system_prompt = sp;
+    _memoryCache.hard_memory = hm;
+    _memoryCache.compact_prompt = cp;
+    _memoryCache.interrupt_prompt = ip;
+  }
 
   const status = document.getElementById('memorySaveStatus');
   status.style.display = 'inline';
@@ -8316,6 +8307,7 @@ function resetMemoryDefaults() {
   if (ipEl) ipEl.value = MEMORY_DEFAULTS.interrupt_prompt;
   _customArcDescription = null;
   _customHardMemory = null;
+  _memoryCache = null; // force re-fetch on next load
 }
 
 // Custom memory state for client-side prompt building
