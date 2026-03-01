@@ -2024,9 +2024,12 @@ function saveSessionToState() {
   s._compactSummaryAtCall = _compactSummaryAtCall;
   s._compactSummaryAtStep = _compactSummaryAtStep;
   s._lastCompactPrompt = _lastCompactPrompt;
-  // Save reasoning HTML
+  // Save reasoning HTML (strip transient waiting spinners — they're re-created on restore)
   const rc = document.getElementById('reasoningContent');
-  if (rc) s.reasoningHTML = rc.innerHTML;
+  if (rc) {
+    rc.querySelectorAll('.llm-waiting').forEach(el => el.remove());
+    s.reasoningHTML = rc.innerHTML;
+  }
   // Snapshot DOM settings so background sessions can read them when detached
   try {
     s._settings = {
