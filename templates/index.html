@@ -449,8 +449,6 @@
     letter-spacing: 0.3px; flex-shrink: 0; }
   .prompt-fields textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
     border-radius: 4px; font-family: inherit; font-size: 11px; line-height: 1.5; padding: 8px; resize: vertical; }
-  .prompt-fields .memory-actions { display: flex; gap: 6px; flex-shrink: 0; padding-top: 4px; }
-  .prompt-fields .memory-actions .btn { font-size: 11px; padding: 5px 14px; }
 
   /* ── Multi-session: App container + top nav + tab bar ───────────────── */
   .app-container { display: flex; flex-direction: column; height: 100vh; }
@@ -1377,30 +1375,24 @@ function renderScaffoldingSettings(schemaId) {
     }
     html += '</div>';
   }
-  // ── Prompts collapsible section (always appended) ──
+  // ── Prompts collapsible section (dynamically built from window.PROMPTS) ──
+  const promptSections = _getPromptSections(schemaId);
   html += '<div class="opt-section" id="sectionPrompts">';
   html += '<div class="opt-header" onclick="toggleSection(\'sectionPrompts\')">';
   html += '<span>Prompts</span><span class="chevron">&#9654;</span></div>';
   html += '<div class="opt-body"><div class="prompt-fields">';
-  html += '<div class="mem-section"><label>System Prompt</label>';
-  html += '<textarea id="memorySystemPrompt" rows="8" placeholder="ARC-AGI-3 description and action mappings..."></textarea></div>';
-  html += '<div class="mem-section"><label>Agent Priors</label>';
-  html += '<textarea id="memoryHardMemory" rows="8" placeholder="Agent strategy priors..."></textarea></div>';
-  html += '<div class="mem-section"><label>Compact Prompt <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(sent to compact model)</span></label>';
-  html += '<textarea id="memoryCompactPrompt" rows="6" placeholder="Compact prompt template..."></textarea></div>';
+  for (const { section, name, label } of promptSections) {
+    const key = `${section}.${name}`;
+    html += `<div class="mem-section"><label>${label}</label>`;
+    html += `<textarea data-prompt-key="${key}" rows="6" placeholder="${key}..."`;
+    html += ` onblur="_savePromptField(this)"></textarea></div>`;
+  }
+  // Runtime fields: compact summary + interrupt result (read-only displays)
   html += '<div class="mem-section"><label>Compact Summary <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(auto-generated, editable)</span></label>';
-  html += '<textarea id="memoryCompactSummary" rows="5" placeholder="No compact summary yet. Play a game and compact context to see the LLM-generated summary here."></textarea></div>';
-  html += '<div class="mem-section"><label>Interrupt Prompt <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(sent to interrupt model)</span></label>';
-  html += '<textarea id="memoryInterruptPrompt" rows="5" placeholder="Interrupt prompt template..."></textarea></div>';
+  html += '<textarea id="memoryCompactSummary" rows="3" placeholder="No compact summary yet." onblur="applyCompactEdit()"></textarea></div>';
   html += '<div class="mem-section"><label>Interrupt Result <span style="font-size:10px;color:var(--text-dim);text-transform:none;">(last response, read-only)</span></label>';
   html += '<textarea id="memoryInterruptResult" rows="2" readonly placeholder="—" style="opacity:0.8;"></textarea></div>';
-  html += '<div class="memory-actions">';
-  html += '<button class="btn btn-primary" onclick="saveMemoryEdits()">Save</button>';
-  html += '<button class="btn" onclick="resetMemoryDefaults()">Reset defaults</button>';
-  html += '<button class="btn" onclick="applyCompactEdit()" style="background:#445;">Apply compact</button>';
-  html += '<span id="memorySaveStatus" style="font-size:10px;color:var(--green);display:none;">Saved!</span>';
-  html += '</div>';
-  html += '<div style="font-size:9px;color:var(--dim);margin-top:4px;font-style:italic;">Prompts are saved locally in your browser and persist across sessions.</div>';
+  html += '<div style="font-size:9px;color:var(--dim);margin-top:4px;font-style:italic;">Edits auto-save to your browser on blur.</div>';
   html += '</div></div></div>';
 
   html += '</div>'; // close #settingsBody
@@ -1413,8 +1405,8 @@ function renderScaffoldingSettings(schemaId) {
   // Render pipeline SVG
   renderPipelineVisualizer(schema);
 
-  // Populate prompt textareas
-  loadMemoryContent();
+  // Populate prompt textareas from PROMPTS defaults + localStorage overrides
+  _populatePromptFields();
 }
 
 function switchScaffolding(schemaId) {
@@ -3661,7 +3653,7 @@ async function checkInterrupt(expected, grid, changeMap) {
   // Returns true if plan should be interrupted, false otherwise.
   const gridCompact = grid ? grid.map(r => r.join(',')).join('\n') : '';
   const changesText = changeMap ? 'Recent changes: ' + JSON.stringify(changeMap) : '';
-  const template = document.getElementById('memoryInterruptPrompt')?.value || MEMORY_DEFAULTS.interrupt_prompt;
+  const template = getPrompt('linear.interrupt_prompt');
   const prompt = template
     .replace('{expected}', expected)
     .replace('{grid}', gridCompact)
@@ -3739,8 +3731,7 @@ async function buildCompactContext(ss) {
     `Step ${h.step}: ${ACTION_NAMES[h.action] || '?'} -> ${h.result_state || '?'}`
   ).join('\n');
 
-  // Use the editable compact prompt template from Memory tab
-  const promptTemplate = document.getElementById('memoryCompactPrompt')?.value || MEMORY_DEFAULTS.compact_prompt;
+  const promptTemplate = getPrompt('linear.compact_prompt');
 
   const summaryPrompt = `${promptTemplate}
 
@@ -5911,7 +5902,7 @@ window.PROMPTS = {{ prompts | tojson }};
 
 function getPrompt(key) {
   const [section, name] = key.split('.');
-  return localStorage.getItem('arc_prompt_' + section + '_' + name)
+  return localStorage.getItem('arc_prompt.' + key)
       || window.PROMPTS[section][name];
 }
 
@@ -6687,7 +6678,7 @@ async function askLLMThreeSystem(_cur, model, modelInfo, waitEl, isActiveFn, his
   }
 
   // 2. Planner REPL
-  const desc = _customArcDescription || ARC_DESCRIPTION;
+  const desc = getPrompt('shared.arc_description');
   const planLenVars = {min_plan_length: minPlan, max_plan_length: maxPlan};
   const plannerSystemPrompt = wmEnabled
     ? desc + '\n\n' + _tsTemplateFill(TS_PLANNER_SYSTEM_BODY, planLenVars)
@@ -6880,12 +6871,13 @@ async function askLLMThreeSystem(_cur, model, modelInfo, waitEl, isActiveFn, his
 function buildClientPrompt(state, history, changeMap, inputSettings, toolsMode, compactContext, planningMode) {
   const grid = state.grid || [];
   const parts = [];
-  const desc = _customArcDescription || ARC_DESCRIPTION;
+  const desc = getPrompt('shared.arc_description');
   parts.push(`${desc}\n\nCOLOR PALETTE: ${COLOR_PALETTE}`);
 
-  // Inject hard memory if customized
-  if (_customHardMemory) {
-    parts.push(`## AGENT MEMORY\n${_customHardMemory}`);
+  // Inject agent priors
+  const priors = getPrompt('shared.agent_priors');
+  if (priors) {
+    parts.push(`## AGENT MEMORY\n${priors}`);
   }
 
   const actions = (state.available_actions || []).map(a => `${a}=${ACTION_NAMES[a] || 'ACTION'+a}`).join(', ');
@@ -7437,10 +7429,10 @@ function puterKvKey(sid) { return `arc_session:${sid}`; }
 
 function _collectPrompts() {
   return {
-    system_prompt: document.getElementById('memorySystemPrompt')?.value || '',
-    hard_memory: document.getElementById('memoryHardMemory')?.value || '',
-    compact_prompt: document.getElementById('memoryCompactPrompt')?.value || '',
-    interrupt_prompt: document.getElementById('memoryInterruptPrompt')?.value || '',
+    system_prompt: getPrompt('shared.arc_description'),
+    hard_memory: getPrompt('shared.agent_priors'),
+    compact_prompt: getPrompt('linear.compact_prompt'),
+    interrupt_prompt: getPrompt('linear.interrupt_prompt'),
   };
 }
 
@@ -8269,116 +8261,50 @@ async function branchHere() {
 // MEMORY TAB (system prompt + hard memory editing)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const MEMORY_DEFAULTS = {
-  system_prompt: ARC_DESCRIPTION,
-  hard_memory: `- Simplify the state of the game whenever possible for understanding (but not too simple).
-- Bar/meter changes along edges tend to be health bars, not real progress.
-- Large uniform regions = background/walls. Small shapes = player/items.
-- ACTION5 often cycles or toggles something context-dependent.
-- ACTION7 is a secondary interact (rotate, swap, etc.).
-- ACTION0 = RESET. Only use as a last resort.
-- Try all directional actions first to understand movement.`,
-  interrupt_prompt: `Based on the current progress. Do you feel that we might need to interrupt the plan? Reply with ONLY "YES" or "NO". One word only, nothing else.`,
-  compact_prompt: `You are helping an AI agent play a game. Distill the crucial knowledge the agent has learned so far into a compact briefing. This will REPLACE the full history in the agent's context, so include everything it needs to keep playing well.
+// ── Prompt section helpers (scaffolding-specific prompts from window.PROMPTS) ──
 
-Write a concise briefing (max 400 words) covering:
-
-1. GAME RULES & MECHANICS: What does each action actually do? What are the constraints? What happens when you pick wrong? What feedback does the game give? Include specific action numbers and their effects.
-2. DISCOVERED PATTERNS: What rules or patterns govern this game? What determines the correct answer? Any spatial, logical, or sequential patterns found?
-3. WHAT WORKS vs WHAT DOESN'T: Which strategies succeeded? Which failed and why? Any dead-end approaches to avoid?
-4. CURRENT SITUATION: Current level progress, what the agent should focus on next, and any unresolved hypotheses to test.
-
-Write ONLY the briefing text. Be specific and actionable — vague summaries are useless. Include concrete details like action numbers, grid positions, and observed cause-and-effect relationships.`,
+const _PROMPT_SECTION_MAP = {
+  linear: ['shared', 'linear'],
+  linear_interrupt: ['shared', 'linear'],
+  rlm: ['shared', 'rlm'],
+  three_system: ['shared', 'three_system'],
 };
 
-let _memoryCache = null;
-
-async function loadMemoryContent() {
-  const spEl = document.getElementById('memorySystemPrompt');
-  const hmEl = document.getElementById('memoryHardMemory');
-  const cpEl = document.getElementById('memoryCompactPrompt');
-  const ipEl = document.getElementById('memoryInterruptPrompt');
-  if (!spEl || !hmEl) return;
-
-  if (!_memoryCache) {
-    // First load: fetch from server or localStorage
-    _memoryCache = {};
-    if (FEATURES.memory_md) {
-      try {
-        const data = await fetchJSON('/api/memory');
-        _memoryCache.system_prompt = data.system_prompt || MEMORY_DEFAULTS.system_prompt;
-        _memoryCache.hard_memory = data.hard_memory || MEMORY_DEFAULTS.hard_memory;
-      } catch {
-        _memoryCache.system_prompt = MEMORY_DEFAULTS.system_prompt;
-        _memoryCache.hard_memory = MEMORY_DEFAULTS.hard_memory;
-      }
-    } else {
-      _memoryCache.system_prompt = localStorage.getItem('arc_system_prompt') || MEMORY_DEFAULTS.system_prompt;
-      _memoryCache.hard_memory = localStorage.getItem('arc_hard_memory') || MEMORY_DEFAULTS.hard_memory;
-    }
-    _memoryCache.compact_prompt = localStorage.getItem('arc_compact_prompt') || MEMORY_DEFAULTS.compact_prompt;
-    _memoryCache.interrupt_prompt = localStorage.getItem('arc_interrupt_prompt') || MEMORY_DEFAULTS.interrupt_prompt;
-  }
-
-  // Populate DOM from cache (works even after DOM rebuild)
-  spEl.value = _memoryCache.system_prompt;
-  hmEl.value = _memoryCache.hard_memory;
-  if (cpEl) cpEl.value = _memoryCache.compact_prompt;
-  if (ipEl) ipEl.value = _memoryCache.interrupt_prompt;
+function _humanizePromptName(name) {
+  return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-async function saveMemoryEdits() {
-  const sp = document.getElementById('memorySystemPrompt').value;
-  const hm = document.getElementById('memoryHardMemory').value;
-  const cp = document.getElementById('memoryCompactPrompt').value;
-
-  if (FEATURES.memory_md) {
-    // Staging mode: POST to server (memory.md file)
-    try {
-      await fetchJSON('/api/memory', { system_prompt: sp, hard_memory: hm });
-    } catch (e) {
-      alert('Save failed: ' + e.message);
-      return;
+function _getPromptSections(schemaId) {
+  const sections = _PROMPT_SECTION_MAP[schemaId] || ['shared'];
+  const result = [];
+  for (const section of sections) {
+    const prompts = window.PROMPTS[section];
+    if (!prompts) continue;
+    for (const name of Object.keys(prompts).sort()) {
+      result.push({ section, name, label: _humanizePromptName(name) });
     }
+  }
+  return result;
+}
+
+function _savePromptField(textarea) {
+  const key = textarea.dataset.promptKey; // format: section.name
+  if (!key) return;
+  const [section, name] = key.split('.');
+  const defaultVal = (window.PROMPTS[section] && window.PROMPTS[section][name]) || '';
+  const lsKey = 'arc_prompt.' + key;
+  if (textarea.value === defaultVal) {
+    localStorage.removeItem(lsKey);
   } else {
-    // Online mode: save to localStorage
-    localStorage.setItem('arc_system_prompt', sp);
-    localStorage.setItem('arc_hard_memory', hm);
+    localStorage.setItem(lsKey, textarea.value);
   }
-  // Always save compact prompt and interrupt prompt to localStorage
-  localStorage.setItem('arc_compact_prompt', cp);
-  const ip = document.getElementById('memoryInterruptPrompt')?.value || '';
-  localStorage.setItem('arc_interrupt_prompt', ip);
-
-  // Update caches
-  _customArcDescription = sp;
-  _customHardMemory = hm;
-  if (_memoryCache) {
-    _memoryCache.system_prompt = sp;
-    _memoryCache.hard_memory = hm;
-    _memoryCache.compact_prompt = cp;
-    _memoryCache.interrupt_prompt = ip;
-  }
-
-  const status = document.getElementById('memorySaveStatus');
-  status.style.display = 'inline';
-  setTimeout(() => { status.style.display = 'none'; }, 2000);
 }
 
-function resetMemoryDefaults() {
-  document.getElementById('memorySystemPrompt').value = MEMORY_DEFAULTS.system_prompt;
-  document.getElementById('memoryHardMemory').value = MEMORY_DEFAULTS.hard_memory;
-  document.getElementById('memoryCompactPrompt').value = MEMORY_DEFAULTS.compact_prompt;
-  const ipEl = document.getElementById('memoryInterruptPrompt');
-  if (ipEl) ipEl.value = MEMORY_DEFAULTS.interrupt_prompt;
-  _customArcDescription = null;
-  _customHardMemory = null;
-  _memoryCache = null; // force re-fetch on next load
+function _populatePromptFields() {
+  document.querySelectorAll('textarea[data-prompt-key]').forEach(ta => {
+    ta.value = getPrompt(ta.dataset.promptKey);
+  });
 }
-
-// Custom memory state for client-side prompt building
-let _customArcDescription = null;
-let _customHardMemory = null;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // BROWSE SESSIONS VIEW
@@ -8992,14 +8918,6 @@ function initApp() {
   loadModels();
   if (FEATURES.copilot) checkCopilotStatus();
   if (FEATURES.puter_js) puterKvCheckResume();
-
-  // Restore custom memory from localStorage
-  if (!FEATURES.memory_md) {
-    const sp = localStorage.getItem('arc_system_prompt');
-    const hm = localStorage.getItem('arc_hard_memory');
-    if (sp) _customArcDescription = sp;
-    if (hm) _customHardMemory = hm;
-  }
 
   restoreSessionsFromLocalStorage();
   updateEmptyAppState();
