@@ -508,11 +508,13 @@
   .menu-layout { display: flex; gap: 24px; width: 100%; max-width: 900px; margin: 0 auto; }
   .menu-left { flex: 0 0 200px; display: flex; flex-direction: column; gap: 12px; }
   .menu-right { flex: 1; min-width: 0; }
-  .menu-new-btn { display: flex; align-items: center; justify-content: center; gap: 8px;
-    padding: 16px; border: 2px dashed var(--border); border-radius: 10px; background: none;
-    color: var(--text-dim); font-size: 14px; cursor: pointer; transition: all 0.2s; width: 100%; }
-  .menu-new-btn:hover { border-color: var(--accent); color: var(--accent); }
-  .menu-new-btn .hero-icon { font-size: 20px; }
+  .menu-new-btn { display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px 24px; border: 2px solid var(--accent); border-radius: 12px;
+    background: var(--surface); color: var(--text); cursor: pointer; transition: all 0.2s; width: 100%; }
+  .menu-new-btn:hover { background: var(--accent); color: #000; }
+  .menu-new-btn:hover .menu-new-subtitle { color: #000a; }
+  .menu-new-title { font-size: 18px; font-weight: 700; letter-spacing: 0.3px; }
+  .menu-new-subtitle { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
   .menu-sessions-header { font-size: 13px; font-weight: 600; color: var(--text-dim);
     text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
   .menu-session-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px;
@@ -622,7 +624,8 @@
     <div class="menu-layout">
       <div class="menu-left">
         <button class="menu-new-btn" onclick="createNewSession()">
-          <span class="hero-icon">+</span> New Session
+          <div class="menu-new-title">New Session</div>
+          <div class="menu-new-subtitle">Play ARC-AGI 3 games with agents</div>
         </button>
       </div>
       <div class="menu-right">
@@ -8433,6 +8436,7 @@ function showAppView(view) {
   const emptyApp = document.getElementById('emptyAppState');
   const menuView = document.getElementById('menuView');
 
+  const sidebar = document.getElementById('gameSidebar');
   if (view === 'browse') {
     links[1]?.classList.add('active');
     _browseActive = true;
@@ -8442,6 +8446,7 @@ function showAppView(view) {
     tabBar.style.display = 'none';
     emptyApp.style.display = 'none';
     menuView.classList.remove('visible');
+    sidebar.style.display = '';
     loadBrowseView();
   } else {
     links[0]?.classList.add('active');
@@ -8452,8 +8457,10 @@ function showAppView(view) {
       menuView.classList.add('visible');
       sessionHost.style.display = 'none';
       emptyApp.style.display = 'none';
+      sidebar.style.display = 'none';
     } else {
       menuView.classList.remove('visible');
+      sidebar.style.display = '';
       updateEmptyAppState();
       if (sessions.size > 0) sessionHost.style.display = '';
     }
@@ -8476,6 +8483,8 @@ function showMenuView() {
   sessionHost.style.display = 'none';
   emptyApp.style.display = 'none';
   browseView.style.display = 'none';
+  // Hide game sidebar — menu has its own layout
+  document.getElementById('gameSidebar').style.display = 'none';
   // Highlight Play nav link
   document.querySelectorAll('.top-nav .nav-link').forEach(l => l.classList.remove('active'));
   document.querySelectorAll('.top-nav .nav-link')[0]?.classList.add('active');
@@ -8794,6 +8803,7 @@ function createNewSession() {
     _menuActive = false;
     document.getElementById('menuView').classList.remove('visible');
     document.getElementById('sessionViewHost').style.display = '';
+    document.getElementById('gameSidebar').style.display = '';
   }
   // Save + detach current session if one exists
   if (activeSessionId && sessions.has(activeSessionId)) {
@@ -8838,6 +8848,7 @@ function switchSession(targetId) {
     _menuActive = false;
     document.getElementById('menuView').classList.remove('visible');
     document.getElementById('sessionViewHost').style.display = '';
+    document.getElementById('gameSidebar').style.display = '';
   }
 
   // Close replay if open
@@ -8949,6 +8960,7 @@ function updateEmptyAppState() {
     sessionHost.style.display = 'none';
     _menuActive = true;
     menuView.classList.add('visible');
+    document.getElementById('gameSidebar').style.display = 'none';
     renderMenuSessions();
     renderSessionTabs();
   } else {
