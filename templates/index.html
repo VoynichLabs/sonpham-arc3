@@ -45,6 +45,8 @@
   body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace; font-size: 13px; }
 
   .layout { display: flex; }
+  #sessionViewHost { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  #mainLayout { display: flex; flex-direction: column; flex: 1; }
 
   /* ── Sidebar ─────────────────────────────────────────────────────────── */
   .sidebar { width: 260px; background: var(--surface); border-right: 1px solid var(--border);
@@ -660,13 +662,16 @@
       </div>
     </div>
   </div>
-<div class="layout" id="mainLayout">
-  <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+<div class="layout" id="outerLayout">
+  <!-- ── Sidebar (shared, not session-scoped) ─────────────────────────── -->
   <div class="sidebar" id="gameSidebar">
     <h2>Games</h2>
     <div id="gameList"><div class="empty-state" style="height:auto;padding:20px;">Loading...</div></div>
   </div>
 
+  <!-- ── Session View Host (one session's mainLayout attaches here) ──── -->
+  <div id="sessionViewHost">
+<div id="mainLayout">
   <!-- ── Main ────────────────────────────────────────────────────────── -->
   <div class="main">
     <div class="topbar">
@@ -877,7 +882,9 @@
 
     </div>
   </div>
-</div>
+</div><!-- /mainLayout -->
+</div><!-- /sessionViewHost -->
+</div><!-- /outerLayout -->
 </div><!-- /app-container -->
 
 <script>
@@ -889,8 +896,8 @@ const COLORS = {{ color_map | tojson }};
 const ACTION_NAMES = {0:'RESET',1:'UP',2:'DOWN',3:'LEFT',4:'RIGHT',5:'ACT5',6:'CLICK',7:'ACT7'};
 const MODE = {{ mode | tojson }};
 const FEATURES = {{ features | tojson }};
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+let canvas = document.getElementById('gameCanvas');
+let ctx = canvas.getContext('2d');
 
 let sessionId = null;
 let currentUser = null;  // {id, email, display_name} or null
@@ -1962,6 +1969,9 @@ class SessionState {
     this.timelineEvents = [];  // [{type, duration, turn, model?, callNum?}]
     this._rlmNamespace = {};  // Persistent RLM REPL variables (survives across turns within session)
     this._tsState = null;     // Three-System state (rules, observations, snapshots) — initialized on first use
+    // Detach/attach: per-session DOM + settings snapshot
+    this._viewEl = null;       // Detached DOM element for this session
+    this._settings = null;     // Snapshot of DOM settings for background reads
   }
   get avgCallDuration() {
     if (!this.callDurations.length) return 5000; // default 5s
@@ -2025,6 +2035,20 @@ function saveSessionToState() {
   // Save reasoning HTML
   const rc = document.getElementById('reasoningContent');
   if (rc) s.reasoningHTML = rc.innerHTML;
+  // Snapshot DOM settings so background sessions can read them when detached
+  try {
+    s._settings = {
+      model: getSelectedModel(),
+      input: getInputSettings(),
+      compact: getCompactSettings(),
+      tools_mode: getToolsMode(),
+      planning_mode: getPlanningMode(),
+      thinking_level: getThinkingLevel(),
+      scaffolding: getScaffoldingSettings(),
+      max_tokens: getMaxTokens(),
+      scaffolding_type: activeScaffoldingType,
+    };
+  } catch (e) { console.warn('[saveSessionToState] settings snapshot failed:', e); }
   // Update metadata
   s.gameId = gameShortName(currentState.game_id) || s.gameId;
   s.model = getSelectedModel() || s.model;
@@ -2131,6 +2155,48 @@ function registerSession(id, state) {
   activeSessionId = id;
   renderSessionTabs();
   saveSessionIndex();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DETACH / ATTACH ENGINE — per-session DOM isolation
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _sessionTemplate = null;  // Captured after initApp populates DOM
+
+function captureSessionTemplate() {
+  const ml = document.getElementById('mainLayout');
+  if (!ml) return;
+  _sessionTemplate = ml.cloneNode(true);
+  _sessionTemplate.removeAttribute('id');
+}
+
+function createSessionView() {
+  const view = _sessionTemplate.cloneNode(true);
+  view.id = 'mainLayout';
+  return view;
+}
+
+function detachSessionView(sid) {
+  const host = document.getElementById('sessionViewHost');
+  const currentView = host.querySelector('#mainLayout');
+  if (currentView && sessions.has(sid)) {
+    sessions.get(sid)._viewEl = currentView;
+    host.removeChild(currentView);
+  }
+}
+
+function attachSessionView(sid) {
+  const host = document.getElementById('sessionViewHost');
+  const ss = sessions.get(sid);
+  if (!ss) return;
+  if (!ss._viewEl) ss._viewEl = createSessionView();
+  ss._viewEl.id = 'mainLayout';
+  host.appendChild(ss._viewEl);
+  // Re-bind dynamic event listeners (cloned DOM loses addEventListener bindings)
+  attachSettingsListeners();
+  // Refresh canvas reference (each session has its own canvas element)
+  canvas = document.getElementById('gameCanvas');
+  ctx = canvas.getContext('2d');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3302,11 +3368,23 @@ async function startGame(gameId) {
   } else {
     // Active session has moves — create a new tab
     saveSessionToState();
+    detachSessionView(activeSessionId);
     const s = new SessionState(data.session_id);
     s.gameId = gameShortName(gameId);
     s.status = data.state || 'NOT_FINISHED';
     s.createdAt = Date.now() / 1000;
-    registerSession(data.session_id, s);
+    sessions.set(data.session_id, s);
+    activeSessionId = data.session_id;
+    attachSessionView(data.session_id);
+    // Re-apply DOM writes on the fresh view
+    document.getElementById('emptyState').style.display = 'none';
+    canvas.style.display = 'block';
+    document.getElementById('controls').style.display = 'flex';
+    document.getElementById('transportBar').style.display = 'block';
+    document.getElementById('reasoningContent').innerHTML =
+      '<div class="empty-state" style="height:auto;font-size:12px;">Game started. Press Agent Autoplay to let the agent play, or use the controls to play yourself.</div>';
+    renderSessionTabs();
+    saveSessionIndex();
   }
   renderSessionTabs();
   saveSessionIndex();
@@ -4385,13 +4463,15 @@ async function askLLM(ss) {
     _compactSummaryAtStep, _lastCompactPrompt, autoPlaying, llmObservations };
 
   if (!_cur.currentState.grid) return;
-  const model = getSelectedModel();
-  if (!model) { alert('Select or type a model name'); return; }
-
   // Capture session at call time — used to discard stale responses
   const _callSessionId = _cur.sessionId;
   const _callSession = _ss || getActiveSession();
   const isActive = () => activeSessionId === _callSessionId;
+
+  // Use snapshot settings for background (detached) sessions, live DOM for active
+  const _snap = (!isActive() && _ss?._settings) ? _ss._settings : null;
+  const model = _snap?.model || getSelectedModel();
+  if (!model) { alert('Select or type a model name'); return; }
 
   // Create AbortController for this call (used to cancel on pause)
   const _abortCtrl = new AbortController();
@@ -4436,12 +4516,12 @@ async function askLLM(ss) {
 
   try {
     let resp;
-    const inputSettings = getInputSettings();
+    const inputSettings = _snap?.input || getInputSettings();
 
     _cur.llmCallCount++;
     if (_ss) { /* already on _ss */ } else { llmCallCount = _cur.llmCallCount; }
-    const compact = getCompactSettings();
-    const contextWindow = getSelectedModelContextWindow();
+    const compact = _snap?.compact || getCompactSettings();
+    const contextWindow = _snap ? (getModelInfo(model)?.context_window || 128000) : getSelectedModelContextWindow();
     const maxHistTokens = getContextTokenLimit(compact, contextWindow);
     const callTrigger = compact.enabled && compact.after && _cur.llmCallCount >= compact.after;
     // Token-based trigger: compact when estimated history tokens exceed budget
@@ -4485,26 +4565,27 @@ async function askLLM(ss) {
     const _callStart = performance.now();
     {
       // ── Client-side LLM (Puter.js or BYOK) ────────────────────────────
-      if (activeScaffoldingType === 'rlm') {
+      const _scaffType = _snap?.scaffolding_type || activeScaffoldingType;
+      if (_scaffType === 'rlm') {
         // RLM scaffolding: full iteration loop runs client-side
         try {
-          resp = await askLLMRlm(_cur, model, modelInfo, _waitEl, isActive, historyForLLM, compactBlock);
+          resp = await askLLMRlm(_cur, model, modelInfo, _waitEl, isActive, historyForLLM, compactBlock, _snap);
         } catch (e) {
           console.error('[askLLM] RLM client-side error:', e);
           resp = { error: e.message, model };
         }
         if (resp) resp._clientSide = true;
-      } else if (activeScaffoldingType === 'three_system' || activeScaffoldingType === 'two_system') {
+      } else if (_scaffType === 'three_system' || _scaffType === 'two_system') {
         // Three-System / Two-System scaffolding: Planner REPL + WM + Monitor
         try {
-          resp = await askLLMThreeSystem(_cur, model, modelInfo, _waitEl, isActive, historyForLLM, compactBlock);
+          resp = await askLLMThreeSystem(_cur, model, modelInfo, _waitEl, isActive, historyForLLM, compactBlock, _snap);
         } catch (e) {
           console.error('[askLLM] Three-System client-side error:', e);
           resp = { error: e.message, model };
         }
         if (resp) resp._clientSide = true;
       } else {
-      const prompt = buildClientPrompt(_cur.currentState, historyForLLM, _cur.currentChangeMap, inputSettings, getToolsMode(), compactBlock, getPlanningMode());
+      const prompt = buildClientPrompt(_cur.currentState, historyForLLM, _cur.currentChangeMap, inputSettings, _snap?.tools_mode || getToolsMode(), compactBlock, _snap?.planning_mode || getPlanningMode());
       window._lastLLMGrid = _cur.currentState.grid;
       window._lastLLMPrevGrid = _ss ? _ss.previousGrid : previousGrid;
       let rawContent;
@@ -4530,7 +4611,7 @@ async function askLLM(ss) {
         } : null;
         rawContent = await callLLM(
           [{role: 'user', content: prompt}], model,
-          { maxTokens: getMaxTokens(), onChunk: _onChunk }
+          { maxTokens: _snap?.max_tokens || getMaxTokens(), onChunk: _onChunk }
         );
         // Handle Gemini MALFORMED_FUNCTION_CALL recovery
         if (rawContent && typeof rawContent === 'object' && rawContent.malformed) {
@@ -4591,7 +4672,7 @@ async function askLLM(ss) {
             }
             let retryRaw;
             try {
-              retryRaw = await callLLM([{role: 'user', content: prompt + '\n\n' + nudge}], model, { maxTokens: getMaxTokens() });
+              retryRaw = await callLLM([{role: 'user', content: prompt + '\n\n' + nudge}], model, { maxTokens: _snap?.max_tokens || getMaxTokens() });
             } catch (e) { console.warn('[askLLM] Parse retry error:', e.message); continue; }
             if (!sessions.has(_callSessionId)) return null;
             if (retryRaw && typeof retryRaw === 'object' && retryRaw.truncated) retryRaw = retryRaw.text;
@@ -6143,8 +6224,8 @@ async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'of
 }
 callLLM._lastUsage = null;
 
-async function askLLMRlm(_cur, model, modelInfo, waitEl, isActiveFn, historyForLLM, compactBlock) {
-  const settings = getScaffoldingSettings();
+async function askLLMRlm(_cur, model, modelInfo, waitEl, isActiveFn, historyForLLM, compactBlock, _snap) {
+  const settings = _snap?.scaffolding || getScaffoldingSettings();
   const maxIter = parseInt(settings.max_iterations) || 10;
   const maxTokens = parseInt(settings.max_tokens) || 16384;
   const outputTrunc = parseInt(settings.output_truncation) || 5000;
@@ -6622,9 +6703,9 @@ async function _tsMonitorCheck(step, expected, changeData, gameState, settings, 
 }
 
 // -- Main Three-System planner --
-async function askLLMThreeSystem(_cur, model, modelInfo, waitEl, isActiveFn, historyForLLM, compactBlock) {
+async function askLLMThreeSystem(_cur, model, modelInfo, waitEl, isActiveFn, historyForLLM, compactBlock, _snap) {
   const t0Total = performance.now();
-  const settings = getScaffoldingSettings();
+  const settings = _snap?.scaffolding || getScaffoldingSettings();
   const plannerModel = settings.planner_model || settings.model || model;
   const plannerThinking = settings.planner_thinking_level || settings.thinking_level || 'low';
   const plannerMaxTokens = Math.min(parseInt(settings.planner_max_tokens || settings.max_tokens) || 16384, 65536);
@@ -8319,7 +8400,7 @@ function showAppView(view) {
   document.querySelectorAll('.top-nav .nav-link').forEach(l => l.classList.remove('active'));
   const links = document.querySelectorAll('.top-nav .nav-link');
   const browseView = document.getElementById('browseView');
-  const mainLayout = document.getElementById('mainLayout');
+  const sessionHost = document.getElementById('sessionViewHost');
   const tabBar = document.getElementById('sessionTabBar');
   const emptyApp = document.getElementById('emptyAppState');
   const menuView = document.getElementById('menuView');
@@ -8329,7 +8410,7 @@ function showAppView(view) {
     _browseActive = true;
     _menuActive = false;
     browseView.style.display = 'flex';
-    mainLayout.style.display = 'none';
+    sessionHost.style.display = 'none';
     tabBar.style.display = 'none';
     emptyApp.style.display = 'none';
     menuView.classList.remove('visible');
@@ -8341,13 +8422,12 @@ function showAppView(view) {
     tabBar.style.display = 'flex';
     if (_menuActive) {
       menuView.classList.add('visible');
-      mainLayout.style.display = 'none';
+      sessionHost.style.display = 'none';
       emptyApp.style.display = 'none';
     } else {
       menuView.classList.remove('visible');
       updateEmptyAppState();
-      if (sessions.size > 0) mainLayout.style.display = 'flex';
-    }
+      if (sessions.size > 0) sessionHost.style.display = '';
   }
 }
 
@@ -8358,13 +8438,13 @@ function showMenuView() {
   _browseActive = false;
   // Save current session state
   if (activeSessionId && sessions.has(activeSessionId)) saveSessionToState();
-  // Hide game layout, show menu
+  // Hide game layout, show menu (do NOT detach — just hide the host)
   const menuView = document.getElementById('menuView');
-  const mainLayout = document.getElementById('mainLayout');
+  const sessionHost = document.getElementById('sessionViewHost');
   const emptyApp = document.getElementById('emptyAppState');
   const browseView = document.getElementById('browseView');
   menuView.classList.add('visible');
-  mainLayout.style.display = 'none';
+  sessionHost.style.display = 'none';
   emptyApp.style.display = 'none';
   browseView.style.display = 'none';
   // Highlight Play nav link
@@ -8577,11 +8657,18 @@ function browseResume(sid) {
   showAppView('play');
   // Create a new session tab for this resume
   if (!sessions.has(sid)) {
+    // Detach current session if any
+    if (activeSessionId && sessions.has(activeSessionId)) {
+      saveSessionToState();
+      detachSessionView(activeSessionId);
+    }
     const s = new SessionState(sid);
-    // browseResume will call resumeSession directly
     sessions.set(sid, s);
     activeSessionId = sid;
+    attachSessionView(sid);
     renderSessionTabs();
+  } else {
+    switchSession(sid);
   }
   resumeSession(sid);
 }
@@ -8648,24 +8735,7 @@ function renderSessionTabs() {
   updateEmptyAppState();
 }
 
-function createNewSession() {
-  // Hide menu view if active
-  if (_menuActive) {
-    _menuActive = false;
-    document.getElementById('menuView').classList.remove('visible');
-    document.getElementById('mainLayout').style.display = 'flex';
-  }
-  // Save current session state if one exists
-  if (activeSessionId && sessions.has(activeSessionId)) {
-    if (autoPlaying) { autoPlaying = false; updateAutoBtn(); }
-    saveSessionToState();
-  }
-  // Create a pending session
-  const pendingId = 'pending_' + Math.random().toString(36).slice(2, 10);
-  const s = new SessionState(pendingId);
-  sessions.set(pendingId, s);
-  activeSessionId = pendingId;
-  // Reset globals to blank
+function resetGlobalsToBlank() {
   sessionId = null;
   currentGrid = null;
   previousGrid = null;
@@ -8687,7 +8757,29 @@ function createNewSession() {
   _compactSummaryAtCall = 0;
   _compactSummaryAtStep = 0;
   _lastCompactPrompt = '';
-  // Reset UI
+}
+
+function createNewSession() {
+  // Hide menu view if active
+  if (_menuActive) {
+    _menuActive = false;
+    document.getElementById('menuView').classList.remove('visible');
+    document.getElementById('sessionViewHost').style.display = '';
+  }
+  // Save + detach current session if one exists
+  if (activeSessionId && sessions.has(activeSessionId)) {
+    saveSessionToState();
+    detachSessionView(activeSessionId);
+  }
+  // Create a pending session with fresh DOM
+  const pendingId = 'pending_' + Math.random().toString(36).slice(2, 10);
+  const s = new SessionState(pendingId);
+  sessions.set(pendingId, s);
+  activeSessionId = pendingId;
+  resetGlobalsToBlank();
+  // Attach fresh DOM from template
+  attachSessionView(pendingId);
+  // Reset UI on the fresh DOM
   canvas.style.display = 'none';
   document.getElementById('emptyState').style.display = '';
   document.getElementById('controls').style.display = 'none';
@@ -8716,20 +8808,19 @@ function switchSession(targetId) {
   if (_menuActive) {
     _menuActive = false;
     document.getElementById('menuView').classList.remove('visible');
-    document.getElementById('mainLayout').style.display = 'flex';
+    document.getElementById('sessionViewHost').style.display = '';
   }
 
-  // Clear global autoPlaying flag (the session's ss.autoPlaying keeps running independently)
-  autoPlaying = false;
-  updateAutoBtn();
   // Close replay if open
   closeReplay();
-  // Save current session
+  // Save + detach current session (do NOT stop autoplay — let it run in background)
   if (activeSessionId && sessions.has(activeSessionId) && activeSessionId !== targetId) {
     saveSessionToState();
+    detachSessionView(activeSessionId);
   }
   // Switch
   activeSessionId = targetId;
+  attachSessionView(targetId);
   restoreSessionFromState(target);
   renderSessionTabs();
 
@@ -8774,6 +8865,13 @@ function closeSession(id) {
     } catch (e) { console.warn('[closeSession] saveLocalSession failed:', e); }
   } catch (e) { console.warn('[closeSession] pre-delete step failed:', e); }
 
+  // Detach + free DOM if this is the active session
+  if (id === activeSessionId) {
+    detachSessionView(id);
+  }
+  // Free detached DOM memory
+  s._viewEl = null;
+
   // Always delete and update UI regardless of any errors above
   sessions.delete(id);
 
@@ -8784,16 +8882,7 @@ function closeSession(id) {
         switchSession(remaining[remaining.length - 1]);
       } else {
         activeSessionId = null;
-        sessionId = null;
-        currentGrid = null;
-        currentState = {};
-        if (canvas) canvas.style.display = 'none';
-        const emptyEl = document.getElementById('emptyState');
-        if (emptyEl) emptyEl.style.display = '';
-        const ctrlEl = document.getElementById('controls');
-        if (ctrlEl) ctrlEl.style.display = 'none';
-        const tbEl = document.getElementById('transportBar');
-        if (tbEl) tbEl.style.display = 'none';
+        resetGlobalsToBlank();
       }
     }
   } catch (e) { console.warn('[closeSession] post-delete UI update failed:', e); }
@@ -8820,15 +8909,15 @@ function updateGameListLock() {
 
 function updateEmptyAppState() {
   const empty = document.getElementById('emptyAppState');
-  const layout = document.getElementById('mainLayout');
+  const sessionHost = document.getElementById('sessionViewHost');
   const menuView = document.getElementById('menuView');
-  if (!empty || !layout) return;
+  if (!empty || !sessionHost) return;
   if (_browseActive) return; // browse view handles its own display
   if (_menuActive) return; // menu view handles its own display
   if (sessions.size === 0) {
     // Show menu view instead of hero when no sessions
     empty.style.display = 'none';
-    layout.style.display = 'none';
+    sessionHost.style.display = 'none';
     _menuActive = true;
     menuView.classList.add('visible');
     renderMenuSessions();
@@ -8836,7 +8925,7 @@ function updateEmptyAppState() {
   } else {
     empty.style.display = 'none';
     menuView.classList.remove('visible');
-    layout.style.display = 'flex';
+    sessionHost.style.display = '';
   }
 }
 
@@ -8907,7 +8996,7 @@ function restoreSessionsFromLocalStorage() {
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════
 
-function initApp() {
+async function initApp() {
   // Render scaffolding settings (must happen before loadModels populates selects)
   migrateOldSettingsToScaffolding();
   const savedScaffolding = localStorage.getItem('arc_scaffolding_type') || 'linear';
@@ -8915,7 +9004,10 @@ function initApp() {
   loadScaffoldingFromStorage(savedScaffolding);
 
   loadGames();
-  loadModels();
+  await loadModels();  // await so selects are populated before template capture
+  // Capture populated DOM as clonable template for new sessions
+  captureSessionTemplate();
+
   if (FEATURES.copilot) checkCopilotStatus();
   if (FEATURES.puter_js) puterKvCheckResume();
 
