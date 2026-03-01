@@ -8844,12 +8844,19 @@ function switchSession(targetId) {
   const target = sessions.get(targetId);
   if (!target) return;
 
+  const wasMenu = _menuActive;
   // Hide menu view if active
   if (_menuActive) {
     _menuActive = false;
     document.getElementById('menuView').classList.remove('visible');
     document.getElementById('sessionViewHost').style.display = '';
     document.getElementById('gameSidebar').style.display = '';
+  }
+
+  // If returning from menu to the same session, just re-show — don't re-attach
+  if (wasMenu && targetId === activeSessionId) {
+    renderSessionTabs();
+    return;
   }
 
   // Close replay if open
