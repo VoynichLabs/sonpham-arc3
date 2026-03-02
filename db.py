@@ -266,14 +266,14 @@ TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
 
 def _get_turso_db():
-    """Return a libsql connection to Turso, or None if not configured."""
+    """Return a libsql connection to Turso, or None if not configured.
+    Does NOT sync — callers that write must call conn.sync() themselves."""
     if not libsql or not TURSO_DATABASE_URL or not TURSO_AUTH_TOKEN:
         return None
     try:
         conn = libsql.connect("db/turso_replica.db",
                               sync_url=TURSO_DATABASE_URL,
                               auth_token=TURSO_AUTH_TOKEN)
-        conn.sync()
         return conn
     except Exception as e:
         log.warning(f"Turso connection failed: {e}")
@@ -304,6 +304,7 @@ def _init_turso_db():
     if not conn:
         return
     try:
+        conn.sync()  # hydrate local replica once at startup
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
