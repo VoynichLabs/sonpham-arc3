@@ -69,13 +69,13 @@ def _install_rate_limiting(model_key: str):
 
     real_fn = getattr(original, '__wrapped__', original)
 
-    def rate_limited_call(mk, prompt, cfg, role="executor"):
+    def rate_limited_call(mk, prompt, cfg, role="executor", **kwargs):
         info = MODELS.get(mk)
         provider = info["provider"] if info else "unknown"
         sem = _get_provider_semaphore(provider)
         sem.acquire()
         try:
-            return real_fn(mk, prompt, cfg, role)
+            return real_fn(mk, prompt, cfg, role, **kwargs)
         finally:
             sem.release()
 
@@ -216,6 +216,8 @@ def run_single_game(arcade, game_id: str, cfg: dict, max_steps: int,
         except Exception:
             pass
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         error_msg = str(e)
         result = "ERROR"
 
@@ -478,6 +480,8 @@ def main():
                         help="Upload completed sessions to Turso")
     parser.add_argument("--upload-session", default=None,
                         help="Upload a single session to Turso by ID (no batch run)")
+    parser.add_argument("--planner-model", default=None,
+                        help="Override planner/orchestrator model (e.g. gemini-3.1-pro)")
     parser.add_argument("--scaffolding", default=None,
                         help="Override scaffolding mode (e.g. agent_spawn, three_system)")
     parser.add_argument("--config", default=None,
@@ -516,6 +520,8 @@ def main():
     cfg = load_config(Path(args.config) if args.config else None)
     if args.model:
         cfg["reasoning"]["executor_model"] = args.model
+    if args.planner_model:
+        cfg["reasoning"]["planner_model"] = args.planner_model
     if args.scaffolding:
         cfg.setdefault("scaffolding", {})["mode"] = args.scaffolding
 
@@ -530,6 +536,18 @@ def main():
     if info.get("env_key") and not os.environ.get(info["env_key"]):
         print(f"ERROR: {info['env_key']} not set in .env")
         sys.exit(1)
+
+    # Validate planner model if specified
+    planner_model = cfg["reasoning"].get("planner_model")
+    if planner_model and planner_model != exec_model:
+        if planner_model not in MODELS:
+            print(f"Unknown planner model: {planner_model}")
+            print(f"Available: {', '.join(sorted(MODELS.keys()))}")
+            sys.exit(1)
+        p_info = MODELS[planner_model]
+        if p_info.get("env_key") and not os.environ.get(p_info["env_key"]):
+            print(f"ERROR: {p_info['env_key']} not set in .env (for planner model)")
+            sys.exit(1)
 
     # Resolve game list
     arcade = arc_agi.Arcade()

@@ -88,5 +88,122 @@
     "levels_completed": 0,
     "win_levels": 6,
     "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-02-28T19:32:10.725226",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 5,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-02-28T20:16:45.900954",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 5,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-02-28T20:17:21.751061",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 5,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-02-28T21:14:46.578361",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 5,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-03-01T00:46:16.631176",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 5,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-03-01T01:09:05.091924",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 5,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-03-01T01:09:50.182767",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 5,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-03-01T21:02:25.436297",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 30,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-03-01T22:48:58.828078",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 20,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-03-01T22:51:13.410599",
+    "game_id": "ft09-9ab2447a",
+    "result": "NOT_FINISHED",
+    "steps": 25,
+    "levels_completed": 0,
+    "win_levels": 6,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-03-01T23:40:34.772824",
+    "game_id": "fd01-00000001",
+    "result": "NOT_FINISHED",
+    "steps": 5,
+    "levels_completed": 0,
+    "win_levels": 5,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-03-02T00:22:31.448782",
+    "game_id": "ls20-cb3b57cc",
+    "result": "NOT_FINISHED",
+    "steps": 50,
+    "levels_completed": 0,
+    "win_levels": 7,
+    "executor_model": "gemini-2.5-flash"
+  },
+  {
+    "timestamp": "2026-03-02T00:54:00.208966",
+    "game_id": "ls20-cb3b57cc",
+    "result": "NOT_FINISHED",
+    "steps": 50,
+    "levels_completed": 0,
+    "win_levels": 7,
+    "executor_model": "gemini-3.1-pro"
   }
 ]

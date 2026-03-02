@@ -56,7 +56,11 @@ def orchestrator_decide(
         history=format_history(history),
     )
 
-    result = call_model_with_metadata(model, prompt, cfg, role="planner")
+    result = call_model_with_metadata(
+        model, prompt, cfg, role="planner",
+        tools_enabled=True, session_id=session_id,
+        grid=grid, prev_grid=prev_grid,
+    )
 
     # Log LLM call
     if session_id:

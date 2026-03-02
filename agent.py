@@ -101,6 +101,8 @@ MODELS = {
     "gemini-2.5-flash-lite": {"provider": "gemini", "api_model": "gemini-2.5-flash-lite",  "env_key": "GEMINI_API_KEY"},
     "gemini-2.5-flash":      {"provider": "gemini", "api_model": "gemini-2.5-flash",       "env_key": "GEMINI_API_KEY"},
     "gemini-2.5-pro":        {"provider": "gemini", "api_model": "gemini-2.5-pro",         "env_key": "GEMINI_API_KEY"},
+    "gemini-3-flash":        {"provider": "gemini", "api_model": "gemini-3-flash-preview",   "env_key": "GEMINI_API_KEY"},
+    "gemini-3-pro":          {"provider": "gemini", "api_model": "gemini-3-pro-preview",    "env_key": "GEMINI_API_KEY"},
     "gemini-3.1-pro":        {"provider": "gemini", "api_model": "gemini-3.1-pro-preview",  "env_key": "GEMINI_API_KEY"},
     # Anthropic (direct API via httpx)
     "claude-haiku-4-5":      {"provider": "anthropic", "api_model": "claude-haiku-4-5-20251001", "env_key": "ANTHROPIC_API_KEY"},
@@ -464,7 +466,9 @@ def _call_anthropic(model: str, messages: list, system: str,
     }
 
 
-def _call_gemini(model_name: str, prompt: str, temperature: float, max_tokens: int) -> dict:
+def _call_gemini(model_name: str, prompt: str, temperature: float, max_tokens: int,
+                  tools_enabled: bool = False, session_id: str = "",
+                  grid=None, prev_grid=None) -> dict:
     from google import genai
     import re as _re
     api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -478,20 +482,126 @@ def _call_gemini(model_name: str, prompt: str, temperature: float, max_tokens: i
     if is_thinking:
         thinking_cfg = genai.types.ThinkingConfig(thinking_budget=1024)
 
-    response = client.models.generate_content(
-        model=model_name,
-        contents=f"{SYSTEM_MSG}\n\n{prompt}",
-        config=genai.types.GenerateContentConfig(
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-            thinking_config=thinking_cfg,
-        ),
+    config = genai.types.GenerateContentConfig(
+        temperature=temperature,
+        max_output_tokens=max_tokens,
+        thinking_config=thinking_cfg,
     )
-    usage = getattr(response, "usage_metadata", None)
+
+    # Enable run_python tool if requested and we have a session context
+    if tools_enabled and session_id:
+        from code_sandbox import get_tool_declarations, execute_python
+        config.tools = [get_tool_declarations()]
+
+    contents = [genai.types.Content(
+        role="user",
+        parts=[genai.types.Part.from_text(text=f"{SYSTEM_MSG}\n\n{prompt}")],
+    )]
+
+    total_input = 0
+    total_output = 0
+    max_rounds = 3 if (tools_enabled and session_id) else 1
+
+    for round_i in range(max_rounds):
+        # On the last round, remove tools to force a text answer
+        if round_i == max_rounds - 1 and config.tools:
+            config.tools = None
+            # Add instruction to force JSON text output
+            contents.append(genai.types.Content(
+                role="user",
+                parts=[genai.types.Part.from_text(
+                    text="Tool calls are no longer available. Now output your final answer as a JSON object."
+                )],
+            ))
+
+        response = client.models.generate_content(
+            model=model_name, contents=contents, config=config,
+        )
+        usage = getattr(response, "usage_metadata", None)
+        total_input += (getattr(usage, "prompt_token_count", 0) or 0) if usage else 0
+        total_output += (getattr(usage, "candidates_token_count", 0) or 0) if usage else 0
+
+        # Handle MALFORMED_FUNCTION_CALL — model tried to call a tool but
+        # formatted it as a code block instead of a proper function call
+        if response.candidates and tools_enabled and session_id:
+            fr = getattr(response.candidates[0], 'finish_reason', None)
+            fr_str = str(fr).upper() if fr else ""
+            if "MALFORMED" in fr_str:
+                raw_text = ""
+                try:
+                    raw_text = response.text or ""
+                except Exception:
+                    fm = getattr(response.candidates[0], 'finish_message', None)
+                    if fm:
+                        raw_text = fm
+                code_match = _re.search(r'```python\s*\n(.*?)```', raw_text, _re.DOTALL)
+                if code_match:
+                    code = code_match.group(1).strip()
+                    print(f"  [tools] recovered MALFORMED code ({len(code)} chars), executing")
+                    output = execute_python(session_id, code, grid, prev_grid)
+                    contents.append(genai.types.Content(
+                        role="model",
+                        parts=[genai.types.Part.from_function_call(
+                            name="run_python", args={"code": code}
+                        )],
+                    ))
+                    contents.append(genai.types.Content(
+                        role="user",
+                        parts=[genai.types.Part.from_function_response(
+                            name="run_python",
+                            response={"result": output},
+                        )],
+                    ))
+                    config.tools = None  # force text answer on next round
+                    continue
+                else:
+                    config.tools = None
+                    continue
+
+        # Check for function calls in the response
+        if response.candidates and response.candidates[0].content and tools_enabled and session_id:
+            model_parts = response.candidates[0].content.parts or []
+            fn_call_parts = [p for p in model_parts if p.function_call]
+
+            if fn_call_parts:
+                contents.append(response.candidates[0].content)
+                fn_response_parts = []
+                for part in fn_call_parts:
+                    fc = part.function_call
+                    code = fc.args.get("code", "") if fc.args else ""
+                    print(f"  [tools] run_python ({len(code)} chars)")
+                    output = execute_python(session_id, code, grid, prev_grid)
+                    fn_response_parts.append(
+                        genai.types.Part.from_function_response(
+                            name=fc.name,
+                            response={"result": output},
+                        )
+                    )
+                contents.append(genai.types.Content(
+                    role="user",
+                    parts=fn_response_parts,
+                ))
+                continue  # next round
+
+        # No function call — extract final text and return
+        break
+
+    # Extract text safely — response may contain function_call parts
+    # if the model exhausted all rounds without giving a text answer
+    final_text = ""
+    try:
+        final_text = response.text or ""
+    except (ValueError, AttributeError):
+        # response.text raises ValueError when there are only non-text parts
+        if response.candidates and response.candidates[0].content:
+            text_parts = [p.text for p in response.candidates[0].content.parts
+                          if hasattr(p, 'text') and p.text]
+            final_text = "\n".join(text_parts)
+
     return {
-        "text": response.text,
-        "input_tokens": getattr(usage, "prompt_token_count", 0) if usage else 0,
-        "output_tokens": getattr(usage, "candidates_token_count", 0) if usage else 0,
+        "text": final_text,
+        "input_tokens": total_input,
+        "output_tokens": total_output,
     }
 
 
@@ -502,8 +612,16 @@ def _call_cloudflare(model: str, messages: list, temperature: float, max_tokens:
     return _call_openai_compatible(url, api_key, model, messages, temperature, max_tokens)
 
 
-def call_model(model_key: str, prompt: str, cfg: dict, role: str = "executor") -> dict:
-    """Route to the right provider. Returns dict with {text, input_tokens, output_tokens}."""
+def call_model(model_key: str, prompt: str, cfg: dict, role: str = "executor",
+               tools_enabled: bool = False, session_id: str = "",
+               grid=None, prev_grid=None) -> dict:
+    """Route to the right provider. Returns dict with {text, input_tokens, output_tokens}.
+
+    Optional kwargs for Gemini tool calling:
+        tools_enabled: enable run_python tool
+        session_id: sandbox session ID
+        grid / prev_grid: current and previous game grids (list-of-lists)
+    """
     info = MODELS.get(model_key)
     if info is None:
         raise ValueError(f"Unknown model: {model_key}")
@@ -526,7 +644,9 @@ def call_model(model_key: str, prompt: str, cfg: dict, role: str = "executor") -
     messages = [{"role": "system", "content": SYSTEM_MSG}, {"role": "user", "content": prompt}]
 
     if provider == "gemini":
-        return _call_gemini(api_model, prompt, temp, max_tok)
+        return _call_gemini(api_model, prompt, temp, max_tok,
+                            tools_enabled=tools_enabled, session_id=session_id,
+                            grid=grid, prev_grid=prev_grid)
     if provider == "anthropic":
         return _call_anthropic(api_model, [{"role": "user", "content": prompt}],
                                 SYSTEM_MSG, temp, max_tok)
@@ -541,12 +661,16 @@ def call_model(model_key: str, prompt: str, cfg: dict, role: str = "executor") -
 
 
 def call_model_with_metadata(model_key: str, prompt: str, cfg: dict, role: str = "executor",
-                              retries: int = 2) -> LLMResult:
+                              retries: int = 2,
+                              tools_enabled: bool = False, session_id: str = "",
+                              grid=None, prev_grid=None) -> LLMResult:
     """Call LLM with retries, returning full metadata (tokens, timing, errors)."""
     t0 = time.time()
     for attempt in range(retries + 1):
         try:
-            result = call_model(model_key, prompt, cfg, role)
+            result = call_model(model_key, prompt, cfg, role,
+                                tools_enabled=tools_enabled, session_id=session_id,
+                                grid=grid, prev_grid=prev_grid)
             duration_ms = int((time.time() - t0) * 1000)
             return LLMResult(
                 text=result["text"],

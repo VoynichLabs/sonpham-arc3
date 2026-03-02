@@ -51,6 +51,7 @@ def run_subagent(
     session_id: str,
     history: list,
     step_callback=None,
+    observer=None,
 ) -> dict:
     """Run a subagent with bounded budget. Returns dict with results.
 
@@ -94,6 +95,8 @@ def run_subagent(
     max_iterations = (budget + 5) if is_theorist else (budget + 2)
 
     print(f"      [{agent_type}] starting — task: {task[:60]}, budget: {budget}")
+    if observer:
+        observer.subagent_start(agent_type, task, budget, step_num)
 
     for turn in range(max_iterations):
         # For non-theorists, stop when action budget or global step limit is reached
@@ -127,8 +130,12 @@ def run_subagent(
             tool_results=tool_results_text,
         )
 
-        # Call LLM
-        result = call_model_with_metadata(model, prompt, cfg, role="executor")
+        # Call LLM (with run_python tool for Gemini models)
+        result = call_model_with_metadata(
+            model, prompt, cfg, role="executor",
+            tools_enabled=True, session_id=session_id,
+            grid=grid, prev_grid=prev_grid,
+        )
         llm_calls += 1
         total_input_tokens += result.input_tokens
         total_output_tokens += result.output_tokens
@@ -175,6 +182,8 @@ def run_subagent(
             tool_name = parsed.get("tool", "")
             tool_args = parsed.get("args", {})
             print(f"      [{agent_type}] frame_tool: {tool_name}")
+            if observer:
+                observer.subagent_frame_tool(agent_type, tool_name)
             tool_result = as_dispatch_frame_tool(tool_name, grid, prev_grid, tool_args)
             tool_results.append({
                 "tool": tool_name,
@@ -210,6 +219,16 @@ def run_subagent(
             coord_str = (f"@({action_data.get('x','?')},{action_data.get('y','?')})"
                          if action_id == 6 and action_data else "")
             print(f"      [{agent_type}] step {step_num}: {aname}{coord_str} — {reasoning[:50]}")
+
+            if observer:
+                observer.subagent_act(
+                    agent_type, step_num, f"{aname}{coord_str}",
+                    state="ACTING",
+                    reasoning=reasoning,
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    duration_ms=result.duration_ms,
+                )
 
             frame = env.step(action, data=action_data or None, reasoning=reasoning)
             if frame is None:
@@ -288,6 +307,13 @@ def run_subagent(
     )
 
     print(f"      [{agent_type}] done — {steps_used} steps, {llm_calls} calls")
+
+    if observer:
+        observer.subagent_report(
+            agent_type, steps_used, llm_calls,
+            findings=len(findings), hypotheses=len(hypotheses),
+            summary=report[:120],
+        )
 
     return {
         "steps_used": steps_used,
