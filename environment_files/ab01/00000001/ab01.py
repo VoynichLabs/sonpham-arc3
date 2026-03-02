@@ -474,7 +474,9 @@ class Ab01(ARCBaseGame):
             if self._flight_done():
                 self._load_next_bird()
                 self._check_level()
-                self.complete_action()
+                if self.state not in ('WON', 'LOST'):
+                    self.complete_action()
+                # else: WON/LOST loop will auto-advance after flash
             # else: keep looping (animate)
 
         elif self.state in ('WON', 'LOST'):
