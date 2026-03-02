@@ -55,8 +55,10 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
     total_output_tokens = 0
     prev_grid = None
 
-    # Initialize observability
-    obs = AgentObserver(game_id=game_id, max_steps=max_steps, session_id=session_id or "")
+    # Initialize observability (opt-in via cfg["observability"])
+    obs = None
+    if cfg.get("observability"):
+        obs = AgentObserver(game_id=game_id, max_steps=max_steps, session_id=session_id or "")
 
     mcfg = cfg.get("memory", {})
     condense_every = mcfg.get("condense_every", 0)
@@ -74,14 +76,14 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
         if frame.state == GameState.WIN:
             print(f"\n  >>> WIN! Completed {frame.win_levels} levels in {step_num} steps "
                   f"({total_llm_calls} LLM calls) <<<\n")
-            obs.close("WIN")
+            if obs: obs.close("WIN")
 
             _post_game(arcade, game_id, history, "WIN", step_num,
                        frame.levels_completed, frame.win_levels, cfg)
             return "WIN"
         if frame.state == GameState.GAME_OVER:
             print(f"\n  >>> GAME OVER at step {step_num} ({total_llm_calls} LLM calls) <<<\n")
-            obs.close("GAME_OVER")
+            if obs: obs.close("GAME_OVER")
 
             _post_game(arcade, game_id, history, "GAME_OVER", step_num,
                        frame.levels_completed, frame.win_levels, cfg)
@@ -135,15 +137,16 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
         command = decision.get("command", "think")
         print(f"    [orchestrator] command={command}")
 
-        obs.orchestrator_decide(
-            turn=turn_num, step=step_num, command=command,
-            agent_type=decision.get("agent_type", ""),
-            task=decision.get("task", decision.get("next", "")),
-            input_tokens=decision.get("input_tokens", 0),
-            output_tokens=decision.get("output_tokens", 0),
-            duration_ms=decision.get("duration_ms", 0),
-        )
-        obs.update_level(frame.levels_completed, frame.win_levels)
+        if obs:
+            obs.orchestrator_decide(
+                turn=turn_num, step=step_num, command=command,
+                agent_type=decision.get("agent_type", ""),
+                task=decision.get("task", decision.get("next", "")),
+                input_tokens=decision.get("input_tokens", 0),
+                output_tokens=decision.get("output_tokens", 0),
+                duration_ms=decision.get("duration_ms", 0),
+            )
+            obs.update_level(frame.levels_completed, frame.win_levels)
 
         # ── HANDLE THINK ───────────────────────────────────────────────
         if command == "think":
@@ -157,7 +160,7 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
             total_llm_calls += turn_llm_calls
             total_input_tokens += turn_input_tokens
             total_output_tokens += turn_output_tokens
-            obs.update_totals(total_llm_calls, total_input_tokens, total_output_tokens)
+            if obs: obs.update_totals(total_llm_calls, total_input_tokens, total_output_tokens)
             continue
 
         # ── HANDLE DELEGATE (spawn subagent) ──────────────────────────
@@ -214,20 +217,20 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
                 if terminal == "WIN":
                     print(f"\n  >>> WIN! Completed {frame.win_levels} levels in {step_num} steps "
                           f"({total_llm_calls} LLM calls) <<<\n")
-                    obs.close("WIN")
-        
+                    if obs: obs.close("WIN")
+
                     _post_game(arcade, game_id, history, "WIN", step_num,
                                frame.levels_completed, frame.win_levels, cfg)
                     return "WIN"
                 elif terminal == "GAME_OVER":
                     print(f"\n  >>> GAME OVER at step {step_num} ({total_llm_calls} LLM calls) <<<\n")
-                    obs.close("GAME_OVER")
-        
+                    if obs: obs.close("GAME_OVER")
+
                     _post_game(arcade, game_id, history, "GAME_OVER", step_num,
                                frame.levels_completed, frame.win_levels, cfg)
                     return "GAME_OVER"
                 else:
-                    obs.close(terminal)
+                    if obs: obs.close(terminal)
                     return terminal
 
         # ── LOG TURN ───────────────────────────────────────────────────
@@ -235,9 +238,10 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
         total_input_tokens += turn_input_tokens
         total_output_tokens += turn_output_tokens
 
-        obs.update_totals(total_llm_calls, total_input_tokens, total_output_tokens)
-        obs.update_memory_stats(memories)
-        obs.dump_memory(memories)
+        if obs:
+            obs.update_totals(total_llm_calls, total_input_tokens, total_output_tokens)
+            obs.update_memory_stats(memories)
+            obs.dump_memory(memories)
 
         if session_id:
             _log_turn(
@@ -263,7 +267,7 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
     final_state = frame.state.value if frame and hasattr(frame.state, "value") else "TIMEOUT"
     print(f"\n  >>> Max steps reached ({max_steps}). Final: {final_state} "
           f"({total_llm_calls} LLM calls) <<<\n")
-    obs.close(final_state)
+    if obs: obs.close(final_state)
     _post_game(arcade, game_id, history, final_state, step_num,
                frame.levels_completed if frame else 0,
                frame.win_levels if frame else 0, cfg)

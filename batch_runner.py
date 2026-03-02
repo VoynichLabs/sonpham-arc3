@@ -486,6 +486,8 @@ def main():
                         help="Override scaffolding mode (e.g. agent_spawn, three_system)")
     parser.add_argument("--config", default=None,
                         help="Path to config.yaml")
+    parser.add_argument("--obs", action="store_true",
+                        help="Enable observability dashboard (writes to .agent_obs/)")
     args = parser.parse_args()
 
     # ── Standalone session upload ────────────────────────────────────────
@@ -524,6 +526,8 @@ def main():
         cfg["reasoning"]["planner_model"] = args.planner_model
     if args.scaffolding:
         cfg.setdefault("scaffolding", {})["mode"] = args.scaffolding
+    if args.obs:
+        cfg["observability"] = True
 
     # Validate model
     exec_model = cfg["reasoning"]["executor_model"]

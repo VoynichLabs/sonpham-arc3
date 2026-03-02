@@ -1317,6 +1317,8 @@ def main() -> None:
     parser.add_argument("--scaffolding", action="store_true", help="Use 3-system scaffold agent")
     parser.add_argument("--planning-horizon", type=int, default=None,
                         help="Max actions per LLM call (1=single-action, >1=multi-action planning)")
+    parser.add_argument("--obs", action="store_true",
+                        help="Enable observability dashboard (writes to .agent_obs/)")
     args = parser.parse_args()
 
     cfg = load_config(Path(args.config) if args.config else None)
@@ -1326,6 +1328,8 @@ def main() -> None:
         cfg["reasoning"]["executor_model"] = args.model
     if args.planning_horizon is not None:
         cfg["reasoning"]["planning_horizon"] = args.planning_horizon
+    if args.obs:
+        cfg["observability"] = True
 
     if args.list_models:
         print("\nAvailable models:\n")
