@@ -689,14 +689,25 @@ def call_model_with_metadata(model_key: str, prompt: str, cfg: dict, role: str =
                 wait = 10 * (attempt + 1)
                 print(f"  [Rate limited] waiting {wait}s...")
                 time.sleep(wait)
+            elif e.response.status_code in (500, 502, 503, 529) and attempt < retries:
+                wait = 5 * (attempt + 1)
+                print(f"  [HTTP {e.response.status_code}] retrying in {wait}s...")
+                time.sleep(wait)
             else:
                 duration_ms = int((time.time() - t0) * 1000)
                 print(f"  [HTTP error {e.response.status_code}]: {e}")
                 return LLMResult(error=str(e), duration_ms=duration_ms, model=model_key, attempt=attempt)
         except Exception as e:
-            duration_ms = int((time.time() - t0) * 1000)
-            print(f"  [LLM error]: {e}")
-            return LLMResult(error=str(e), duration_ms=duration_ms, model=model_key, attempt=attempt)
+            err_str = str(e).lower()
+            # Retry on transient errors (quota, timeout, server errors)
+            if attempt < retries and any(k in err_str for k in ("429", "quota", "rate", "timeout", "503", "500", "overloaded")):
+                wait = 5 * (attempt + 1)
+                print(f"  [LLM error] {e} — retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                duration_ms = int((time.time() - t0) * 1000)
+                print(f"  [LLM error]: {e}")
+                return LLMResult(error=str(e), duration_ms=duration_ms, model=model_key, attempt=attempt)
     duration_ms = int((time.time() - t0) * 1000)
     return LLMResult(error="max retries exceeded", duration_ms=duration_ms, model=model_key, attempt=retries)
 

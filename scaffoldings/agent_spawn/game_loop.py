@@ -68,6 +68,8 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
     condense_every = mcfg.get("condense_every", 0)
     condense_threshold = mcfg.get("condense_threshold", 0)
     steps_since_condense = 0
+    consecutive_errors = 0
+    MAX_CONSECUTIVE_ERRORS = 5
 
     # Seed memories with hard memory if available
     if hard_memory:
@@ -155,6 +157,24 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
 
         # ── HANDLE THINK ───────────────────────────────────────────────
         if command == "think":
+            task_text = decision.get("task", decision.get("next", ""))
+            is_error = "LLM error" in task_text or "Parse error" in task_text
+
+            if is_error:
+                consecutive_errors += 1
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                    print(f"    [orchestrator] {consecutive_errors} consecutive LLM errors — aborting game")
+                    if obs: obs.close("LLM_ERROR")
+                    _post_game(arcade, game_id, history, "LLM_ERROR", step_num,
+                               frame.levels_completed, frame.win_levels, cfg)
+                    return "LLM_ERROR"
+                # Exponential backoff: 2s, 4s, 8s, 16s, 32s
+                wait = 2 ** consecutive_errors
+                print(f"    [orchestrator] LLM error #{consecutive_errors}, backing off {wait}s...")
+                time.sleep(wait)
+            else:
+                consecutive_errors = 0
+
             for f in decision.get("facts", []):
                 memories.add_fact(f)
                 print(f"    [fact] {f[:80]}")
@@ -169,6 +189,7 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
             continue
 
         # ── HANDLE DELEGATE (spawn subagent) ──────────────────────────
+        consecutive_errors = 0  # successful orchestrator call, reset error counter
         if command == "delegate":
             agent_type = decision.get("agent_type", "explorer")
             task = decision.get("task", "explore the game")

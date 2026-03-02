@@ -245,6 +245,10 @@ def run_subagent(
             new_grid = frame.frame[-1].tolist() if frame.frame else grid
             state_str = frame.state.value if hasattr(frame.state, "value") else str(frame.state)
 
+            # Update grid in dashboard immediately after action
+            if observer:
+                observer.update_grid(new_grid)
+
             # Record observation
             observation = f"{aname}{coord_str} -> state={state_str}"
             memories.add_observation(step_num, action_id, observation, prev_grid, new_grid)
