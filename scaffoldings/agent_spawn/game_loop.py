@@ -59,6 +59,10 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
     obs = None
     if cfg.get("observability"):
         obs = AgentObserver(game_id=game_id, max_steps=max_steps, session_id=session_id or "")
+        obs.update_status(
+            planner_model=effective_model(cfg, "planner"),
+            executor_model=effective_model(cfg, "executor"),
+        )
 
     mcfg = cfg.get("memory", {})
     condense_every = mcfg.get("condense_every", 0)

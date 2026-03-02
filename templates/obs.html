@@ -90,8 +90,8 @@
     border-bottom: 1px solid #222;
     padding: 8px 16px;
     background: #0d0d14;
-    min-height: 160px;
-    max-height: 200px;
+    min-height: 80px;
+    max-height: 260px;
     overflow: hidden;
   }
   .timeline-section h2 {
@@ -104,8 +104,8 @@
   .timeline-container {
     position: relative;
     overflow-x: auto;
-    overflow-y: hidden;
-    height: 130px;
+    overflow-y: auto;
+    max-height: 220px;
   }
   .timeline-canvas {
     position: relative;
@@ -280,6 +280,7 @@
   <div class="stat"><div class="label">Turn</div><div class="value" id="sTurn">--</div></div>
   <div class="stat"><div class="label">LLM Calls</div><div class="value" id="sCalls">--</div></div>
   <div class="stat"><div class="label">Tokens In/Out</div><div class="value" id="sTokens">--</div></div>
+  <div class="stat"><div class="label">Est. Cost</div><div class="value" id="sCost">--</div></div>
   <div class="stat"><div class="label">Elapsed</div><div class="value" id="sElapsed">--</div></div>
   <div class="stat"><div class="label">Agent</div><div class="value" id="sAgent">--</div></div>
   <div class="stat"><div class="label">Task</div><div class="value" id="sTask" title="">--</div></div>
@@ -287,7 +288,13 @@
 
 <div class="main">
   <div class="timeline-section">
-    <h2>Timeline</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h2 style="margin:0">Timeline</h2>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="zoomLabel" style="font-size:10px;color:#555">1.0x</span>
+        <button onclick="timelineZoom=1;timelineAutoScroll=true;renderTimeline();document.getElementById('zoomLabel').textContent='1.0x'" style="background:#1a1a24;border:1px solid #333;color:#888;font-size:10px;padding:2px 8px;border-radius:3px;cursor:pointer">Reset zoom</button>
+      </div>
+    </div>
     <div class="timeline-container" id="timelineContainer">
       <div class="timeline-canvas" id="timelineCanvas"></div>
     </div>
@@ -341,6 +348,60 @@ function agentBadge(agent) {
   return `<span class="agent-badge" style="background:${c}">${agent}</span>`;
 }
 
+// ── Cost estimation ($ per 1M tokens) ──
+const MODEL_PRICING = {
+  // Gemini
+  'gemini-3-flash':    { input: 0.10, output: 0.40 },
+  'gemini-3-pro':      { input: 1.25, output: 10.00 },
+  'gemini-3.1-pro':    { input: 1.25, output: 10.00 },
+  'gemini-2.5-flash':  { input: 0.15, output: 0.60 },
+  'gemini-2.5-pro':    { input: 1.25, output: 10.00 },
+  // Anthropic
+  'claude-sonnet-4-5': { input: 3.00, output: 15.00 },
+  'claude-haiku-4-5':  { input: 0.80, output: 4.00 },
+  // Free tier
+  'groq':     { input: 0, output: 0 },
+  'mistral':  { input: 0, output: 0 },
+  'ollama':   { input: 0, output: 0 },
+  '_default': { input: 0.50, output: 1.50 },  // fallback estimate
+};
+
+// Track per-model tokens from events
+let plannerTokens = { input: 0, output: 0 };
+let executorTokens = { input: 0, output: 0 };
+
+function lookupPricing(model) {
+  if (!model) return MODEL_PRICING['_default'];
+  for (const [key, p] of Object.entries(MODEL_PRICING)) {
+    if (key !== '_default' && model.includes(key)) return p;
+  }
+  return MODEL_PRICING['_default'];
+}
+
+function estimateCost() {
+  const pp = lookupPricing(statusData?.planner_model);
+  const ep = lookupPricing(statusData?.executor_model);
+  let total = 0;
+  total += (plannerTokens.input / 1_000_000) * pp.input;
+  total += (plannerTokens.output / 1_000_000) * pp.output;
+  total += (executorTokens.input / 1_000_000) * ep.input;
+  total += (executorTokens.output / 1_000_000) * ep.output;
+  return total;
+}
+
+function trackEventTokens(ev) {
+  const inTok = ev.input_tokens || 0;
+  const outTok = ev.output_tokens || 0;
+  if (!inTok && !outTok) return;
+  if (ev.event === 'orchestrator_decide') {
+    plannerTokens.input += inTok;
+    plannerTokens.output += outTok;
+  } else {
+    executorTokens.input += inTok;
+    executorTokens.output += outTok;
+  }
+}
+
 // ── State ──
 let allEvents = [];
 let nextOffset = 0;
@@ -348,6 +409,8 @@ let autoScroll = true;
 let statusData = null;
 let pollTimer = null;
 let failCount = 0;
+let timelineZoom = 1.0;  // multiplier on pxPerSec
+let timelineAutoScroll = true;  // stop auto-scrolling once user zooms
 
 // ── Polling ──
 async function fetchStatus() {
@@ -412,6 +475,16 @@ function renderStatus(s) {
   const tokOut = s.total_output_tokens || 0;
   document.getElementById('sTokens').textContent = `${fmtK(tokIn)} / ${fmtK(tokOut)}`;
 
+  // Cost estimate
+  const cost = estimateCost();
+  const costEl = document.getElementById('sCost');
+  if (cost < 0.01) {
+    costEl.textContent = cost > 0 ? '<$0.01' : '$0.00';
+  } else {
+    costEl.textContent = '$' + cost.toFixed(2);
+  }
+  costEl.style.color = cost > 1 ? '#ef4444' : cost > 0.10 ? '#f59e0b' : '#22c55e';
+
   const elapsed = s.elapsed_min != null ? s.elapsed_min : 0;
   if (elapsed < 1) {
     document.getElementById('sElapsed').textContent = `${Math.round(elapsed * 60)}s`;
@@ -438,6 +511,7 @@ function fmtK(n) {
 function renderNewEvents(events) {
   const tbody = document.getElementById('logBody');
   for (const ev of events) {
+    trackEventTokens(ev);
     const tr = document.createElement('tr');
     const agent = ev.agent || ev.agent_type || ev.current_agent || '';
     const c = agentColor(agent);
@@ -510,63 +584,122 @@ function renderTimeline() {
   const canvas = document.getElementById('timelineCanvas');
   const container = document.getElementById('timelineContainer');
 
-  // Find all agents that appear
-  const agents = ['orchestrator'];
-  const agentSet = new Set(['orchestrator']);
-  for (const ev of allEvents) {
-    const a = (ev.agent || ev.agent_type || '').toLowerCase();
-    if (a && !agentSet.has(a)) {
-      agentSet.add(a);
-      agents.push(a);
-    }
-  }
-
   // Time range
   const t0 = allEvents[0].elapsed_s || 0;
   const tMax = allEvents[allEvents.length - 1].elapsed_s || 1;
   const duration = Math.max(tMax - t0, 1);
 
-  // Track width: at least container width, scale up for long runs
   const trackLeft = 85;
   const containerW = container.clientWidth - trackLeft - 10;
-  const pxPerSec = Math.max(containerW / duration, 2);
+  const basePxPerSec = Math.max(containerW / duration, 2);
+  const pxPerSec = basePxPerSec * timelineZoom;
   const totalW = Math.max(Math.ceil(duration * pxPerSec), containerW);
 
   canvas.style.width = (totalW + trackLeft + 10) + 'px';
 
-  // Build HTML
+  // ── Build lanes ──
+  // Lane 0: orchestrator (always present)
+  // Lanes 1+: one per concurrent subagent instance (pooled)
+  // Each subagent_start opens a lane, subagent_report closes it
+
+  // Assign each event to a lane
+  const eventLane = new Array(allEvents.length).fill(-1); // -1 = not rendered
+  const lanes = [{ label: 'orchestrator', agentType: 'orchestrator', color: AGENT_COLORS.orchestrator }];
+
+  // Track active subagent slots: array of { agentType, startTime, laneIdx } or null (free)
+  const slots = []; // index = slot id, value = laneIdx or null if free
+
+  // Orchestrator idle segments: gaps between orchestrator_decide events
+  const orchBlocks = []; // { startT, endT } for idle gaps
+  let lastOrchEnd = t0;
+
+  for (let j = 0; j < allEvents.length; j++) {
+    const ev = allEvents[j];
+    const t = ev.elapsed_s || 0;
+
+    if (ev.event === 'orchestrator_decide') {
+      // Mark idle gap before this decision
+      if (t > lastOrchEnd) {
+        orchBlocks.push({ startT: lastOrchEnd, endT: t, idle: true });
+      }
+      const endT = ev.duration_ms ? t + ev.duration_ms / 1000 : t + 0.1;
+      orchBlocks.push({ startT: t, endT, idle: false });
+      lastOrchEnd = endT;
+      eventLane[j] = 0;
+      continue;
+    }
+
+    if (ev.event === 'subagent_start') {
+      const agentType = (ev.agent_type || 'agent').toLowerCase();
+      // Find a free slot or create new one
+      let slotIdx = slots.findIndex(s => s === null);
+      if (slotIdx === -1) {
+        slotIdx = slots.length;
+        slots.push(null);
+      }
+      const laneIdx = lanes.length;
+      lanes.push({ label: agentType, agentType, color: agentColor(agentType), slotIdx });
+      slots[slotIdx] = { laneIdx, agentType, startEvt: j };
+      eventLane[j] = laneIdx;
+      continue;
+    }
+
+    if (ev.event === 'subagent_report') {
+      const agentType = (ev.agent_type || '').toLowerCase();
+      // Find the active slot for this agent type
+      const slotIdx = slots.findIndex(s => s && s.agentType === agentType);
+      if (slotIdx !== -1) {
+        eventLane[j] = slots[slotIdx].laneIdx;
+        slots[slotIdx] = null; // free the slot
+      }
+      continue;
+    }
+
+    // act / frame_tool — find active slot matching agent
+    const agent = (ev.agent || '').toLowerCase();
+    if (agent) {
+      const slotIdx = slots.findIndex(s => s && s.agentType === agent);
+      if (slotIdx !== -1) {
+        eventLane[j] = slots[slotIdx].laneIdx;
+      }
+    }
+  }
+
+  // Render
   let html = '';
-  for (let i = 0; i < agents.length; i++) {
-    const agent = agents[i];
-    const c = agentColor(agent);
+  for (let i = 0; i < lanes.length; i++) {
+    const lane = lanes[i];
+    const c = lane.color;
     html += `<div class="swimlane">`;
-    html += `<div class="swimlane-label" style="color:${c}">${agent}</div>`;
+    html += `<div class="swimlane-label" style="color:${c}">${lane.label}</div>`;
     html += `<div class="swimlane-track">`;
 
-    // Get events for this agent
-    for (let j = 0; j < allEvents.length; j++) {
-      const ev = allEvents[j];
-      const a = (ev.agent || ev.agent_type || '').toLowerCase();
-      if (a !== agent && !(agent === 'orchestrator' && ev.event === 'orchestrator_decide')) continue;
-      if (agent !== 'orchestrator' && ev.event === 'orchestrator_decide') continue;
+    if (i === 0) {
+      // Orchestrator: render idle gaps + decision blocks
+      for (const blk of orchBlocks) {
+        const left = (blk.startT - t0) * pxPerSec;
+        const w = Math.max((blk.endT - blk.startT) * pxPerSec, 2);
+        if (blk.idle) {
+          html += `<div class="event-block" style="left:${left}px;width:${w}px;background:${c};opacity:0.15;border-radius:0"></div>`;
+        }
+      }
+    }
 
+    // Render events assigned to this lane
+    for (let j = 0; j < allEvents.length; j++) {
+      if (eventLane[j] !== i) continue;
+      const ev = allEvents[j];
       const t = (ev.elapsed_s || 0) - t0;
       const left = t * pxPerSec;
       const dur = ev.duration_ms ? (ev.duration_ms / 1000) * pxPerSec : 4;
       const w = Math.max(dur, 4);
 
-      let bg = c;
       let opacity = '1';
-      if (ev.event === 'act') {
-        opacity = '0.6';
-      } else if (ev.event === 'frame_tool') {
-        opacity = '0.35';
-      } else if (ev.event === 'subagent_report' || ev.event === 'subagent_start') {
-        opacity = '0.5';
-      }
+      if (ev.event === 'act') opacity = '0.7';
+      else if (ev.event === 'frame_tool') opacity = '0.35';
+      else if (ev.event === 'subagent_report' || ev.event === 'subagent_start') opacity = '0.5';
 
-      const idx = j;
-      html += `<div class="event-block" style="left:${left}px;width:${w}px;background:${bg};opacity:${opacity}" data-idx="${idx}"></div>`;
+      html += `<div class="event-block" style="left:${left}px;width:${w}px;background:${c};opacity:${opacity}" data-idx="${j}"></div>`;
     }
 
     html += `</div></div>`;
@@ -574,8 +707,10 @@ function renderTimeline() {
 
   canvas.innerHTML = html;
 
-  // Auto-scroll timeline to right
-  container.scrollLeft = container.scrollWidth;
+  // Auto-scroll timeline to right (disabled once user zooms)
+  if (timelineAutoScroll) {
+    container.scrollLeft = container.scrollWidth;
+  }
 
   // Attach hover events
   canvas.querySelectorAll('.event-block').forEach(el => {
@@ -615,6 +750,30 @@ function showTooltip(e) {
 function hideTooltip() {
   document.getElementById('tooltip').classList.remove('visible');
 }
+
+// ── Timeline zoom (Ctrl+Scroll) ──
+document.getElementById('timelineContainer').addEventListener('wheel', (e) => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+
+  const container = document.getElementById('timelineContainer');
+  const rect = container.getBoundingClientRect();
+  // Mouse position relative to scroll content
+  const mouseX = e.clientX - rect.left + container.scrollLeft;
+  const fraction = mouseX / (container.scrollWidth || 1);
+
+  const oldZoom = timelineZoom;
+  const factor = e.deltaY < 0 ? 1.25 : 0.8;
+  timelineZoom = Math.max(0.1, Math.min(100, timelineZoom * factor));
+  timelineAutoScroll = false;  // user took control
+  document.getElementById('zoomLabel').textContent = timelineZoom.toFixed(1) + 'x';
+
+  renderTimeline();
+
+  // Keep mouse anchored to same point in timeline
+  const newMouseX = fraction * container.scrollWidth;
+  container.scrollLeft = newMouseX - (e.clientX - rect.left);
+}, { passive: false });
 
 // ── Init ──
 poll();
