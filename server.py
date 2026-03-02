@@ -1721,6 +1721,11 @@ def add_cache_headers(response):
     return response
 
 
+@app.route("/games/ab01")
+def game_ab01():
+    return render_template("ab01.html")
+
+
 @app.route("/")
 @bot_protection
 def index():
