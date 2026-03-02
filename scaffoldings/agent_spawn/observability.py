@@ -37,6 +37,7 @@ class AgentObserver:
         self.status_path = OBS_DIR / "status.json"
         self.events_path = OBS_DIR / "events.jsonl"
         self.memory_path = OBS_DIR / "memory.json"
+        self.grid_path = OBS_DIR / "grid.json"
 
         # Clear previous events file for this run
         self.events_path.write_text("")
@@ -180,6 +181,13 @@ class AgentObserver:
                 "stack": memories.stack,
             }
             self.memory_path.write_text(json.dumps(dump, indent=2, default=str) + "\n")
+        except Exception:
+            pass
+
+    def update_grid(self, grid: list):
+        """Write current game grid to grid.json for dashboard visualization."""
+        try:
+            self.grid_path.write_text(json.dumps(grid))
         except Exception:
             pass
 

@@ -79,10 +79,50 @@
   }
 
   /* ── Main Layout ── */
+  .main-wrap {
+    display: flex;
+    height: calc(100vh - 90px);
+  }
   .main {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 90px);
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* ── Grid Panel (right side) ── */
+  .grid-panel {
+    width: 320px;
+    min-width: 320px;
+    border-left: 1px solid #222;
+    background: #0d0d14;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .grid-panel h2 {
+    font-size: 11px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px 4px;
+  }
+  .grid-panel .grid-info {
+    font-size: 10px;
+    color: #444;
+    padding: 0 12px 6px;
+  }
+  .grid-canvas-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+  }
+  #gridCanvas {
+    image-rendering: pixelated;
+    max-width: 100%;
+    max-height: 100%;
   }
 
   /* ── Timeline ── */
@@ -286,6 +326,7 @@
   <div class="stat"><div class="label">Task</div><div class="value" id="sTask" title="">--</div></div>
 </div>
 
+<div class="main-wrap">
 <div class="main">
   <div class="timeline-section">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -322,6 +363,15 @@
       </table>
     </div>
   </div>
+</div>
+
+<div class="grid-panel">
+  <h2>Game State</h2>
+  <div class="grid-info" id="gridInfo">Step --</div>
+  <div class="grid-canvas-wrap">
+    <canvas id="gridCanvas" width="300" height="300"></canvas>
+  </div>
+</div>
 </div>
 
 <div class="tooltip" id="tooltip"></div>
@@ -465,7 +515,7 @@ async function fetchEvents() {
 }
 
 async function poll() {
-  await Promise.all([fetchStatus(), fetchEvents()]);
+  await Promise.all([fetchStatus(), fetchEvents(), fetchGrid()]);
   pollTimer = setTimeout(poll, 500);
 }
 
@@ -771,6 +821,49 @@ function showTooltip(e) {
 
 function hideTooltip() {
   document.getElementById('tooltip').classList.remove('visible');
+}
+
+// ── Grid rendering ──
+const GRID_COLORS = {
+  0: '#FFFFFF', 1: '#CCCCCC', 2: '#999999', 3: '#666666',
+  4: '#333333', 5: '#000000', 6: '#E53AA3', 7: '#FF7BCC',
+  8: '#F93C31', 9: '#1E93FF', 10: '#88D8F1', 11: '#FFDC00',
+  12: '#FF851B', 13: '#921231', 14: '#4FCC30', 15: '#A356D6',
+};
+
+let lastGridJson = '';
+
+async function fetchGrid() {
+  try {
+    const r = await fetch('/api/obs/grid');
+    if (!r.ok) return;
+    const text = await r.text();
+    if (text === lastGridJson) return;  // no change
+    lastGridJson = text;
+    const grid = JSON.parse(text);
+    renderGameGrid(grid);
+  } catch {}
+}
+
+function renderGameGrid(grid) {
+  if (!grid || !grid.length) return;
+  const canvas = document.getElementById('gridCanvas');
+  const ctx = canvas.getContext('2d');
+  const h = grid.length, w = grid[0].length;
+  const maxPx = 300;
+  const scale = Math.max(1, Math.floor(maxPx / Math.max(h, w)));
+  canvas.width = w * scale;
+  canvas.height = h * scale;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      ctx.fillStyle = GRID_COLORS[grid[y][x]] || '#000';
+      ctx.fillRect(x * scale, y * scale, scale, scale);
+    }
+  }
+  // Update info
+  const info = document.getElementById('gridInfo');
+  const step = statusData?.step ?? '--';
+  info.textContent = `Step ${step} | ${w}x${h}`;
 }
 
 // ── Timeline zoom (Ctrl+Scroll) ──

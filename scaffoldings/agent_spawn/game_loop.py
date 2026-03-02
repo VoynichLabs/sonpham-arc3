@@ -75,6 +75,7 @@ def play_game_agent_spawn(arcade, game_id: str, cfg: dict, max_steps: int = 200,
 
     while step_num < max_steps:
         grid = frame.frame[-1].tolist() if frame.frame else []
+        if obs: obs.update_grid(grid)
 
         # Check terminal states
         if frame.state == GameState.WIN:

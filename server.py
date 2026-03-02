@@ -3291,6 +3291,17 @@ def obs_status():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/obs/grid")
+def obs_grid():
+    grid_path = _OBS_DIR / "grid.json"
+    if not grid_path.exists():
+        return jsonify({"error": "No grid data"}), 404
+    try:
+        return Response(grid_path.read_text(), mimetype="application/json")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/obs/events")
 def obs_events():
     """Return new JSONL events as SSE stream (or JSON array).

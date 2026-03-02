@@ -73,7 +73,7 @@ def run_subagent(
     """
     budget = min(budget, 10)  # hard cap
     is_theorist = (agent_type == "theorist")
-    model = effective_model(cfg, "executor")
+    model = effective_model(cfg, "planner") if is_theorist else effective_model(cfg, "executor")
     system_prompt = SYSTEM_PROMPTS.get(agent_type, EXPLORER_SYSTEM)
 
     session_actions = []
