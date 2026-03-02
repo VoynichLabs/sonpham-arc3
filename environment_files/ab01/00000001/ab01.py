@@ -417,6 +417,7 @@ class Ab01(ARCBaseGame):
                 'hp': hp, 'max_hp': hp,
                 'destroyed': False,
                 'vx': 0.0, 'vy': 0.0,
+                'active': False,   # stays frozen until bird hits it
             })
         self.pigs = []
         for (cx, cy, hp) in d['pigs']:
@@ -520,9 +521,9 @@ class Ab01(ARCBaseGame):
             elif af == -2 and self.bird_vy >= 0:
                 self._use_ability()
 
-        # Block physics (knocked blocks)
+        # Block physics (only for blocks the bird has already hit)
         for blk in self.blocks:
-            if blk['destroyed']:
+            if blk['destroyed'] or not blk['active']:
                 continue
             blk['vy'] += GRAV * 0.4
             blk['x']  += blk['vx']
@@ -567,7 +568,8 @@ class Ab01(ARCBaseGame):
                 if blk['hp'] <= 0:
                     blk['destroyed'] = True
 
-                # Impulse on block
+                # Impulse on block — also wake it up
+                blk['active'] = True
                 blk['vx'] += self.bird_vx * 0.28
                 blk['vy'] += self.bird_vy * 0.28
 
