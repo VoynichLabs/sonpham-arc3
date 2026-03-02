@@ -3305,6 +3305,9 @@ def obs_events():
     since = int(request.args.get("since", 0))
     try:
         lines = events_path.read_text().splitlines()
+        # If file was cleared (new run), reset offset
+        if since > len(lines):
+            since = 0
         new_lines = lines[since:]
         events = []
         for line in new_lines:

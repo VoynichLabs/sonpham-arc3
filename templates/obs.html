@@ -411,6 +411,19 @@ let pollTimer = null;
 let failCount = 0;
 let timelineZoom = 1.0;  // multiplier on pxPerSec
 let timelineAutoScroll = true;  // stop auto-scrolling once user zooms
+let currentSessionId = null;  // detect new runs
+
+function resetState() {
+  allEvents = [];
+  nextOffset = 0;
+  plannerTokens = { input: 0, output: 0 };
+  executorTokens = { input: 0, output: 0 };
+  timelineZoom = 1.0;
+  timelineAutoScroll = true;
+  document.getElementById('logBody').innerHTML = '';
+  document.getElementById('timelineCanvas').innerHTML = '';
+  document.getElementById('zoomLabel').textContent = '1.0x';
+}
 
 // ── Polling ──
 async function fetchStatus() {
@@ -418,6 +431,11 @@ async function fetchStatus() {
     const r = await fetch('/api/obs/status');
     if (r.ok) {
       statusData = await r.json();
+      // Detect new run — reset everything
+      if (statusData.session_id && statusData.session_id !== currentSessionId) {
+        currentSessionId = statusData.session_id;
+        resetState();
+      }
       renderStatus(statusData);
       failCount = 0;
       setConn(true);
@@ -433,9 +451,13 @@ async function fetchEvents() {
     const r = await fetch(`/api/obs/events?since=${nextOffset}`);
     if (!r.ok) return;
     const data = await r.json();
+    // Server may reset offset if file was cleared (new run)
+    if (data.next_offset < nextOffset) {
+      resetState();
+    }
+    nextOffset = data.next_offset;
     if (data.events && data.events.length > 0) {
       allEvents.push(...data.events);
-      nextOffset = data.next_offset;
       renderNewEvents(data.events);
       renderTimeline();
     }
