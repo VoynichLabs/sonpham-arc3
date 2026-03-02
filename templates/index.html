@@ -104,7 +104,7 @@
     color: var(--text-dim); font-size: 14px; text-align: center; padding: 40px; line-height: 1.8; }
 
   /* ── Right panel ─────────────────────────────────────────────────────── */
-  .right-panel { width: 636px; background: var(--surface); border-left: 1px solid var(--border);
+  .right-panel { width: 510px; background: var(--surface); border-left: 1px solid var(--border);
     display: flex; flex-direction: column; overflow: hidden; flex: 1; min-height: 0; }
 
   /* ── Option sections ─────────────────────────────────────────────────── */
@@ -1540,22 +1540,11 @@ function renderPipelineVisualizer(schema) {
   const nodes = schema.pipeline;
   const edges = schema.edges || [];
 
-  const nodeW = 140, nodeH = 30, gapY = 36, padX = 40, padTop = 12, padBot = 12;
-  const svgW = nodeW + padX * 2 + 60; // extra space for back-edge curves
-  const svgH = padTop + nodes.length * nodeH + (nodes.length - 1) * gapY + padBot;
-
-  // Node positions
-  const nodePos = {};
-  nodes.forEach((n, i) => {
-    nodePos[n.id] = { x: padX, y: padTop + i * (nodeH + gapY), w: nodeW, h: nodeH };
-  });
-
   // Check enabled state for optional nodes
   function isNodeEnabled(node) {
     if (!node.enabledBy) return true;
     const [group, field] = node.enabledBy.split('.');
     if (field === 'enabled') {
-      // Check toggle element
       const toggleMap = { compact: 'compactContext', interrupt: 'interruptPlan' };
       const el = document.getElementById(toggleMap[group] || '');
       return el ? el.checked : true;
@@ -1563,17 +1552,96 @@ function renderPipelineVisualizer(schema) {
     return true;
   }
 
+  // Agent Spawn: custom 3-row layout (Orchestrator → 4 agents side-by-side → Memory)
+  if (schema.id === 'agent_spawn') {
+    const agentIds = ['explorer', 'theorist', 'tester', 'solver'];
+    const agentNodes = nodes.filter(n => agentIds.includes(n.id));
+    const orchNode = nodes.find(n => n.id === 'orchestrator');
+    const memNode = nodes.find(n => n.id === 'memory');
+    const aCount = agentNodes.length;
+    const aW = 90, aH = 26, aGap = 8, orchW = 140, orchH = 30, memW = 140, memH = 26;
+    const totalAgentW = aCount * aW + (aCount - 1) * aGap;
+    const svgW = Math.max(totalAgentW, orchW, memW) + 40;
+    const centerX = svgW / 2;
+    const row1Y = 12, row2Y = 80, row3Y = 148;
+
+    const nodePos = {};
+    if (orchNode) nodePos[orchNode.id] = { x: centerX - orchW / 2, y: row1Y, w: orchW, h: orchH };
+    const agentStartX = centerX - totalAgentW / 2;
+    agentNodes.forEach((n, i) => {
+      nodePos[n.id] = { x: agentStartX + i * (aW + aGap), y: row2Y, w: aW, h: aH };
+    });
+    if (memNode) nodePos[memNode.id] = { x: centerX - memW / 2, y: row3Y, w: memW, h: memH };
+    const svgH = row3Y + memH + 12;
+
+    let svg = `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto 8px;">`;
+    svg += '<defs><marker id="arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 3.5 L0 7 z" fill="var(--text-dim)"/></marker>';
+    svg += '<marker id="arrowDash" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 3.5 L0 7 z" fill="var(--text-dim)" opacity="0.5"/></marker></defs>';
+
+    // Edges: orchestrator → each agent (delegate)
+    for (const agent of agentNodes) {
+      const op = nodePos['orchestrator'], ap = nodePos[agent.id];
+      if (op && ap) {
+        const x1 = op.x + op.w / 2, y1 = op.y + op.h;
+        const x2 = ap.x + ap.w / 2, y2 = ap.y;
+        svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--text-dim)" stroke-width="1" marker-end="url(#arrow)" opacity="0.4"/>`;
+        const lx = (x1 + x2) / 2 + 4, ly = (y1 + y2) / 2;
+        svg += `<text x="${lx}" y="${ly}" font-size="7" fill="var(--text-dim)" opacity="0.4" dominant-baseline="middle">delegate</text>`;
+      }
+    }
+    // Edges: each agent → memory (report)
+    for (const agent of agentNodes) {
+      const ap = nodePos[agent.id], mp = nodePos['memory'];
+      if (ap && mp) {
+        const x1 = ap.x + ap.w / 2, y1 = ap.y + ap.h;
+        const x2 = mp.x + mp.w / 2, y2 = mp.y;
+        svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--text-dim)" stroke-width="1" marker-end="url(#arrow)" opacity="0.4"/>`;
+      }
+    }
+    // Edge: memory → orchestrator (context, back edge)
+    if (nodePos['memory'] && nodePos['orchestrator']) {
+      const mp = nodePos['memory'], op = nodePos['orchestrator'];
+      const x1 = mp.x + mp.w, y1 = mp.y + mp.h / 2;
+      const x2 = op.x + op.w, y2 = op.y + op.h / 2;
+      const curveX = svgW - 8;
+      svg += `<path d="M${x1} ${y1} C${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}" fill="none" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrowDash)" opacity="0.35"/>`;
+      svg += `<text x="${curveX - 2}" y="${(y1 + y2) / 2}" font-size="7" fill="var(--text-dim)" opacity="0.35" text-anchor="end" dominant-baseline="middle">context</text>`;
+    }
+
+    // Draw nodes
+    for (const node of nodes) {
+      const p = nodePos[node.id];
+      if (!p) continue;
+      svg += `<g data-node="${node.id}">`;
+      svg += `<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="6" fill="none" stroke="${node.color}" stroke-width="1.5"/>`;
+      svg += `<text x="${p.x + p.w/2}" y="${p.y + p.h/2 + 1}" font-size="${agentIds.includes(node.id) ? 9 : 10}" fill="${node.color}" text-anchor="middle" dominant-baseline="middle" font-weight="600">${node.label}</text>`;
+      svg += '</g>';
+    }
+
+    svg += '</svg>';
+    container.innerHTML = svg;
+    return;
+  }
+
+  // Default vertical layout for other scaffoldings
+  const nodeW = 140, nodeH = 30, gapY = 36, padX = 40, padTop = 12, padBot = 12;
+  const svgW = nodeW + padX * 2 + 60;
+  const svgH = padTop + nodes.length * nodeH + (nodes.length - 1) * gapY + padBot;
+
+  const nodePos = {};
+  nodes.forEach((n, i) => {
+    nodePos[n.id] = { x: padX, y: padTop + i * (nodeH + gapY), w: nodeW, h: nodeH };
+  });
+
   let svg = `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto 8px;">`;
   svg += '<defs>';
   svg += '<marker id="arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 3.5 L0 7 z" fill="var(--text-dim)"/></marker>';
   svg += '<marker id="arrowDash" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 3.5 L0 7 z" fill="var(--text-dim)" opacity="0.5"/></marker>';
   svg += '</defs>';
 
-  // Classify edges: forward (from index < to index) vs back
   const nodeIdx = {};
   nodes.forEach((n, i) => nodeIdx[n.id] = i);
 
-  // Draw edges first (behind nodes)
   for (const e of edges) {
     const fromP = nodePos[e.from];
     const toP = nodePos[e.to];
@@ -1588,24 +1656,20 @@ function renderPipelineVisualizer(schema) {
     const edgeOpacity = (fromEnabled && toEnabled) ? 1 : 0.25;
 
     if (isBack) {
-      // Back edge: curve to the right
       const x1 = fromP.x + fromP.w;
       const y1 = fromP.y + fromP.h / 2;
       const x2 = toP.x + toP.w;
       const y2 = toP.y + toP.h / 2;
       const curveX = padX + nodeW + 35;
       svg += `<path d="M${x1} ${y1} C${curveX} ${y1}, ${curveX} ${y2}, ${x2} ${y2}" fill="none" stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrowDash)" opacity="${edgeOpacity * 0.5}"/>`;
-      // Label
       const labelX = curveX + 2;
       const labelY = (y1 + y2) / 2;
       if (e.label) svg += `<text x="${labelX}" y="${labelY}" font-size="8" fill="var(--text-dim)" opacity="${edgeOpacity * 0.5}" dominant-baseline="middle">${e.label}</text>`;
     } else {
-      // Forward edge: straight down
       const x = fromP.x + fromP.w / 2;
       const y1 = fromP.y + fromP.h;
       const y2 = toP.y;
       svg += `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="var(--text-dim)" stroke-width="1" marker-end="url(#arrow)" opacity="${edgeOpacity * 0.4}"/>`;
-      // Label
       if (e.label) {
         const labelY = (y1 + y2) / 2;
         svg += `<text x="${x + 6}" y="${labelY}" font-size="8" fill="var(--text-dim)" opacity="${edgeOpacity * 0.4}" dominant-baseline="middle">${e.label}</text>`;
@@ -1613,7 +1677,6 @@ function renderPipelineVisualizer(schema) {
     }
   }
 
-  // Draw nodes
   for (const node of nodes) {
     const p = nodePos[node.id];
     const enabled = isNodeEnabled(node);
