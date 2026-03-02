@@ -487,7 +487,8 @@ class Ab01(ARCBaseGame):
                         self.win()
                 else:
                     self.lose()
-            self.complete_action()
+                self.complete_action()
+            # else: keep looping to animate the win/lose flash
 
     # -- Physics ---------------------------------------------------------------
 
