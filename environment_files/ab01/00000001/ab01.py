@@ -473,6 +473,7 @@ class Ab01(ARCBaseGame):
         elif self.state == 'FLYING':
             self._physics_tick()
             if self._flight_done():
+                self.state = 'AIMING'
                 self._load_next_bird()
                 self._check_level()
                 if self.state not in ('WON', 'LOST'):
