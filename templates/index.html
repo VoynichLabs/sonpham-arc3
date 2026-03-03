@@ -6855,6 +6855,25 @@ function _parseRlmClientOutput(finalAnswer, iterationsLog, planHorizon) {
 }
 
 async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'off', onChunk = null } = {}) {
+  const MAX_RETRIES = 4;
+  const BACKOFF_MS = [5000, 15000, 30000, 60000]; // 5s, 15s, 30s, 60s
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await _callLLMInner(messages, model, { maxTokens, thinkingLevel, onChunk });
+    } catch (e) {
+      const msg = (e.message || '').toLowerCase();
+      const isRateLimit = msg.includes('429') || msg.includes('rate') || msg.includes('quota')
+        || msg.includes('resource_exhausted') || msg.includes('too many requests');
+      if (!isRateLimit || attempt >= MAX_RETRIES) throw e;
+      const wait = BACKOFF_MS[attempt] || 60000;
+      console.warn(`[callLLM] Rate limited (attempt ${attempt + 1}/${MAX_RETRIES}), retrying in ${wait / 1000}s...`, e.message);
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
+}
+
+async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel = 'off', onChunk = null } = {}) {
   const modelInfo = getModelInfo(model);
   const provider = modelInfo?.provider;
   const apiModel = modelInfo?.api_model || model;
@@ -6926,7 +6945,7 @@ async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'of
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:generateContent?key=${key}`;
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await resp.json();
-      if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+      if (!resp.ok || data.error) throw new Error(`${resp.status} ${data.error?.message || JSON.stringify(data.error || resp.statusText)}`);
       const fr = data.candidates?.[0]?.finishReason;
       const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('') || '';
       if (fr === 'MAX_TOKENS') return { text, truncated: true };
@@ -6944,7 +6963,7 @@ async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'of
       body: JSON.stringify({ model: apiModel, messages: messages.map(m => ({ role: m.role, content: m.content })), temperature: 0.3, max_tokens: maxTokens }),
     });
     const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    if (!resp.ok || data.error) throw new Error(`${resp.status} ${data.error?.message || JSON.stringify(data.error || resp.statusText)}`);
     return data.choices?.[0]?.message?.content || '';
   }
 
@@ -6960,7 +6979,7 @@ async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'of
       body: JSON.stringify(body),
     });
     const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    if (!resp.ok || data.error) throw new Error(`${resp.status} ${data.error?.message || JSON.stringify(data.error || resp.statusText)}`);
     return data.content?.map(c => c.text).filter(Boolean).join('') || '';
   }
 
@@ -6978,7 +6997,7 @@ async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'of
       }),
     });
     const data = await resp.json();
-    if (data.error) throw new Error(data.error);
+    if (!resp.ok || data.error) throw new Error(`${resp.status} ${data.error || resp.statusText}`);
     return data.result || '';
   }
 

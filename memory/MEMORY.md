@@ -38,6 +38,98 @@
 ## vc33
 
 ## ls20-cb3b57cc
+- Directional actions (1-4) control the yellow/red UI bar and blocks in the middle-right area.
+- ACTION3/4 control the bottom UI bar; testing ACTION2 to see its effect on the central objects.
+- Directional actions move blocks (colors 9, 12) in the gray region (rows 45-49) and update the bottom UI bar.
+- Directional actions (1-4) manipulate the UI bar at the bottom; ACTION4 moves/extends elements to the right.
+- ACTION4 (RIGHT) increments or shifts the yellow/red meter at the bottom of the grid.
+- ACTION4 (RIGHT) moves blocks in rows 45-49 and affects the bottom status bar.
+- Character at (17, 31) might be the player; testing movement with ACTION4 (RIGHT).
+- The player-controlled object is a 5x5 multi-colored block (orange/12 and blue/9) that must be aligned precisely with the maze's 5-unit grid structure.
+- The game environment is a large-scale maze with gray walls (color 5) requiring many consecutive movement actions to navigate.
+- ACTION2 moves the 5x5 block right by 5 units, while ACTION4 moves it left by 5 units.
+- ACTION1 moves the 5x5 block down by 5 units, while ACTION3 moves it up by 5 units.
+- The 5x5 block moves in 5-pixel increments; aligning it with the 3x3 target requires precise positioning.
+- The 5x5 block (12/9) must be perfectly aligned with the white/gray target (0/1) to progress.
+- The 5x5 block (12/9) must be aligned with the target object (0/1) in the gray maze.
+- The 5x5 block needs to be perfectly aligned with the target object (0/1) to progress.
+- The player controls a 5x5 block (colors 12/9) and must navigate it through a maze to reach a target object.
+- Align the 5x5 orange/blue block with the white/gray target object to progress.
+- The movable block moves in 5x5 increments. The target is a 3x3 object at (31, 16).
+- The 5x5 block (colors 12, 9) must be aligned with the target object (colors 0, 1) to progress.
+- The 5x5 block's movement is controlled by directional actions and must be aligned with the white/gray target.
+- The 5x5 block (12/9) must be aligned with the target object (0/1) to progress.
+- The 5x5 block (colors 12/9) must be aligned with the white/gray target (0/1) at (31-33, 16-18).
+- Move the 5x5 block (orange/blue) to the white/gray target object to progress.
+- The 5x5 block (orange/blue) must be moved onto the white/gray target at (31-33, 16-18).
+- The 5x5 block (12/9) must be moved onto the white/gray target (0/1) to progress.
+- The 5x5 block (orange/blue) must be moved to the white/gray target at (31-33, 16-18) using directional actions.
+- Move the 5x5 orange/blue block to the white/gray target at (31-33, 16-18).
+- The 5x5 block (colors 9, 12) must be moved onto the white/gray target (colors 0, 1) to progress.
+- The 5x5 block (colors 12, 9) must be moved to the target (colors 0, 1) within the gray maze.
+- The 5x5 block moves in 5-pixel increments. Target is at (31-33, 16-18).
+- Move the 5x5 orange/blue block onto the white/gray target object using directional actions.
+- Control the 5x5 block (colors 12, 9) to reach the target (colors 0, 1) using directional actions.
+- The player controls the 5x5 orange/blue block in the lower maze; the goal is to reach the white/gray target.
+- The 5x5 orange/blue block is the controllable object; the goal is to navigate it to the white/gray target.
+- Move the orange/blue block in the lower grid to the white/gray target using directional actions.
+- Move the orange/blue block to the white/gray target using directional actions.
+- Control the orange/blue block in the lower grid to reach the white/gray target object.
+- Directional actions move the colored block in the lower grid to reach the white/gray target.
+- Directional actions move the colored blocks in the lower grid, not the player character. Goal is to reach the target.
+- Directional actions move the colored blocks in the lower grid; the goal is likely to reach the white/gray target.
+- Directional actions move the colored blocks in the lower grid; goal is to reach the white/gray target.
+- Directional actions move blocks in the lower grid (rows 30-49) instead of the player character.
+- Directional actions move blocks in the lower grid (rows 30-49) rather than the player character.
+- Directional actions move blocks in the lower grid (rows 30-49) rather than the player character.
+- Directional actions move blocks in the lower grid area (rows 30-44) rather than the player character.
+- Directional actions move the colored blocks in the middle-right region, not the player character.
+- Directional actions move blocks in the (35-44, 40-44) region rather than the player character directly.
+- Directional actions consume energy (progress bar) but don't move the blue shape at (11,32).
+- Directional actions consume energy (bottom bar) but the blue shape at (11,32) is not moving; check for other moving parts.
+- Directional actions consume energy (bottom bar) but haven't moved the player character yet; checking other directions.
+- ACTION2 (DOWN) did not move the player at (11,32); testing ACTION3 (LEFT) to reach the target at (31,17).
+- The player is at (12, 32), target is at (32, 17). Moving down and left is required. Progress bar at bottom tracks moves/energy.
+- Player is the blue shape at (11,32). Target is the white/gray object at (32,17).
+- The red segments at the bottom (Row 61-62) decrease with each move, indicating a move limit.
+- The red segments on the bottom bar decrease with each move, indicating a move limit or timer.
+- Player character is likely the 0/1 colored object at (31,21).
+- Initial movement or interaction (Action 1) from the starting position (31, 17) does not immediately trigger a level advancement.
+- The environment contains small, distinct colored shapes (e.g., blue/9 at 11, 32) that likely serve as objectives or interactive elements.
+- Action 4 appears to be a diagnostic or observation command that does not change the game state or level progression.
+- The player character is identified as a multi-colored entity (colors 0 and 1) typically starting within gray (3) structures.
+- ACTION4 increases the yellow progress bar at the bottom of the screen.
+- Yellow bar at row 61/62 changes when actions are taken; player character is at (31, 17).
+- Player is at (31, 17). Gray (3) areas are likely traversable paths or structures. Goal is currently unclear.
+- Player character is likely the white/light gray object at (31, 17).
+- The presence of distinct colored structures, such as a blue (9) shape at (11, x) and an orange (7) shape, indicates a large, sparse grid requiring navigation.
+- Initial game progress is stalled at Level 0, suggesting that movement actions (ACTION1, ACTION2, etc.) or specific object interactions are required to trigger state changes.
+- The player character is represented by a multi-color block (colors 0 and 1) situated within a gray (color 3) environment.
+- ACTION4 appears to be an inspection or diagnostic action that does not change the player's position (31-33, 17-19) or advance levels.
+- ACTION4 moves the orange/blue block at (45, 45) to the right and updates the meter at the bottom.
+- Directional actions move the orange/blue block and consume segments on the bottom yellow/red bar.
+- Directional actions move specific blocks (orange/blue) within the gray area, affecting the bottom progress bar.
+- Directional actions move both the player character and external block structures simultaneously.
+- ACTION4 (RIGHT) moves the blocks at (45, 35) to the right. The player character at (32, 17) seems to be the controller.
+- The player character is likely the white/light gray object at (32, 17).
+- The failure to advance after 100 steps indicates that the puzzle logic likely involves spatial transformations or grid-based patterns that ACTION4 alone cannot resolve.
+- Level 0 requires a specific sequence or pattern of actions; simple repetition of single actions (1, 2, 3, or 4) is insufficient to progress.
+- Repeatedly using ACTION4 does not trigger level advancement in Level 0, suggesting it is likely a movement or incremental action rather than a state-changing solution.
+- The game 'ls20-cb3b57cc' requires a more complex or specific sequence of actions than basic trial-and-error of the four available commands within a 20-step window.
+- Alternating between ACTION2 and ACTION3 (Steps 8-11) does not result in progress, suggesting the solution is not a simple toggle or repetitive loop.
+- Repeatedly spamming a single action, such as ACTION1 (Steps 5-7) or ACTION3 (Steps 14-16), fails to change the game state from NOT_FINISHED.
+- Sequential execution of ACTION1 through ACTION4 (Steps 1-4) does not trigger immediate level advancement.
+- Initial level progression requires a more complex sequence or specific environmental interaction rather than brute-force repetition of basic actions.
+- Repeatedly executing ACTION4 (up to 12 consecutive times) fails to progress the game or change the level status.
+- ACTION1, ACTION2, ACTION3, and ACTION4 do not trigger level advancement when used in simple cycles or short sequences from the starting state.
+- The lack of level progress (0/7) suggests that the initial grid configuration requires a specific sequence of distinct actions rather than trial-and-error repetition of a single action.
+- The game state remains NOT_FINISHED if the agent fails to interact with specific colored anchors or boundary conditions within the initial moves.
+- Levels in ls20-cb3b57cc do not advance through repetitive action sequences alone; they require a state-change trigger not met in the first 5 steps.
+- ACTION1 through ACTION4 likely correspond to directional movements or grid rotations, but do not trigger level advancement without specific spatial alignment.
+- The game state remains NOT_FINISHED without any level increment, implying that the initial puzzle requires a specific state-transformation before any progress is registered.
+- Level 0/7 status persists despite 20 steps of varied input, indicating a high sensitivity to the specific order or spatial context of actions.
+- Repeatedly executing ACTION3 (up to three times consecutively) fails to progress Level 0, suggesting it is not a simple 'wait' or 'confirm' command.
+- Actions 1-4 do not trigger level advancement when used in simple alternating or repetitive sequences (e.g., 1-2-3-4 or 2-3-2-3).
 - The failure of simple sequential and repetitive inputs suggests the puzzle requires a specific, non-obvious combination of actions or interaction with the grid state to solve.
 - Repeatedly spamming a single action (such as ACTION1 or ACTION3) is ineffective for advancing past level 0.
 - Cycling sequentially through ACTION1, ACTION2, ACTION3, and ACTION4 does not trigger level progression.
