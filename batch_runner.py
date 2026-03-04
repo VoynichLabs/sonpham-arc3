@@ -462,26 +462,23 @@ def _upload_batch_to_turso(results: list[dict]):
 # OBSERVABILITY SERVER (auto-started with --obs)
 # ═══════════════════════════════════════════════════════════════════════════
 
-_obs_server = None
+_obs_port = None
 
 
-def _start_obs_server(port: int = 5111):
-    """Start the Flask server in a background thread for the /obs dashboard."""
-    global _obs_server
+def _start_obs_server():
+    """Start the standalone obs server on a random available port."""
+    global _obs_port
     try:
-        from server import app
-        from werkzeug.serving import make_server
-        _obs_server = make_server("0.0.0.0", port, app)
-        t = threading.Thread(target=_obs_server.serve_forever, daemon=True)
-        t.start()
-        print(f"\n  Observatory dashboard: http://localhost:{port}/obs\n")
+        from obs_server import start_obs_server
+        _obs_port = start_obs_server()
+        print(f"\n  Observatory dashboard: http://localhost:{_obs_port}/obs\n")
     except Exception as e:
         print(f"  [obs] Failed to start dashboard server: {e}")
 
 
 def _obs_keepalive(seconds: int = 60):
     """Keep the process alive so the dashboard remains accessible after the run."""
-    if _obs_server is None:
+    if _obs_port is None:
         return
     print(f"\n  Run complete. Dashboard still live for {seconds}s — Ctrl+C to exit early.")
     try:
@@ -559,6 +556,14 @@ def main():
         cfg["reasoning"]["planner_model"] = args.planner_model
     if args.scaffolding:
         cfg.setdefault("scaffolding", {})["mode"] = args.scaffolding
+    # Each batch run gets its own timestamped DB file (must be set before obs server)
+    import db as _db_module
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    _db_module.DB_PATH = Path(__file__).parent / "data" / f"sessions_{ts}.db"
+    _db_module._init_db()
+    print(f"  DB: {_db_module.DB_PATH}")
+
     if args.obs:
         cfg["observability"] = True
         _start_obs_server()
@@ -607,14 +612,6 @@ def main():
     if not games:
         print(f"No games found. Available: {', '.join(available_games)}")
         sys.exit(1)
-
-    # Each batch run gets its own timestamped DB file
-    import db as _db_module
-    from datetime import datetime
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    _db_module.DB_PATH = Path(__file__).parent / "data" / f"sessions_{ts}.db"
-    _db_module._init_db()
-    print(f"  DB: {_db_module.DB_PATH}")
 
     run_batch(
         games=games,
