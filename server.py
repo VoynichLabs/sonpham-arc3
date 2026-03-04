@@ -2789,8 +2789,28 @@ def session_obs_events(session_id):
             (session_id,),
         ).fetchall()
         if stored:
+            # Enrich events with grid snapshots from session_steps
+            grid_rows = conn.execute(
+                "SELECT step_num, grid_snapshot FROM session_steps "
+                "WHERE session_id = ? AND grid_snapshot IS NOT NULL ORDER BY step_num",
+                (session_id,),
+            ).fetchall()
             conn.close()
-            events = [json.loads(r["event_json"]) for r in stored]
+            step_grids = {}
+            for gr in grid_rows:
+                try:
+                    step_grids[gr["step_num"]] = _decompress_grid(gr["grid_snapshot"])
+                except Exception:
+                    pass
+            events = []
+            for r in stored:
+                ev = json.loads(r["event_json"])
+                # Attach grid to events that have a step_num (action events)
+                if not ev.get("grid") and ev.get("step_num") is not None:
+                    grid = step_grids.get(ev["step_num"])
+                    if grid:
+                        ev["grid"] = grid
+                events.append(ev)
             return jsonify({"events": events})
 
         # Reconstruct from llm_calls + session_steps
@@ -2870,7 +2890,7 @@ def session_obs_events(session_id):
             grid = None
             if s.get("grid_snapshot"):
                 try:
-                    grid = json.loads(_decompress_grid(s["grid_snapshot"]))
+                    grid = _decompress_grid(s["grid_snapshot"])
                 except Exception:
                     pass
             action_id = s.get("action", 0)

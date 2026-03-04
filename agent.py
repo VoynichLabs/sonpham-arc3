@@ -101,7 +101,8 @@ MODELS = {
     "gemini-2.5-flash-lite": {"provider": "gemini", "api_model": "gemini-2.5-flash-lite",  "env_key": "GEMINI_API_KEY"},
     "gemini-2.5-flash":      {"provider": "gemini", "api_model": "gemini-2.5-flash",       "env_key": "GEMINI_API_KEY"},
     "gemini-2.5-pro":        {"provider": "gemini", "api_model": "gemini-2.5-pro",         "env_key": "GEMINI_API_KEY"},
-    "gemini-3-flash":        {"provider": "gemini", "api_model": "gemini-3-flash-preview",   "env_key": "GEMINI_API_KEY"},
+    "gemini-3-flash":        {"provider": "gemini", "api_model": "gemini-3-flash-preview",        "env_key": "GEMINI_API_KEY"},
+    "gemini-3.1-flash-lite": {"provider": "gemini", "api_model": "gemini-3.1-flash-lite-preview", "env_key": "GEMINI_API_KEY"},
     "gemini-3-pro":          {"provider": "gemini", "api_model": "gemini-3-pro-preview",    "env_key": "GEMINI_API_KEY"},
     "gemini-3.1-pro":        {"provider": "gemini", "api_model": "gemini-3.1-pro-preview",  "env_key": "GEMINI_API_KEY"},
     # Anthropic (direct API via httpx)
