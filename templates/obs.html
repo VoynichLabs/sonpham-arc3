@@ -511,13 +511,153 @@
     color: #333;
     margin-top: 4px;
   }
+
+  /* ── Session Browser ── */
+  .browse-btn {
+    background: #1a1a24;
+    border: 1px solid #333;
+    color: #888;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    margin-right: 12px;
+  }
+  .browse-btn:hover { background: #222; color: #ccc; }
+  .browse-btn.active { background: #3b82f622; border-color: #3b82f6; color: #3b82f6; }
+
+  .session-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(0,0,0,0.7);
+  }
+  .session-overlay.visible { display: flex; align-items: center; justify-content: center; }
+
+  .session-panel {
+    background: #111118;
+    border: 1px solid #333;
+    border-radius: 8px;
+    width: 90vw;
+    max-width: 900px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  .session-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid #222;
+  }
+  .session-panel-header h2 {
+    font-size: 13px;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .session-panel-close {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  .session-panel-close:hover { color: #ccc; }
+
+  .session-list-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  table.session-list {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  table.session-list thead th {
+    position: sticky;
+    top: 0;
+    background: #111118;
+    padding: 6px 8px;
+    text-align: left;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #222;
+  }
+  table.session-list tbody tr {
+    border-bottom: 1px solid #1a1a1a;
+    cursor: pointer;
+  }
+  table.session-list tbody tr:hover {
+    background: rgba(59, 130, 246, 0.08);
+  }
+  table.session-list td {
+    padding: 6px 8px;
+    white-space: nowrap;
+    color: #bbb;
+  }
+  .result-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+  }
+  .result-badge.won { background: #22c55e22; color: #22c55e; }
+  .result-badge.lost { background: #ef444422; color: #ef4444; }
+  .result-badge.other { background: #f59e0b22; color: #f59e0b; }
+
+  .replay-badge {
+    font-size: 10px;
+    color: #3b82f6;
+    margin-left: 8px;
+  }
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>AGENT OBSERVATORY</h1>
-  <span class="conn" id="connStatus">Connecting...</span>
+  <h1>AGENT OBSERVATORY<span class="replay-badge" id="replayBadge"></span></h1>
+  <div style="display:flex;align-items:center">
+    <button class="browse-btn" id="browseBtn" onclick="toggleSessionBrowser()">Browse Sessions</button>
+    <span class="conn" id="connStatus">Connecting...</span>
+  </div>
+</div>
+
+<div class="session-overlay" id="sessionOverlay">
+  <div class="session-panel">
+    <div class="session-panel-header">
+      <h2>Past Sessions</h2>
+      <button class="session-panel-close" onclick="toggleSessionBrowser()">&times;</button>
+    </div>
+    <div class="session-list-wrap">
+      <table class="session-list">
+        <thead>
+          <tr>
+            <th>Game</th>
+            <th>Model</th>
+            <th>Steps</th>
+            <th>Levels</th>
+            <th>Result</th>
+            <th>Cost</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody id="sessionListBody">
+          <tr><td colspan="7" style="text-align:center;color:#555;padding:20px">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <div class="status-bar" id="statusBar">
@@ -1672,6 +1812,129 @@ document.getElementById('timelineContainer').addEventListener('wheel', (e) => {
   const newMouseX = fraction * newScrollEl.scrollWidth;
   newScrollEl.scrollLeft = newMouseX - (e.clientX - rect.left);
 }, { passive: false });
+
+// ── Session Browser ──
+let replayMode = false;
+
+function toggleSessionBrowser() {
+  const overlay = document.getElementById('sessionOverlay');
+  const visible = overlay.classList.toggle('visible');
+  document.getElementById('browseBtn').classList.toggle('active', visible);
+  if (visible) fetchSessionList();
+}
+
+async function fetchSessionList() {
+  try {
+    const r = await fetch('/api/sessions/list-for-obs');
+    if (!r.ok) return;
+    const data = await r.json();
+    const tbody = document.getElementById('sessionListBody');
+    if (!data.sessions || data.sessions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#555;padding:20px">No sessions found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    for (const s of data.sessions) {
+      const tr = document.createElement('tr');
+      const result = (s.result || '').toUpperCase();
+      const badgeClass = result.includes('WON') || result.includes('WIN') || result.includes('COMPLETE') ? 'won'
+        : result.includes('LOST') || result.includes('FAIL') || result.includes('DEAD') ? 'lost' : 'other';
+      const date = s.created_at ? new Date(s.created_at * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '--';
+      const cost = s.total_cost ? '$' + s.total_cost.toFixed(3) : '--';
+      tr.innerHTML = `
+        <td style="color:#e0e0e0;font-weight:500">${escHtml(s.game_id || '')}</td>
+        <td>${escHtml((s.model || '').replace(/^(gemini|claude|groq|mistral|ollama)\//, ''))}</td>
+        <td>${s.steps || 0}</td>
+        <td>${s.levels || 0}</td>
+        <td><span class="result-badge ${badgeClass}">${escHtml(s.result || 'N/A')}</span></td>
+        <td>${cost}</td>
+        <td style="color:#666">${date}</td>
+      `;
+      tr.addEventListener('click', () => loadSession(s.id, s.game_id));
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    console.error('Failed to fetch sessions:', e);
+  }
+}
+
+async function loadSession(sessionId, gameId) {
+  // Close browser
+  document.getElementById('sessionOverlay').classList.remove('visible');
+  document.getElementById('browseBtn').classList.remove('active');
+
+  // Stop live polling
+  if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+  replayMode = true;
+
+  // Reset state
+  resetState();
+  setConn(false);
+  document.getElementById('connStatus').textContent = 'REPLAY';
+  document.getElementById('connStatus').className = 'conn';
+  document.getElementById('connStatus').style.color = '#3b82f6';
+  document.getElementById('replayBadge').textContent = `[${gameId || sessionId.slice(0, 8)}]`;
+
+  // Fetch reconstructed obs events
+  try {
+    const r = await fetch(`/api/sessions/${sessionId}/obs-events`);
+    if (!r.ok) { console.error('Failed to load session obs events'); return; }
+    const data = await r.json();
+    if (data.events && data.events.length > 0) {
+      allEvents = data.events;
+
+      // Compute status summary from events
+      let totalIn = 0, totalOut = 0, totalCost = 0, totalCalls = 0, maxStep = 0;
+      let model = '';
+      for (const ev of allEvents) {
+        if (ev.input_tokens) totalIn += ev.input_tokens;
+        if (ev.output_tokens) totalOut += ev.output_tokens;
+        if (ev.cost) totalCost += ev.cost;
+        if (ev.event === 'llm_call') { totalCalls++; if (ev.model) model = ev.model; }
+        if (ev.step_num != null && ev.step_num > maxStep) maxStep = ev.step_num;
+        trackEventTokens(ev);
+      }
+
+      // Populate status bar
+      document.getElementById('sGame').textContent = gameId || '--';
+      document.getElementById('sState').textContent = 'REPLAY';
+      document.getElementById('sStep').textContent = maxStep;
+      document.getElementById('sCalls').textContent = totalCalls;
+      document.getElementById('sTokens').textContent = `${fmtK(totalIn)} / ${fmtK(totalOut)}`;
+      if (totalCost > 0) {
+        document.getElementById('sCost').textContent = '$' + totalCost.toFixed(3);
+      }
+      const elapsed = allEvents.length > 0 ? allEvents[allEvents.length - 1].elapsed_s || 0 : 0;
+      if (elapsed < 60) {
+        document.getElementById('sElapsed').textContent = `${Math.round(elapsed)}s`;
+      } else {
+        document.getElementById('sElapsed').textContent = `${(elapsed / 60).toFixed(1)}m`;
+      }
+      document.getElementById('sAgent').textContent = model || '--';
+
+      // Render
+      renderNewEvents(allEvents);
+      renderTimeline();
+
+      // Show first grid if available
+      const firstGrid = allEvents.find(ev => ev.grid && ev.grid.length > 0);
+      if (firstGrid) {
+        currentGrid = firstGrid.grid;
+        renderGameGrid(firstGrid.grid);
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load session:', e);
+  }
+}
+
+function returnToLive() {
+  replayMode = false;
+  resetState();
+  document.getElementById('replayBadge').textContent = '';
+  document.getElementById('connStatus').style.color = '';
+  poll();
+}
 
 // ── Init ──
 poll();
