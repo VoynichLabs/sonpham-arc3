@@ -5,6 +5,7 @@ Does NOT import server.py.
 """
 
 import json
+import sqlite3
 import socket
 import threading
 from datetime import datetime, timezone
@@ -18,6 +19,24 @@ from db import _get_db, _decompress_grid, _list_file_sessions, _read_session_fro
 app = Flask(__name__)
 
 _OBS_DIR = Path(".agent_obs")
+_DATA_DIR = Path(__file__).parent / "data"
+
+
+def _find_session_db(session_id: str) -> sqlite3.Connection | None:
+    """Search all timestamped session DBs for a session_id. Returns open connection or None."""
+    for db_path in sorted(_DATA_DIR.glob("sessions_*.db"), key=lambda p: p.stat().st_mtime, reverse=True):
+        if db_path.stat().st_size == 0:
+            continue
+        try:
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT id FROM sessions WHERE id = ? LIMIT 1", (session_id,)).fetchone()
+            if row:
+                return conn
+            conn.close()
+        except Exception:
+            pass
+    return None
 
 
 @app.route("/obs")
@@ -75,17 +94,50 @@ def obs_events():
 @app.route("/api/sessions/list-for-obs")
 def list_sessions_for_obs():
     try:
-        conn = _get_db()
-        rows = conn.execute(
-            """SELECT s.id, s.game_id, s.model, s.created_at, s.result, s.steps, s.levels, s.total_cost
-               FROM sessions s
-               WHERE s.steps > 0
-               ORDER BY s.created_at DESC
-               LIMIT 200"""
-        ).fetchall()
-        conn.close()
-        sessions = [dict(r) for r in rows]
-        return jsonify({"sessions": sessions})
+        seen = set()
+        sessions = []
+
+        # Central DB
+        try:
+            conn = _get_db()
+            rows = conn.execute(
+                """SELECT s.id, s.game_id, s.model, s.created_at, s.result, s.steps, s.levels, s.total_cost
+                   FROM sessions s
+                   WHERE s.steps > 0
+                   ORDER BY s.created_at DESC
+                   LIMIT 200"""
+            ).fetchall()
+            conn.close()
+            for r in rows:
+                d = dict(r)
+                seen.add(d["id"])
+                sessions.append(d)
+        except Exception:
+            pass
+
+        # Timestamped batch DBs
+        for db_path in sorted(_DATA_DIR.glob("sessions_*.db"), key=lambda p: p.stat().st_mtime, reverse=True):
+            if db_path.stat().st_size == 0:
+                continue
+            try:
+                conn = sqlite3.connect(str(db_path))
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """SELECT id, game_id, model, created_at, result, steps, levels, total_cost
+                       FROM sessions WHERE steps > 0
+                       ORDER BY created_at DESC LIMIT 200"""
+                ).fetchall()
+                conn.close()
+                for r in rows:
+                    d = dict(r)
+                    if d["id"] not in seen:
+                        seen.add(d["id"])
+                        sessions.append(d)
+            except Exception:
+                pass
+
+        sessions.sort(key=lambda s: s.get("created_at") or 0, reverse=True)
+        return jsonify({"sessions": sessions[:200]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -131,6 +183,20 @@ def get_session_obs_events(session_id):
             (session_id,),
         ).fetchall()
         conn.close()
+
+        # Fallback: search timestamped batch DBs if central DB has no data
+        if not calls and not steps:
+            alt_conn = _find_session_db(session_id)
+            if alt_conn:
+                calls = alt_conn.execute(
+                    "SELECT * FROM llm_calls WHERE session_id = ? ORDER BY timestamp",
+                    (session_id,),
+                ).fetchall()
+                steps = alt_conn.execute(
+                    "SELECT * FROM session_steps WHERE session_id = ? ORDER BY step_num",
+                    (session_id,),
+                ).fetchall()
+                alt_conn.close()
 
         raw_events = []
         for c in calls:

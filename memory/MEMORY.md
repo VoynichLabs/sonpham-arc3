@@ -284,6 +284,24 @@
 - Small gray/white patterns within red blocks are likely interactive elements. Clicking on them might change their state or move them.
 
 ## pi01-00000001
+- The enclosure is static, suggesting that the solution requires finding a specific interaction or path rather than brute-force movement.
+- ACTION1 and ACTION3 are ineffective for breaking or bypassing the Gray (2) and Dark Gray enclosure.
+- The player is a 2x2 block, which may restrict navigation through narrow passages compared to a 1x1 entity.
+- The colored structures (0, 7, 8, 11, 12, 15) are the primary interactive elements that likely need to be aligned to advance levels.
+- Repetitive use of a single action (ACTION1) is insufficient for level progression, indicating that a specific alignment or pattern is required.
+- The grid consists of row-based structures on a blue background that shift position in response to directional inputs (Actions 1-4).
+- Row-based sliding puzzle mechanism.
+- Directional inputs cause row-based shifts in the grid.
+- ACTION5 might be the key to interacting with the environment.
+- ACTION5 might be the key to interacting with the environment.
+- ACTION1 does not facilitate movement or escape when the player is trapped.
+- The player is confined within a walled room, suggesting the need for a wall-breaking or exit-finding mechanic.
+- ACTION4 can modify the player's shape, such as expanding to a 2x2 square.
+- ACTION5 is an interaction action; it might toggle mechanisms or open paths when movement is blocked.
+- Movement (1-4) is ineffective; attempting ACTION5 to interact.
+- ACTION5 might trigger an interaction when movement fails.
+- Movement (1-4) is ineffective; testing ACTION5 for interaction.
+- Movement is restricted; attempting interaction.
 - The grid involves multi-colored components, specifically orange and gray, which define the composition of the primary static structures.
 - Level advancement requires a sequence of state-altering actions beyond repetitive observation, as 200 steps of ACTION4 resulted in zero progress.
 - Static structures located at specific coordinates, such as 16,17, are persistent features that likely require interaction or navigation rather than simple observation.
@@ -500,6 +518,16 @@
 - Yellow 2x2 blocks seem to frame the target 4x4 block. Clicking the framed block might progress the level.
 
 ## ab01-00000001
+- The player-like object is located around rows 23-28 and responds to directional input.
+- ACTION1 and ACTION3 are movement-based commands used to position the character relative to the puzzle area.
+- The character is a 5x5 structure that requires precise alignment with the puzzle area before executing ACTION5.
+- ACTION5 is the primary command for triggering level advancement.
+- Repeated use of actions 1-5 failed to trigger any level advancement or player movement.
+- The puzzle area begins at row 29, suggesting the player must interact with or enter this region to progress.
+- The player structure is static at rows 23-28 and does not respond to standard actions 1-5.
+- Future strategies should prioritize testing alternative interaction mechanics or different action sequences to overcome the maze obstacle.
+- Repeated use of Actions 1-5 failed to trigger level progression, suggesting these actions are either ineffective or the player is stuck in a non-interactive state.
+- The player structure (rows 23-28, cols 38-44) remained static, indicating that standard movement actions (1-5) may not be sufficient to navigate the maze below.
 - Level advancement (0/5) is not achieved by simple repositioning or observation actions within the first 17 steps.
 - Repeated use of ACTION1 and ACTION4 without specific spatial triggers or sequence completion leads to a GAME_OVER state at Step 17.
 - The game 'ab01-00000001' involves a 64x64 grid divided horizontally into blue (9) and gray (2) halves, containing a 5x5 green-bordered object.
