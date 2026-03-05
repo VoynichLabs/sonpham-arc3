@@ -295,12 +295,12 @@
   /* ── Observability Screen ────────────────────────────────────────────── */
   .obs-screen { display: none; flex: 1; overflow: hidden; background: var(--bg); }
   .obs-left { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
-  .obs-right { width: 400px; min-width: 400px; border-left: 1px solid var(--border); background: var(--surface);
-    display: flex; flex-direction: column; overflow: hidden; }
+  .obs-right { width: 45vw; min-width: 400px; max-width: 900px; border-left: 1px solid var(--border); background: var(--surface);
+    display: flex; flex-direction: column; }
   .obs-right h3 { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;
     padding: 8px 12px 4px; }
   .obs-right .obs-grid-info { font-size: 10px; color: var(--text-dim); padding: 0 12px 6px; }
-  .obs-right .obs-canvas-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 8px; }
+  .obs-right .obs-canvas-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
   .obs-right .obs-transport { padding: 8px 12px; border-top: 1px solid var(--border);
     display: flex; gap: 8px; align-items: center; justify-content: center; }
 
@@ -365,6 +365,16 @@
     outline: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
   .obs-grid-mode-label { font-size: 10px; color: var(--accent); padding: 0 12px 4px; display: none; }
   .obs-grid-mode-label.active { display: block; }
+  .obs-scrubber-bar { padding: 4px 12px 8px; flex-shrink: 0; }
+  .obs-scrubber-bar .obs-scrub-row { display: flex; align-items: center; gap: 8px; }
+  .obs-scrubber-bar .obs-scrub-lbl { font-size: 11px; color: var(--text-dim); font-weight: 600; white-space: nowrap; min-width: 80px; }
+  .obs-scrubber-bar .obs-scrub-slider { flex: 1; cursor: pointer; accent-color: var(--accent); height: 4px; }
+  .obs-scrubber-bar .obs-scrub-dot { font-size: 10px; font-weight: 700; white-space: nowrap; }
+  .obs-scrubber-bar .obs-scrub-dot.is-live { color: var(--green); }
+  .obs-scrubber-bar .obs-scrub-dot.is-hist { color: var(--text-dim); opacity: 0.5; }
+  .obs-scrubber-bar .obs-scrub-banner { display: flex; align-items: center; justify-content: center; gap: 10px;
+    background: var(--yellow); color: #000; font-size: 11px; font-weight: 600;
+    padding: 3px 10px; border-radius: 4px; margin-top: 4px; }
 
   .ad-banner { border-top: 1px solid var(--border); padding: 6px 10px; background: var(--surface); flex-shrink: 0; }
   .ad-banner-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
@@ -1068,6 +1078,17 @@
         <div class="obs-grid-info" id="obsGridInfo">--</div>
         <div class="obs-grid-mode-label" id="obsGridModeLabel">Showing historical state</div>
         <div class="obs-canvas-wrap" id="obsCanvasHost"></div>
+        <div class="obs-scrubber-bar" id="obsScrubBar">
+          <div class="obs-scrub-row">
+            <span class="obs-scrub-lbl" id="obsScrubLbl">Step 0 / 0</span>
+            <input type="range" class="obs-scrub-slider" id="obsScrubSlider" min="0" max="0" value="0">
+            <span class="obs-scrub-dot is-live" id="obsScrubDot">&#9679; LIVE</span>
+          </div>
+          <div class="obs-scrub-banner" id="obsScrubBanner" style="display:none;">
+            <span id="obsScrubBannerText">Viewing step 0</span>
+            <button class="btn btn-step" onclick="obsScrubReturnToLive()" style="padding:2px 10px;font-size:11px;">&#9654; Return to Live</button>
+          </div>
+        </div>
         <div class="obs-transport">
           <button class="btn" id="obsPauseBtn" onclick="toggleAutoPlay()">Pause</button>
           <button class="btn" id="obsBackBtn" onclick="exitObsMode()">Back to Settings</button>
@@ -3774,15 +3795,18 @@ function updateUI(data) {
   currentState = data;
   currentGrid = data.grid;
   currentChangeMap = data.change_map || null;
-  // If viewing historical step, stash the new live grid but don't render it
-  if (!_liveScrubMode) {
-    _liveScrubLiveGrid = data.grid;
+  // If viewing historical step via either scrubber, don't render live grid
+  const _inObsMode = document.getElementById('obsScreen')?.style.display === 'flex';
+  const _scrubPaused = _inObsMode ? !_obsScrubLive : !_liveScrubMode;
+  if (_scrubPaused) {
+    if (!_inObsMode) _liveScrubLiveGrid = data.grid;
   } else if (currentChangeMap && currentChangeMap.change_count > 0 && document.getElementById('showChanges').checked) {
     renderGridWithChanges(data.grid, currentChangeMap);
   } else {
     renderGrid(data.grid);
   }
-  liveScrubUpdate();
+  if (_inObsMode) obsScrubUpdate();
+  else liveScrubUpdate();
   const titleEl = document.getElementById('gameTitle');
   titleEl.textContent = gameShortName(data.game_id) || 'Game';
   // Show "Local" badge when running via Pyodide
@@ -10127,6 +10151,9 @@ async function resumeSession(sid) {
     saveSessionIndex();
     updatePanelBlur();
     updateGameListLock();
+
+    // Enter observability view so user sees the grid + scrubber
+    enterObsMode(_tlSs || getActiveSession());
   } catch (e) {
     alert('Resume failed: ' + e.message);
   }
@@ -11559,6 +11586,65 @@ function obsBuildDetails(ev) {
       return extra.map(([k,v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`).join(', ');
   }
 }
+
+// ── Obs scrubber (in-app observatory) ──
+
+let _obsScrubLive = true;
+let _obsScrubIdx = -1;  // index into moveHistory
+
+function obsScrubUpdate() {
+  const slider = document.getElementById('obsScrubSlider');
+  if (!slider) return;
+  const total = moveHistory.length;
+  slider.max = Math.max(0, total - 1);
+  if (_obsScrubLive) {
+    slider.value = Math.max(0, total - 1);
+    document.getElementById('obsScrubLbl').textContent = `Step ${total} / ${total}`;
+    const dot = document.getElementById('obsScrubDot');
+    dot.className = 'obs-scrub-dot is-live';
+    dot.innerHTML = '&#9679; LIVE';
+    document.getElementById('obsScrubBanner').style.display = 'none';
+  } else {
+    document.getElementById('obsScrubLbl').textContent = `Step ${_obsScrubIdx + 1} / ${total}`;
+  }
+}
+
+function obsScrubShow(idx) {
+  if (idx < 0 || idx >= moveHistory.length) return;
+  _obsScrubIdx = idx;
+  _obsScrubLive = false;
+  const entry = moveHistory[idx];
+  if (entry && entry.grid) {
+    _renderGridPreview(entry.grid);
+  }
+  const slider = document.getElementById('obsScrubSlider');
+  slider.value = idx;
+  document.getElementById('obsScrubLbl').textContent = `Step ${idx + 1} / ${moveHistory.length}`;
+  const banner = document.getElementById('obsScrubBanner');
+  banner.style.display = 'flex';
+  document.getElementById('obsScrubBannerText').textContent = `Viewing step ${idx + 1}`;
+  const dot = document.getElementById('obsScrubDot');
+  dot.className = 'obs-scrub-dot is-hist';
+  dot.innerHTML = '&#9679; PAUSED';
+}
+
+function obsScrubReturnToLive() {
+  _obsScrubLive = true;
+  _obsScrubIdx = -1;
+  document.getElementById('obsScrubBanner').style.display = 'none';
+  if (currentGrid) renderGrid(currentGrid);
+  obsScrubUpdate();
+}
+
+// Bind slider
+document.getElementById('obsScrubSlider').oninput = function() {
+  const idx = parseInt(this.value);
+  if (idx >= moveHistory.length - 1) {
+    obsScrubReturnToLive();
+  } else {
+    obsScrubShow(idx);
+  }
+};
 
 // ── Swimlane renderer (simplified universal version) ──
 
