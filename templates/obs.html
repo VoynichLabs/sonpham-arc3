@@ -97,13 +97,13 @@
 
   /* ── Grid Panel (right side) ── */
   .grid-panel {
-    width: 640px;
-    min-width: 640px;
+    width: 45vw;
+    min-width: 500px;
+    max-width: 900px;
     border-left: 1px solid #222;
     background: #0d0d14;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
   }
   .grid-panel h2 {
     font-size: 11px;
@@ -755,7 +755,7 @@
   <div class="grid-info" id="gridInfo">Step --</div>
   <div class="grid-mode-label" id="gridModeLabel">Showing historical state (click again to return to live)</div>
   <div class="grid-canvas-wrap">
-    <canvas id="gridCanvas" width="600" height="600"></canvas>
+    <canvas id="gridCanvas" width="800" height="800"></canvas>
   </div>
   <div class="obs-scrubber" id="obsScrubberBar">
     <div class="obs-scrubber-row">
@@ -1858,7 +1858,7 @@ function renderGameGrid(grid) {
   const canvas = document.getElementById('gridCanvas');
   const ctx = canvas.getContext('2d');
   const h = grid.length, w = grid[0].length;
-  const maxPx = 600;
+  const maxPx = 800;
   const scale = Math.max(1, Math.floor(maxPx / Math.max(h, w)));
   canvas.width = w * scale;
   canvas.height = h * scale;
