@@ -459,6 +459,11 @@ async function humanRestart() {
   await _humanJumpToLevel(_humanCurrentLevel);
 }
 
+function humanFinishSession() {
+  if (_humanStarted) _humanSaveSession();
+  humanNewGame();
+}
+
 function humanNewGame() {
   if (_humanStarted) {
     // Save the session first
