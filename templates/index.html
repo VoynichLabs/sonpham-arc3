@@ -560,8 +560,7 @@ window.PROMPTS = {{ prompts | tojson }};
 <script>
 (function(){
   var c=document.getElementById('logoColor'), b=document.getElementById('logoBlue');
-  function swap(){var show=Math.random()<0.5?c:b, hide=show===c?b:c;show.style.display='';hide.style.display='none';}
-  swap(); setInterval(swap, 30000);
+  if(Math.random()<0.5){c.style.display='';b.style.display='none';}else{b.style.display='';c.style.display='none';}
 })();
 </script>
 
