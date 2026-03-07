@@ -17,21 +17,24 @@ import math
 import numpy as np
 from arcengine import ARCBaseGame, Camera, Level, RenderableUserDisplay, Sprite
 
-# ── Colors (ARC palette indices) ──
-C_BG       = 0   # black background
-C_CHILD    = 2   # red
-C_ADULT    = 6   # purple/magenta
-C_ELDER    = 4   # yellow
-C_DOCTOR   = 3   # green
-C_QUARAN   = 1   # blue
-C_NOSE_INF = 7   # orange (infected nose)
-C_DEAD_BODY= 5   # grey (dead body)
-C_DEAD_NOSE= 3   # darker green-grey (dead nose)
-C_SNEEZE   = 11  # gold (sneeze particles)
-C_WALL     = 5   # grey walls
-C_HUD_OK   = 14  # lime
-C_WHITE    = 15  # white
-C_ARROW    = 7   # orange (scroll indicators)
+# ── Colors (ARC-3 palette indices) ──
+# 0=White 1=LightGray 2=Gray 3=DarkGray 4=VeryDarkGray 5=Black
+# 6=Magenta 7=LightMagenta 8=Red 9=Blue 10=LightBlue 11=Yellow
+# 12=Orange 13=Maroon 14=Green 15=Purple
+C_BG       = 5   # Black background
+C_CHILD    = 8   # Red
+C_ADULT    = 15  # Purple
+C_ELDER    = 11  # Yellow
+C_DOCTOR   = 14  # Green
+C_QUARAN   = 9   # Blue
+C_NOSE_INF = 12  # Orange (infected nose)
+C_DEAD_BODY= 2   # Gray (dead body)
+C_DEAD_NOSE= 3   # DarkGray (dead nose)
+C_SNEEZE   = 0   # White (sneeze droplets)
+C_WALL     = 3   # DarkGray walls
+C_HUD_OK   = 14  # Green
+C_WHITE    = 0   # White
+C_ARROW    = 12  # Orange (scroll indicators)
 
 # ── Person types ──
 TYPE_CHILD = 0
