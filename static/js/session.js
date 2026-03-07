@@ -1571,7 +1571,17 @@ let _menuActive = false;
 let _browseGlobalCache = null;  // cache server sessions
 let _browseGameFilter = null;   // currently selected game in By Game tab
 
-function showAppView(view) {
+// Hash-to-view mapping
+const _VIEW_HASHES = { agent: 'play', human: 'human', sessions: 'browse', leaderboards: 'leaderboard' };
+const _VIEW_TO_HASH = { play: 'agent', human: 'human', browse: 'sessions', leaderboard: 'leaderboards' };
+
+function showAppView(view, skipHash) {
+  // Update URL hash (unless called from hashchange handler)
+  if (!skipHash) {
+    const hash = _VIEW_TO_HASH[view] || 'agent';
+    if (location.hash !== '#' + hash) history.replaceState(null, '', '#' + hash);
+  }
+
   document.querySelectorAll('.top-nav .nav-link').forEach(l => l.classList.remove('active'));
   const links = document.querySelectorAll('.top-nav .nav-link');
   const browseView = document.getElementById('browseView');
@@ -1584,10 +1594,14 @@ function showAppView(view) {
 
   const sidebar = document.getElementById('gameSidebar');
   const outerLayout = document.getElementById('outerLayout');
-  // Hide all views first
+
+  // Hide everything first
+  outerLayout.style.display = 'none';
   browseView.style.display = 'none';
   if (humanView) humanView.style.display = 'none';
   if (leaderboardView) leaderboardView.style.display = 'none';
+  tabBar.style.display = 'none';
+  emptyApp.style.display = 'none';
   menuView.classList.remove('visible');
 
   // Nav link indices: 0=Make your agent, 1=Play as Human, 2=Browse Sessions, 3=Leaderboards
@@ -1596,17 +1610,11 @@ function showAppView(view) {
     _browseActive = true;
     _menuActive = false;
     browseView.style.display = 'flex';
-    outerLayout.style.display = 'none';
-    tabBar.style.display = 'none';
-    emptyApp.style.display = 'none';
     loadBrowseView();
   } else if (view === 'human') {
     links[1]?.classList.add('active');
     _browseActive = false;
     _menuActive = false;
-    outerLayout.style.display = 'none';
-    tabBar.style.display = 'none';
-    emptyApp.style.display = 'none';
     if (humanView) {
       humanView.style.display = 'flex';
       if (typeof initHumanView === 'function') initHumanView();
@@ -1615,14 +1623,12 @@ function showAppView(view) {
     links[3]?.classList.add('active');
     _browseActive = false;
     _menuActive = false;
-    outerLayout.style.display = 'none';
-    tabBar.style.display = 'none';
-    emptyApp.style.display = 'none';
     if (leaderboardView) {
       leaderboardView.style.display = 'flex';
       if (typeof initLeaderboard === 'function') initLeaderboard();
     }
   } else {
+    // Default: agent / play
     links[0]?.classList.add('active');
     _browseActive = false;
     outerLayout.style.display = '';
@@ -1630,7 +1636,6 @@ function showAppView(view) {
     if (_menuActive) {
       menuView.classList.add('visible');
       sessionHost.style.display = 'none';
-      emptyApp.style.display = 'none';
       sidebar.style.display = 'none';
     } else {
       menuView.classList.remove('visible');
@@ -1640,6 +1645,20 @@ function showAppView(view) {
     }
   }
 }
+
+// Route from URL hash on page load and back/forward navigation
+function _routeFromHash() {
+  const hash = location.hash.replace('#', '');
+  const view = _VIEW_HASHES[hash];
+  if (view) showAppView(view, true);
+}
+window.addEventListener('hashchange', _routeFromHash);
+// On page load, route from hash (deferred so DOM is ready)
+window.addEventListener('DOMContentLoaded', () => {
+  if (location.hash && location.hash !== '#' && location.hash !== '#agent') {
+    setTimeout(_routeFromHash, 0);
+  }
+});
 
 // ── Menu view ─────────────────────────────────────────────────────────────
 
