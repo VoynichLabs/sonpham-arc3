@@ -1768,14 +1768,10 @@ async function loadBrowseByGame() {
     let games = await fetchJSON('/api/games');
     if (MODE === 'prod') games = games.filter(g => g.game_id !== 'fd01-00000001');
     listEl.innerHTML = '';
-    for (const g of games) {
-      const div = document.createElement('div');
-      div.className = 'game-card' + (_browseGameFilter === g.game_id ? ' active' : '');
-      const shortName = g.title || g.game_id.split('-')[0].toUpperCase();
-    div.innerHTML = `<div class="title">${shortName}</div><div class="meta">${gameSource(g.game_id)} ${gameDevTag(g.game_id)}</div>`;
-      div.onclick = () => loadGameSessions(g.game_id);
-      listEl.appendChild(div);
-    }
+    const foundation = games.filter(g => _ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
+    const observatory = games.filter(g => !_ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
+    _renderGameGroup(listEl, 'ARC Prize Foundation', foundation, g => loadGameSessions(g.game_id));
+    _renderGameGroup(listEl, 'ARC Observatory', observatory, g => loadGameSessions(g.game_id));
   } catch { listEl.innerHTML = '<div class="browse-empty">Failed to load games.</div>'; }
 }
 

@@ -479,13 +479,26 @@ async function loadGames() {
   if (MODE === 'prod') games = games.filter(g => g.game_id !== 'fd01-00000001');
   const el = document.getElementById('gameList');
   el.innerHTML = '';
+  const foundation = games.filter(g => _ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
+  const observatory = games.filter(g => !_ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
+  _renderGameGroup(el, 'ARC Prize Foundation', foundation, g => startGame(g.game_id));
+  _renderGameGroup(el, 'ARC Observatory', observatory, g => startGame(g.game_id));
+}
+
+function _renderGameGroup(el, label, games, onClick) {
+  if (!games.length) return;
+  const lbl = document.createElement('div');
+  lbl.className = 'game-group-label';
+  lbl.textContent = label;
+  el.appendChild(lbl);
   games.forEach(g => {
     const div = document.createElement('div');
     div.className = 'game-card';
     const shortName = g.title || g.game_id.split('-')[0].toUpperCase();
-    div.innerHTML = `<div class="title">${shortName}</div><div class="meta">${gameSource(g.game_id)} ${gameDevTag(g.game_id)}</div>`;
+    const tag = gameDevTag(g.game_id);
+    div.innerHTML = `<div class="title">${shortName}${tag ? ' ' + tag : ''}</div>`;
     div.dataset.gameId = g.game_id;
-    div.onclick = () => startGame(g.game_id);
+    div.onclick = () => onClick(g);
     el.appendChild(div);
   });
 }

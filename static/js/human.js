@@ -43,15 +43,10 @@ async function _loadHumanGames() {
     _humanGames = games;
     const el = document.getElementById('humanGameList');
     el.innerHTML = '';
-    games.forEach(g => {
-      const div = document.createElement('div');
-      div.className = 'game-card';
-      const shortName = g.title || g.game_id.split('-')[0].toUpperCase();
-      div.innerHTML = `<div class="title">${shortName}</div><div class="meta">${gameSource(g.game_id)} ${gameDevTag(g.game_id)}</div>`;
-      div.dataset.gameId = g.game_id;
-      div.onclick = () => _humanSelectGame(g.game_id);
-      el.appendChild(div);
-    });
+    const foundation = games.filter(g => _ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
+    const observatory = games.filter(g => !_ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
+    _renderGameGroup(el, 'ARC Prize Foundation', foundation, g => _humanSelectGame(g.game_id));
+    _renderGameGroup(el, 'ARC Observatory', observatory, g => _humanSelectGame(g.game_id));
   } catch (e) {
     document.getElementById('humanGameList').innerHTML = '<div class="empty-state" style="height:auto;">Failed to load games.</div>';
   }
