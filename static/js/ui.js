@@ -487,20 +487,30 @@ async function loadGames() {
 
 function _renderGameGroup(el, label, games, onClick) {
   if (!games.length) return;
-  const lbl = document.createElement('div');
-  lbl.className = 'game-group-label';
-  lbl.textContent = label;
-  el.appendChild(lbl);
+  const wrap = document.createElement('div');
+  wrap.className = 'game-group';
+  const header = document.createElement('div');
+  header.className = 'game-group-header';
+  header.innerHTML = `<span class="game-group-arrow">&#9662;</span> ${_esc(label)} <span class="game-group-count">${games.length}</span>`;
+  header.onclick = () => {
+    wrap.classList.toggle('collapsed');
+    header.querySelector('.game-group-arrow').innerHTML = wrap.classList.contains('collapsed') ? '&#9656;' : '&#9662;';
+  };
+  wrap.appendChild(header);
+  const list = document.createElement('div');
+  list.className = 'game-group-list';
   games.forEach(g => {
     const div = document.createElement('div');
     div.className = 'game-card';
     const shortName = g.title || g.game_id.split('-')[0].toUpperCase();
     const tag = gameDevTag(g.game_id);
-    div.innerHTML = `<div class="title">${shortName}${tag ? ' ' + tag : ''}</div>`;
+    div.innerHTML = `<div class="title">${shortName}</div>${tag ? '<div class="meta">' + tag + '</div>' : ''}`;
     div.dataset.gameId = g.game_id;
     div.onclick = () => onClick(g);
-    el.appendChild(div);
+    list.appendChild(div);
   });
+  wrap.appendChild(list);
+  el.appendChild(wrap);
 }
 
 function gameShortName(gameId) {
