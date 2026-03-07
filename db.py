@@ -202,6 +202,33 @@ def _init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_session ON obs_events(session_id, event_idx)")
     except sqlite3.OperationalError:
         pass
+    # Comments table (per-game discussion)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            author_id TEXT NOT NULL,
+            author_name TEXT NOT NULL,
+            body TEXT NOT NULL,
+            upvotes INTEGER DEFAULT 0,
+            downvotes INTEGER DEFAULT 0,
+            created_at REAL NOT NULL
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_game ON comments(game_id, created_at DESC)")
+    except sqlite3.OperationalError:
+        pass
+    # Track who voted on which comment (prevent double-voting)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS comment_votes (
+            comment_id INTEGER NOT NULL,
+            voter_id TEXT NOT NULL,
+            vote INTEGER NOT NULL,
+            PRIMARY KEY (comment_id, voter_id),
+            FOREIGN KEY (comment_id) REFERENCES comments(id)
+        )
+    """)
     conn.commit()
     conn.close()
 

@@ -1573,8 +1573,8 @@ let _browseGlobalCache = null;  // cache server sessions
 let _browseGameFilter = null;   // currently selected game in By Game tab
 
 // Hash-to-view mapping
-const _VIEW_HASHES = { agent: 'play', human: 'human', sessions: 'browse', leaderboards: 'leaderboard' };
-const _VIEW_TO_HASH = { play: 'agent', human: 'human', browse: 'sessions', leaderboard: 'leaderboards' };
+const _VIEW_HASHES = { agent: 'play', human: 'human', sessions: 'browse', leaderboards: 'leaderboard', contributors: 'contributors' };
+const _VIEW_TO_HASH = { play: 'agent', human: 'human', browse: 'sessions', leaderboard: 'leaderboards', contributors: 'contributors' };
 
 function showAppView(view, skipHash) {
   // Update URL hash (unless called from hashchange handler)
@@ -1593,6 +1593,7 @@ function showAppView(view, skipHash) {
   const menuView = document.getElementById('menuView');
   const humanView = document.getElementById('humanView');
   const leaderboardView = document.getElementById('leaderboardView');
+  const contributorsView = document.getElementById('contributorsView');
 
   const sidebar = document.getElementById('gameSidebar');
   const outerLayout = document.getElementById('outerLayout');
@@ -1602,11 +1603,12 @@ function showAppView(view, skipHash) {
   browseView.style.display = 'none';
   if (humanView) humanView.style.display = 'none';
   if (leaderboardView) leaderboardView.style.display = 'none';
+  if (contributorsView) contributorsView.style.display = 'none';
   tabBar.style.display = 'none';
   emptyApp.style.display = 'none';
   menuView.classList.remove('visible');
 
-  // Nav link indices: 0=Make your agent, 1=Play as Human, 2=Browse Sessions, 3=Leaderboards
+  // Nav link indices: 0=Make your agent, 1=Play as Human, 2=Browse Sessions, 3=Leaderboards, 4=Contributors
   if (view === 'browse') {
     links[2]?.classList.add('active');
     _browseActive = true;
@@ -1628,6 +1630,14 @@ function showAppView(view, skipHash) {
     if (leaderboardView) {
       leaderboardView.style.display = 'flex';
       if (typeof initLeaderboard === 'function') initLeaderboard();
+    }
+  } else if (view === 'contributors') {
+    links[4]?.classList.add('active');
+    _browseActive = false;
+    _menuActive = false;
+    if (contributorsView) {
+      contributorsView.style.display = 'flex';
+      if (typeof loadContributors === 'function') loadContributors();
     }
   } else {
     // Default: agent / play

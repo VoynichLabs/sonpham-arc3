@@ -3175,6 +3175,152 @@ def leaderboard_detail(game_id):
         return jsonify({"game_id": game_id, "ai": [], "human": [], "error": str(e)})
 
 
+# ── Comments API ─────────────────────────────────────────────────────────
+
+@app.route("/api/comments/<game_id>")
+def get_comments(game_id):
+    """Get comments for a game."""
+    voter_id = request.args.get("voter_id", "")
+    try:
+        conn = _get_db()
+        rows = conn.execute(
+            "SELECT * FROM comments WHERE game_id=? ORDER BY created_at DESC LIMIT 200",
+            (game_id,),
+        ).fetchall()
+        # Get voter's votes for these comments
+        my_votes = {}
+        if voter_id and rows:
+            cids = [r["id"] for r in rows]
+            ph = ",".join("?" * len(cids))
+            vote_rows = conn.execute(
+                f"SELECT comment_id, vote FROM comment_votes WHERE voter_id=? AND comment_id IN ({ph})",
+                [voter_id] + cids,
+            ).fetchall()
+            my_votes = {r["comment_id"]: r["vote"] for r in vote_rows}
+        conn.close()
+        return jsonify([
+            {**dict(r), "my_vote": my_votes.get(r["id"], 0)} for r in rows
+        ])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/comments", methods=["POST"])
+def post_comment():
+    """Post a new comment on a game."""
+    data = request.json or {}
+    game_id = data.get("game_id", "").strip()
+    body = data.get("body", "").strip()
+    author_id = data.get("author_id", "").strip()
+    author_name = data.get("author_name", "").strip()
+    if not game_id or not body or not author_id:
+        return jsonify({"error": "Missing fields"}), 400
+    if len(body) > 2000:
+        return jsonify({"error": "Comment too long"}), 400
+    if not author_name:
+        author_name = f"anon-{author_id[:6]}"
+    try:
+        conn = _get_db()
+        cur = conn.execute(
+            "INSERT INTO comments (game_id, author_id, author_name, body, created_at) VALUES (?,?,?,?,?)",
+            (game_id, author_id, author_name, body, time.time()),
+        )
+        cid = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM comments WHERE id=?", (cid,)).fetchone()
+        conn.close()
+        return jsonify({**dict(row), "my_vote": 0})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/comments/<int:comment_id>/vote", methods=["POST"])
+def vote_comment(comment_id):
+    """Upvote or downvote a comment. vote: 1, -1, or 0 (remove)."""
+    data = request.json or {}
+    voter_id = data.get("voter_id", "").strip()
+    vote = data.get("vote", 0)
+    if not voter_id or vote not in (1, -1, 0):
+        return jsonify({"error": "Invalid vote"}), 400
+    try:
+        conn = _get_db()
+        # Get existing vote
+        existing = conn.execute(
+            "SELECT vote FROM comment_votes WHERE comment_id=? AND voter_id=?",
+            (comment_id, voter_id),
+        ).fetchone()
+        old_vote = existing["vote"] if existing else 0
+        if old_vote == vote:
+            conn.close()
+            return jsonify({"ok": True})
+        # Remove old vote effect
+        if old_vote == 1:
+            conn.execute("UPDATE comments SET upvotes = upvotes - 1 WHERE id=?", (comment_id,))
+        elif old_vote == -1:
+            conn.execute("UPDATE comments SET downvotes = downvotes - 1 WHERE id=?", (comment_id,))
+        # Apply new vote
+        if vote == 0:
+            conn.execute("DELETE FROM comment_votes WHERE comment_id=? AND voter_id=?", (comment_id, voter_id))
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO comment_votes (comment_id, voter_id, vote) VALUES (?,?,?)",
+                (comment_id, voter_id, vote),
+            )
+            if vote == 1:
+                conn.execute("UPDATE comments SET upvotes = upvotes + 1 WHERE id=?", (comment_id,))
+            else:
+                conn.execute("UPDATE comments SET downvotes = downvotes + 1 WHERE id=?", (comment_id,))
+        conn.commit()
+        row = conn.execute("SELECT upvotes, downvotes FROM comments WHERE id=?", (comment_id,)).fetchone()
+        conn.close()
+        return jsonify({"ok": True, "upvotes": row["upvotes"], "downvotes": row["downvotes"]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/contributors")
+def contributors():
+    """Top contributors: most comments, most human sessions, most AI sessions."""
+    try:
+        conn = _get_db()
+        # Top commenters
+        commenters = conn.execute("""
+            SELECT author_id, author_name, COUNT(*) as comment_count,
+                   SUM(upvotes) as total_upvotes
+            FROM comments GROUP BY author_id
+            ORDER BY comment_count DESC LIMIT 20
+        """).fetchall()
+        # Top human players (by number of sessions with >5 steps)
+        human_players = conn.execute("""
+            SELECT COALESCE(user_id, 'anon') as uid,
+                   COUNT(*) as session_count,
+                   SUM(duration_seconds) as total_time,
+                   SUM(steps) as total_steps,
+                   COUNT(DISTINCT SUBSTR(game_id, 1, INSTR(game_id || '-', '-') - 1)) as games_played
+            FROM sessions
+            WHERE player_type = 'human' AND steps > 5
+            GROUP BY uid ORDER BY session_count DESC LIMIT 20
+        """).fetchall()
+        # Top AI contributors (by number of agent sessions with >5 steps)
+        ai_contributors = conn.execute("""
+            SELECT COALESCE(user_id, 'anon') as uid, model,
+                   COUNT(*) as session_count,
+                   SUM(steps) as total_steps,
+                   COUNT(DISTINCT SUBSTR(game_id, 1, INSTR(game_id || '-', '-') - 1)) as games_played
+            FROM sessions
+            WHERE COALESCE(player_type, 'agent') = 'agent' AND steps > 5
+            GROUP BY uid ORDER BY session_count DESC LIMIT 20
+        """).fetchall()
+        conn.close()
+        return jsonify({
+            "commenters": [dict(r) for r in commenters],
+            "human_players": [dict(r) for r in human_players],
+            "ai_contributors": [dict(r) for r in ai_contributors],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/game-results")
 @bot_protection
 def game_results():
