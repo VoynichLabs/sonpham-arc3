@@ -711,7 +711,7 @@ function switchHumanSubTab(tab) {
   document.getElementById('humanSubComments').style.display = tab === 'comments' ? 'flex' : 'none';
   document.getElementById('humanSubResults').style.display = tab === 'results' ? '' : 'none';
   if (tab === 'levels') bar.children[0]?.classList.add('active');
-  else if (tab === 'comments') bar.children[1]?.classList.add('active');
+  else if (tab === 'results') bar.children[1]?.classList.add('active');
   else bar.children[2]?.classList.add('active');
 
   if (tab === 'results') _loadHumanGameResults();
