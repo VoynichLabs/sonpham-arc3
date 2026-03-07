@@ -49,7 +49,7 @@ FEATURES = {
 }
 
 # Games hidden in prod mode (non-foundation games)
-HIDDEN_GAMES = ["fd01", "fy01", "pt01"]
+HIDDEN_GAMES = ["ab01", "fd01", "fy01", "pt01", "sh02"]
 
 DEV_SECRET = os.environ.get("DEV_SECRET", "arc-dev-2026")
 

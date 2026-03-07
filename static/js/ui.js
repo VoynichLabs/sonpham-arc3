@@ -476,11 +476,14 @@ function gameDevTag(gameId) {
 async function loadGames() {
   let games = await fetchJSON('/api/games');
   // Hide "Find the Difference" on the online/global server for now
-  if (MODE === 'prod') games = games.filter(g => g.game_id !== 'fd01-00000001');
+  // prod filtering handled server-side via HIDDEN_GAMES
   const el = document.getElementById('gameList');
   el.innerHTML = '';
   const foundation = games.filter(g => _ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
   const observatory = games.filter(g => !_ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
+  const sortByTitle = (a, b) => ((a.title || a.game_id).localeCompare(b.title || b.game_id));
+  foundation.sort(sortByTitle);
+  observatory.sort(sortByTitle);
   _renderGameGroup(el, 'ARC Prize Foundation', foundation, g => startGame(g.game_id));
   _renderGameGroup(el, 'ARC Observatory', observatory, g => startGame(g.game_id));
 }

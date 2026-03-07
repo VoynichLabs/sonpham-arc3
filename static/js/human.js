@@ -39,12 +39,14 @@ function initHumanView() {
 async function _loadHumanGames() {
   try {
     let games = await fetchJSON('/api/games');
-    if (MODE === 'prod') games = games.filter(g => g.game_id !== 'fd01-00000001');
     _humanGames = games;
     const el = document.getElementById('humanGameList');
     el.innerHTML = '';
     const foundation = games.filter(g => _ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
     const observatory = games.filter(g => !_ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
+    const sortByTitle = (a, b) => ((a.title || a.game_id).localeCompare(b.title || b.game_id));
+    foundation.sort(sortByTitle);
+    observatory.sort(sortByTitle);
     _renderGameGroup(el, 'ARC Prize Foundation', foundation, g => _humanSelectGame(g.game_id));
     _renderGameGroup(el, 'ARC Observatory', observatory, g => _humanSelectGame(g.game_id));
   } catch (e) {
