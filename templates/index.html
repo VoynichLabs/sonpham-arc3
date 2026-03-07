@@ -4,7 +4,7 @@
 <script>((t)=>{if(t)document.documentElement.setAttribute('data-theme',t)})(localStorage.getItem('arc-theme'))</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ARC3 Observatory</title>
+<title>ARC Observatory</title>
 {% if umami_url and umami_website_id %}
 <script defer src="{{ umami_url }}/script.js" data-website-id="{{ umami_website_id }}"></script>
 {% endif %}
@@ -17,7 +17,7 @@
 <body>
 {% if turnstile_site_key %}
 <div class="turnstile-gate" id="turnstileGate">
-  <h1>ARC3 Observatory</h1>
+  <h1>ARC Observatory</h1>
   <p>Please verify you're human to continue.</p>
   <div class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}" data-callback="onTurnstileSuccess" data-theme="dark"></div>
   <div class="error" id="turnstileError">Verification failed. Please try again.</div>
@@ -26,7 +26,7 @@
 <div class="app-container">
   <!-- ── Top navigation ──────────────────────────────────────────────── -->
   <div class="top-nav">
-    <span class="app-title"><svg class="arc-logo" viewBox="0 0 28 28" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="8" height="8" rx="1.5" fill="var(--accent)"/><rect x="12" y="2" width="8" height="8" rx="1.5" fill="var(--accent)" opacity="0.6"/><rect x="2" y="12" width="8" height="8" rx="1.5" fill="var(--accent)" opacity="0.6"/><rect x="12" y="12" width="8" height="8" rx="1.5" fill="var(--accent)" opacity="0.3"/><rect x="22" y="2" width="4" height="4" rx="1" fill="var(--accent)" opacity="0.4"/><rect x="22" y="8" width="4" height="4" rx="1" fill="var(--accent)" opacity="0.2"/><rect x="2" y="22" width="4" height="4" rx="1" fill="var(--accent)" opacity="0.4"/><rect x="8" y="22" width="4" height="4" rx="1" fill="var(--accent)" opacity="0.2"/></svg> ARC3 Observatory <span class="beta-badge">BETA</span></span>
+    <span class="app-title"><svg class="arc-logo" viewBox="0 0 28 28" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="8" height="8" rx="1.5" fill="var(--accent)"/><rect x="12" y="2" width="8" height="8" rx="1.5" fill="var(--accent)" opacity="0.6"/><rect x="2" y="12" width="8" height="8" rx="1.5" fill="var(--accent)" opacity="0.6"/><rect x="12" y="12" width="8" height="8" rx="1.5" fill="var(--accent)" opacity="0.3"/><rect x="22" y="2" width="4" height="4" rx="1" fill="var(--accent)" opacity="0.4"/><rect x="22" y="8" width="4" height="4" rx="1" fill="var(--accent)" opacity="0.2"/><rect x="2" y="22" width="4" height="4" rx="1" fill="var(--accent)" opacity="0.4"/><rect x="8" y="22" width="4" height="4" rx="1" fill="var(--accent)" opacity="0.2"/></svg><span class="app-title-text">ARC Observatory<span class="beta-badge">BETA</span></span></span>
     <a class="nav-link active" href="#agent" onclick="event.preventDefault();showAppView('play')">Make your agent</a>
     <a class="nav-link" href="#human" onclick="event.preventDefault();showAppView('human')">Play as Human</a>
     <a class="nav-link" href="#sessions" onclick="event.preventDefault();showAppView('browse')">Browse Sessions</a>
@@ -270,7 +270,7 @@
     <div id="loginModal" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;">
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;max-width:360px;width:90%;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-          <h3 style="font-size:15px;color:var(--accent);">Log in to ARC3 Observatory</h3>
+          <h3 style="font-size:15px;color:var(--accent);">Log in to ARC Observatory</h3>
           <button onclick="hideLoginModal()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;">&times;</button>
         </div>
         <div id="loginStep1">
@@ -303,7 +303,7 @@
           &#9888; Using official ARC Prize API at three.arcprize.org. Results count toward your leaderboard score.
         </div>
         <div class="api-key-input" id="apiKeySection" style="display:none;width:100%;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;margin-bottom:4px;">
-          <input type="password" class="text-input" id="arcApiKey" placeholder="ARC3 API Key" style="margin-bottom:4px;font-size:11px;">
+          <input type="password" class="text-input" id="arcApiKey" placeholder="ARC API Key" style="margin-bottom:4px;font-size:11px;">
           <button class="btn btn-primary" onclick="saveArcApiKey()" style="width:100%;font-size:10px;">Save API Key</button>
         </div>
         <div class="canvas-center">
