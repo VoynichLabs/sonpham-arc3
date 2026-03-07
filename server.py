@@ -1756,7 +1756,9 @@ def index():
                            turnstile_site_key=ts_key,
                            mode=mode, features=features,
                            umami_url=UMAMI_URL, umami_website_id=UMAMI_WEBSITE_ID,
-                           prompts=_load_prompts())
+                           prompts=_load_prompts(),
+                           adsense_client=os.environ.get("ADSENSE_CLIENT", ""),
+                           adsense_slot=os.environ.get("ADSENSE_SLOT", ""))
 
 
 @app.route("/api/turnstile/verify", methods=["POST"])
