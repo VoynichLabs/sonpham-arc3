@@ -155,10 +155,29 @@ This has been missed repeatedly (Three-System selects, REPL selects, etc.). When
 
 When creating a new ARC-AGI-3 game, follow this checklist:
 
+### Game Versioning
+
+Every time a game's code is updated (bug fix, level change, balance tweak, new levels, etc.), the **version directory number must be incremented**. The version directory is the 8-digit folder under the game ID:
+
+```
+environment_files/<game_id>/<version>/
+```
+
+- `00000001` → initial version
+- `00000002` → first update
+- `00000003` → second update, etc.
+
+The `metadata.json` must also be updated with the current `date_downloaded` (use the date of the change, format `YYYY-MM-DD`). This ensures:
+- Old sessions replay correctly against the version they were recorded on
+- We can track when each change was made
+- Breaking changes don't silently corrupt existing data
+
+**Never edit a game file in-place without bumping the version.** If the change is purely cosmetic (comments, whitespace), a version bump is not required.
+
 ### File Structure
-- Directory: `environment_files/<game_id>/00000001/`
+- Directory: `environment_files/<game_id>/<version>/` (version = zero-padded 8-digit number, e.g., `00000001`)
 - Game file: `<game_id>.py` with class named in PascalCase from the ID (e.g., `mk01` → `Mk01`)
-- Metadata: `metadata.json` with `game_id`, `title`, `default_fps`, `baseline_actions`, `tags`, `local_dir`, `date_downloaded`
+- Metadata: `metadata.json` with `game_id`, `title`, `default_fps`, `baseline_actions`, `tags`, `local_dir`, `date_downloaded` (date of this version)
 
 ### Game Class Requirements
 - Extend `ARCBaseGame` from `arcengine`
