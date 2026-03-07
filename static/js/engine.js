@@ -599,13 +599,13 @@ async function pyodideStep(actionId, actionData) {
   // Animate intermediate physics frames before returning final state
   if (state.frames && state.frames.length > 1) {
     const fps = (currentState && currentState.default_fps) || 20;
-    const delay = Math.max(16, Math.round(1000 / fps));
+    const delay = Math.max(50, Math.round(1000 / fps));
     for (let i = 0; i < state.frames.length - 1; i++) {
       renderGrid(state.frames[i]);
       await new Promise(r => setTimeout(r, delay));
     }
   }
-  delete state.frames;
+  // Keep state.frames so callers (e.g. human mode) can animate on their own canvas
   state.action_labels = {};
   (state.available_actions || []).forEach(a => {
     const names = {0:'RESET',1:'ACTION1',2:'ACTION2',3:'ACTION3',4:'ACTION4',5:'ACTION5',6:'ACTION6',7:'ACTION7'};

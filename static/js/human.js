@@ -264,6 +264,17 @@ async function humanDoAction(actionId, isClick) {
     result_state: data.state || 'NOT_FINISHED',
   });
 
+  // Animate intermediate frames (e.g. level transitions) on human canvas
+  if (data.frames && data.frames.length > 1) {
+    const fps = (currentState && currentState.default_fps) || 5;
+    const delay = Math.max(50, Math.round(1000 / fps));
+    for (let i = 0; i < data.frames.length - 1; i++) {
+      _humanRenderGrid(data.frames[i]);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  delete data.frames;
+
   _humanState = data;
   _humanGrid = data.grid;
   _humanRenderGrid(data.grid);
@@ -307,6 +318,17 @@ async function _humanCanvasClick(e) {
     levels_completed: data.levels_completed ?? 0,
     result_state: data.state || 'NOT_FINISHED',
   });
+
+  // Animate intermediate frames on human canvas
+  if (data.frames && data.frames.length > 1) {
+    const fps = (currentState && currentState.default_fps) || 5;
+    const delay = Math.max(50, Math.round(1000 / fps));
+    for (let i = 0; i < data.frames.length - 1; i++) {
+      _humanRenderGrid(data.frames[i]);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  delete data.frames;
 
   _humanState = data;
   _humanGrid = data.grid;
