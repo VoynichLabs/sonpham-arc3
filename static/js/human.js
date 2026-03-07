@@ -481,6 +481,31 @@ async function humanRestart() {
   await _humanJumpToLevel(_humanCurrentLevel);
 }
 
+async function humanRestartLevel() {
+  if (!_humanGameId || !_humanStarted) return;
+  if (_humanState.state === 'WIN') return; // already won, no point restarting
+  try {
+    let state;
+    if (FEATURES.pyodide_game && _pyodideGameActive) {
+      state = await _sendGameWorkerMsg({ type: 'jump_level', level: _humanCurrentLevel });
+    } else {
+      state = await fetchJSON('/api/start', { game_id: _humanGameId });
+      _humanSessionId = state.session_id;
+    }
+    if (state && !state.error) {
+      _humanState = state;
+      _humanGrid = state.grid;
+      _humanAvailableActions = state.available_actions || [];
+      _humanAction6Mode = _humanAvailableActions.includes(6);
+      _humanUndoStack = [];
+      _humanRenderGrid(state.grid);
+      _humanUpdateTopBar();
+    }
+  } catch (e) {
+    console.error('[HumanPlay] Restart level failed:', e);
+  }
+}
+
 function humanFinishSession() {
   if (_humanStarted) _humanSaveSession();
   humanNewGame();
@@ -762,15 +787,16 @@ async function loadComments() {
       list.innerHTML = '<div class="empty-state" style="height:auto;font-size:12px;">No comments yet. Be the first!</div>';
       return;
     }
-    list.innerHTML = comments.map(c => _renderComment(c)).join('');
+    list.innerHTML = comments.map(c => _renderComment(c, 'game')).join('');
   } catch (e) {
     list.innerHTML = '<div class="empty-state" style="height:auto;font-size:12px;">Failed to load comments.</div>';
   }
 }
 
-function _renderComment(c) {
+function _renderComment(c, context) {
   const upClass = c.my_vote === 1 ? ' active-up' : '';
   const downClass = c.my_vote === -1 ? ' active-down' : '';
+  const ctx = context ? `,'${context}'` : '';
   return `<div class="comment-card" id="comment-${c.id}">
     <div class="comment-header">
       <span class="comment-author">${_esc(c.author_name)}</span>
@@ -778,8 +804,8 @@ function _renderComment(c) {
     </div>
     <div class="comment-body">${_esc(c.body)}</div>
     <div class="comment-actions">
-      <button class="vote-btn${upClass}" onclick="voteComment(${c.id}, ${c.my_vote === 1 ? 0 : 1})">&#9650; ${c.upvotes || 0}</button>
-      <button class="vote-btn${downClass}" onclick="voteComment(${c.id}, ${c.my_vote === -1 ? 0 : -1})">&#9660; ${c.downvotes || 0}</button>
+      <button class="vote-btn${upClass}" onclick="voteComment(${c.id}, ${c.my_vote === 1 ? 0 : 1}${ctx})">&#9650; ${c.upvotes || 0}</button>
+      <button class="vote-btn${downClass}" onclick="voteComment(${c.id}, ${c.my_vote === -1 ? 0 : -1}${ctx})">&#9660; ${c.downvotes || 0}</button>
     </div>
   </div>`;
 }
@@ -814,14 +840,34 @@ async function submitComment() {
   } catch (e) { /* ignore */ }
 }
 
-async function voteComment(commentId, vote) {
+async function voteComment(commentId, vote, context) {
+  const card = document.getElementById('comment-' + commentId);
+  const btns = card?.querySelectorAll('.vote-btn');
+  // Optimistic UI: update buttons immediately
+  if (btns && btns.length >= 2) {
+    const upBtn = btns[0], downBtn = btns[1];
+    const wasUp = upBtn.classList.contains('active-up');
+    const wasDown = downBtn.classList.contains('active-down');
+    upBtn.classList.remove('active-up');
+    downBtn.classList.remove('active-down');
+    let upCount = parseInt(upBtn.textContent.replace(/[^\d]/g, '')) || 0;
+    let downCount = parseInt(downBtn.textContent.replace(/[^\d]/g, '')) || 0;
+    if (wasUp) upCount--;
+    if (wasDown) downCount--;
+    if (vote === 1) { upCount++; upBtn.classList.add('active-up'); }
+    if (vote === -1) { downCount++; downBtn.classList.add('active-down'); }
+    upBtn.innerHTML = '&#9650; ' + upCount;
+    downBtn.innerHTML = '&#9660; ' + downCount;
+    // Update onclick to toggle correctly
+    upBtn.setAttribute('onclick', `voteComment(${commentId}, ${vote === 1 ? 0 : 1}, '${context || ''}')`);
+    downBtn.setAttribute('onclick', `voteComment(${commentId}, ${vote === -1 ? 0 : -1}, '${context || ''}')`);
+  }
   try {
-    const resp = await fetch('/api/comments/' + commentId + '/vote', {
+    await fetch('/api/comments/' + commentId + '/vote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ voter_id: _getCommenterId(), vote }),
     });
-    if (resp.ok) loadComments();
   } catch (e) { /* ignore */ }
 }
 
@@ -902,7 +948,7 @@ async function loadFeedback() {
     if (!comments.length) {
       list.innerHTML = '<div class="empty-state" style="height:auto;font-size:12px;">No feedback yet. Be the first!</div>';
     } else {
-      list.innerHTML = comments.map(c => _renderComment(c)).join('');
+      list.innerHTML = comments.map(c => _renderComment(c, 'feedback')).join('');
     }
   } catch (e) {
     list.innerHTML = '<div class="empty-state" style="height:auto;font-size:12px;">Failed to load feedback.</div>';
