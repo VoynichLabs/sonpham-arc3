@@ -29,6 +29,7 @@
     <span class="app-title">ARC-AGI-3 Player</span>
     <span class="nav-link active" onclick="showAppView('play')">Make your agent</span>
     <span class="nav-link" onclick="showAppView('human')">Play as Human</span>
+    <span class="nav-link" onclick="showAppView('leaderboard')">&#127942; Leaderboards</span>
     <span class="nav-link" onclick="showAppView('browse')">Browse Sessions</span>
     <span style="flex:1;"></span>
     <button id="loginBtn" class="btn" style="font-size:11px;padding:2px 10px;display:none;" onclick="showLoginModal()">Log in</button>
@@ -67,6 +68,57 @@
       <div class="menu-right">
         <div class="menu-sessions-header">Saved Sessions</div>
         <div id="menuSessionList"></div>
+      </div>
+    </div>
+  </div>
+  <!-- ── Leaderboard view ──────────────────────────────────────────── -->
+  <div id="leaderboardView" style="display:none;flex:1;overflow:hidden;flex-direction:column;">
+    <div class="lb-header">
+      <h2>&#127942; Leaderboards</h2>
+      <span class="lb-subtitle">Best performances across all games — AI vs Human</span>
+    </div>
+    <div class="lb-table-wrap">
+      <table class="lb-table" id="lbTable">
+        <thead>
+          <tr>
+            <th class="lb-game-col">Game</th>
+            <th class="lb-ai-header" colspan="3">&#129302; AI Best</th>
+            <th class="lb-vs-col"></th>
+            <th class="lb-human-header" colspan="3">&#129489; Human Best</th>
+          </tr>
+          <tr class="lb-sub-header">
+            <th></th>
+            <th>Result</th><th>Steps</th><th>Model</th>
+            <th class="lb-vs-col">VS</th>
+            <th>Result</th><th>Steps</th><th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="lbBody">
+          <tr><td colspan="8" class="lb-loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- Drill-down panel for a selected game -->
+    <div id="lbDrilldown" style="display:none;">
+      <div class="lb-drill-header">
+        <button class="btn" onclick="closeLbDrilldown()" style="font-size:11px;padding:2px 10px;">&#8592; Back</button>
+        <h3 id="lbDrillTitle">Game Details</h3>
+      </div>
+      <div class="lb-drill-body">
+        <div class="lb-drill-col">
+          <h4>&#129302; Top AI Attempts</h4>
+          <table class="lb-drill-table">
+            <thead><tr><th>#</th><th>Result</th><th>Steps</th><th>Levels</th><th>Model</th><th>Date</th></tr></thead>
+            <tbody id="lbDrillAI"></tbody>
+          </table>
+        </div>
+        <div class="lb-drill-col">
+          <h4>&#129489; Top Human Attempts</h4>
+          <table class="lb-drill-table">
+            <thead><tr><th>#</th><th>Result</th><th>Steps</th><th>Levels</th><th>Time</th><th>Date</th></tr></thead>
+            <tbody id="lbDrillHuman"></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -515,6 +567,7 @@ window.PROMPTS = {{ prompts | tojson }};
 <script src="/static/js/session.js"></script>
 <script src="/static/js/observatory.js"></script>
 <script src="/static/js/human.js"></script>
+<script src="/static/js/leaderboard.js"></script>
 <script src="/static/js/dev.js"></script>
 
 <!-- Dev panel (developer-only level selector) -->

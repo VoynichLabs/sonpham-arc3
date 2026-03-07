@@ -1580,16 +1580,19 @@ function showAppView(view) {
   const emptyApp = document.getElementById('emptyAppState');
   const menuView = document.getElementById('menuView');
   const humanView = document.getElementById('humanView');
+  const leaderboardView = document.getElementById('leaderboardView');
 
   const sidebar = document.getElementById('gameSidebar');
   const outerLayout = document.getElementById('outerLayout');
   // Hide all views first
   browseView.style.display = 'none';
   if (humanView) humanView.style.display = 'none';
+  if (leaderboardView) leaderboardView.style.display = 'none';
   menuView.classList.remove('visible');
 
+  // Nav link indices: 0=Make your agent, 1=Play as Human, 2=Leaderboards, 3=Browse Sessions
   if (view === 'browse') {
-    links[2]?.classList.add('active');
+    links[3]?.classList.add('active');
     _browseActive = true;
     _menuActive = false;
     browseView.style.display = 'flex';
@@ -1607,6 +1610,17 @@ function showAppView(view) {
     if (humanView) {
       humanView.style.display = 'flex';
       if (typeof initHumanView === 'function') initHumanView();
+    }
+  } else if (view === 'leaderboard') {
+    links[2]?.classList.add('active');
+    _browseActive = false;
+    _menuActive = false;
+    outerLayout.style.display = 'none';
+    tabBar.style.display = 'none';
+    emptyApp.style.display = 'none';
+    if (leaderboardView) {
+      leaderboardView.style.display = 'flex';
+      if (typeof initLeaderboard === 'function') initLeaderboard();
     }
   } else {
     links[0]?.classList.add('active');

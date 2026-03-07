@@ -3090,6 +3090,92 @@ def list_sessions():
         return jsonify({"sessions": [], "error": str(e)})
 
 
+@app.route("/api/leaderboard")
+@bot_protection
+def leaderboard():
+    """Return best AI and human sessions per game for leaderboard display."""
+    try:
+        conn = _get_db()
+        # Best AI session per game (most levels, fewest steps)
+        ai_rows = conn.execute("""
+            SELECT s.id, s.game_id, s.result, s.steps, s.levels, s.model,
+                   s.created_at, s.duration_seconds,
+                   COALESCE(s.player_type, 'agent') AS player_type
+            FROM sessions s
+            WHERE COALESCE(s.player_type, 'agent') = 'agent' AND s.steps > 0
+            ORDER BY s.game_id, s.levels DESC, s.steps ASC
+        """).fetchall()
+        # Best human session per game
+        human_rows = conn.execute("""
+            SELECT s.id, s.game_id, s.result, s.steps, s.levels, s.model,
+                   s.created_at, s.duration_seconds,
+                   s.player_type
+            FROM sessions s
+            WHERE s.player_type = 'human' AND s.steps > 0
+            ORDER BY s.game_id, s.levels DESC, s.duration_seconds ASC, s.steps ASC
+        """).fetchall()
+        conn.close()
+        # Group: best per game
+        ai_best = {}
+        for r in ai_rows:
+            d = dict(r)
+            gid = d["game_id"].split("-")[0] if d["game_id"] else ""
+            if gid not in ai_best:
+                ai_best[gid] = d
+        human_best = {}
+        for r in human_rows:
+            d = dict(r)
+            gid = d["game_id"].split("-")[0] if d["game_id"] else ""
+            if gid not in human_best:
+                human_best[gid] = d
+        # All games
+        all_games = sorted(set(list(ai_best.keys()) + list(human_best.keys())))
+        rows = []
+        for gid in all_games:
+            rows.append({
+                "game_id": gid,
+                "ai": ai_best.get(gid),
+                "human": human_best.get(gid),
+            })
+        return jsonify({"leaderboard": rows})
+    except Exception as e:
+        return jsonify({"leaderboard": [], "error": str(e)})
+
+
+@app.route("/api/leaderboard/<game_id>")
+@bot_protection
+def leaderboard_detail(game_id):
+    """Return top AI and human attempts for a specific game."""
+    try:
+        conn = _get_db()
+        ai_rows = conn.execute("""
+            SELECT s.id, s.game_id, s.result, s.steps, s.levels, s.model,
+                   s.created_at, s.duration_seconds
+            FROM sessions s
+            WHERE COALESCE(s.player_type, 'agent') = 'agent'
+              AND s.steps > 0 AND s.game_id LIKE ? || '%'
+            ORDER BY s.levels DESC, s.steps ASC
+            LIMIT 20
+        """, (game_id,)).fetchall()
+        human_rows = conn.execute("""
+            SELECT s.id, s.game_id, s.result, s.steps, s.levels,
+                   s.created_at, s.duration_seconds
+            FROM sessions s
+            WHERE s.player_type = 'human'
+              AND s.steps > 0 AND s.game_id LIKE ? || '%'
+            ORDER BY s.levels DESC, s.duration_seconds ASC, s.steps ASC
+            LIMIT 20
+        """, (game_id,)).fetchall()
+        conn.close()
+        return jsonify({
+            "game_id": game_id,
+            "ai": [dict(r) for r in ai_rows],
+            "human": [dict(r) for r in human_rows],
+        })
+    except Exception as e:
+        return jsonify({"game_id": game_id, "ai": [], "human": [], "error": str(e)})
+
+
 @app.route("/api/game-results")
 @bot_protection
 def game_results():
