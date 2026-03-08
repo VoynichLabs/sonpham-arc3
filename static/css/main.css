@@ -114,6 +114,7 @@
   /* ── Right panel ─────────────────────────────────────────────────────── */
   .right-panel { width: 510px; background: var(--surface); border-left: 1px solid var(--border);
     display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; min-height: 0; }
+  .right-panel.panel-disabled { pointer-events: none; opacity: 0.4; transition: opacity 0.2s; }
 
   /* ── Option sections ─────────────────────────────────────────────────── */
   .opt-section { border-bottom: 1px solid var(--border); display: flex; flex-direction: row; }

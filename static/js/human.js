@@ -120,6 +120,13 @@ async function _humanSelectGame(gameId) {
   const liveBtn = document.getElementById('humanStartLiveBtn');
   if (liveBtn) liveBtn.style.display = _humanGameHasLive ? '' : 'none';
 
+  // Enable right panel (was greyed out before game selection)
+  const rightPanel = document.getElementById('humanRightPanel');
+  if (rightPanel) { rightPanel.classList.remove('panel-disabled'); rightPanel.style.pointerEvents = ''; rightPanel.style.opacity = ''; }
+
+  // Refresh comments if that tab is currently active
+  if (document.getElementById('humanSubComments')?.style.display !== 'none') loadComments();
+
   // Show canvas + controls (locked until Start Session)
   _humanPaused = false;
   const c = _humanCanvas();
@@ -734,6 +741,10 @@ function humanNewGame() {
 
   // Deselect game in sidebar
   document.querySelectorAll('#humanGameList .game-card').forEach(c => c.classList.remove('active'));
+
+  // Grey out right panel again
+  const rightPanel = document.getElementById('humanRightPanel');
+  if (rightPanel) { rightPanel.classList.add('panel-disabled'); rightPanel.style.pointerEvents = 'none'; rightPanel.style.opacity = '0.4'; }
 }
 
 // ── Rendering ───────────────────────────────────────────────────────────
