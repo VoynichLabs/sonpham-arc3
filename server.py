@@ -2176,16 +2176,18 @@ def leaderboard():
                 WHERE COALESCE(s.player_type, 'agent') = 'agent' AND s.steps > 0
             ) WHERE rn = 1
         """).fetchall()
-        # Best human session per game
+        # Best human session per game (include author)
         human_rows = conn.execute("""
             SELECT * FROM (
                 SELECT s.id, s.game_id, s.result, s.steps, s.levels,
                        s.created_at, s.duration_seconds,
+                       COALESCE(u.display_name, SUBSTR(u.email, 1, INSTR(u.email, '@') - 1)) AS author,
                        ROW_NUMBER() OVER (
                            PARTITION BY SUBSTR(s.game_id, 1, INSTR(s.game_id || '-', '-') - 1)
                            ORDER BY s.levels DESC, s.duration_seconds ASC, s.steps ASC
                        ) AS rn
                 FROM sessions s
+                LEFT JOIN users u ON s.user_id = u.id
                 WHERE s.player_type = 'human' AND s.steps > 0
             ) WHERE rn = 1
         """).fetchall()
@@ -2216,8 +2218,10 @@ def leaderboard_detail(game_id):
         """, (game_id,)).fetchall()
         human_rows = conn.execute("""
             SELECT s.id, s.game_id, s.result, s.steps, s.levels,
-                   s.created_at, s.duration_seconds
+                   s.created_at, s.duration_seconds,
+                   COALESCE(u.display_name, SUBSTR(u.email, 1, INSTR(u.email, '@') - 1)) AS author
             FROM sessions s
+            LEFT JOIN users u ON s.user_id = u.id
             WHERE s.player_type = 'human'
               AND s.steps > 0 AND s.game_id LIKE ? || '%'
             ORDER BY s.levels DESC, s.duration_seconds ASC, s.steps ASC
