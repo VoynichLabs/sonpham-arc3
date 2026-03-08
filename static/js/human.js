@@ -5,8 +5,9 @@
 let _humanInited = false;
 let _humanGameId = null;       // currently selected game ID
 let _humanSessionId = null;    // active game session ID
-let _humanStarted = false;     // true once first move made (free play or recorded)
+let _humanStarted = false;     // true once first move made
 let _humanRecording = false;   // true when recording a session (Start Session clicked)
+let _humanPaused = false;      // true when session is paused
 let _humanGrid = null;         // current grid state
 let _humanState = {};          // current game state from engine
 let _humanStepCount = 0;
@@ -106,11 +107,14 @@ async function _humanSelectGame(gameId) {
   _humanAvailableActions = data.available_actions || [];
   _humanAction6Mode = _humanAvailableActions.includes(6);
 
-  // Show canvas + controls
+  // Show canvas + controls (locked until Start Session)
+  _humanPaused = false;
   const c = _humanCanvas();
   c.style.display = 'block';
   document.getElementById('humanEmptyState').style.display = 'none';
-  document.getElementById('humanControls').style.display = 'flex';
+  const ctrlEl = document.getElementById('humanControls');
+  ctrlEl.style.display = 'flex';
+  ctrlEl.classList.add('controls-locked');
   document.getElementById('humanTransport').style.display = 'block';
 
   // Render initial state
@@ -224,6 +228,7 @@ async function _humanJumpToLevel(levelIndex) {
 
 async function humanDoAction(actionId, isClick, direct = false) {
   if (!_humanSessionId) return;
+  if (!_humanRecording || _humanPaused) return;
   if (_humanState.state === 'WIN' || _humanState.state === 'GAME_OVER') return;
 
   if (!direct && (isClick || actionId === 6)) {
@@ -285,6 +290,7 @@ async function humanDoAction(actionId, isClick, direct = false) {
 
 async function _humanCanvasClick(e) {
   if (!_humanAction6Mode || !_humanSessionId) return;
+  if (!_humanRecording || _humanPaused) return;
   if (_humanState.state === 'WIN' || _humanState.state === 'GAME_OVER') return;
 
   const c = _humanCanvas();
@@ -353,7 +359,7 @@ function _setupHumanKeyboard() {
     // Only handle when human view is visible
     const hv = document.getElementById('humanView');
     if (!hv || hv.style.display === 'none') return;
-    if (!_humanSessionId) return;
+    if (!_humanSessionId || !_humanRecording || _humanPaused) return;
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -384,12 +390,16 @@ async function _humanGameStep(actionId, actionData) {
 
 function _humanLockPlay() {
   _humanRecording = true;
+  _humanPaused = false;
   _humanStarted = true;
   _humanStartTime = Date.now();
   _humanStepCount = 0;
   _humanMoveHistory = [];
   _humanUndoStack = [];
   _humanStepsBuffer = [];
+
+  // Unlock controls (were locked before session start)
+  document.getElementById('humanControls')?.classList.remove('controls-locked');
 
   // Grey out game sidebar
   const sidebar = document.getElementById('humanSidebar');
@@ -402,10 +412,12 @@ function _humanLockPlay() {
     c.style.opacity = '0.5';
   });
 
-  // Swap transport buttons: hide Start Session, show Finish Session
+  // Swap transport buttons: hide Start, show Pause + Finish
   const startBtn = document.getElementById('humanStartSessionBtn');
+  const pauseBtn = document.getElementById('humanPauseBtn');
   const finishBtn = document.getElementById('humanFinishSessionBtn');
   if (startBtn) startBtn.style.display = 'none';
+  if (pauseBtn) { pauseBtn.style.display = ''; pauseBtn.textContent = 'Pause'; pauseBtn.classList.remove('btn-primary'); }
   if (finishBtn) finishBtn.style.display = '';
 
   // Start timer
@@ -415,9 +427,13 @@ function _humanLockPlay() {
 
 function _humanUnlockPlay() {
   _humanRecording = false;
+  _humanPaused = false;
   _humanStarted = false;
   _humanStartTime = null;
   if (_humanTimerInterval) { clearInterval(_humanTimerInterval); _humanTimerInterval = null; }
+
+  // Lock controls again
+  document.getElementById('humanControls')?.classList.add('controls-locked');
 
   // Show game sidebar
   const sidebar = document.getElementById('humanSidebar');
@@ -430,11 +446,35 @@ function _humanUnlockPlay() {
     c.style.opacity = '';
   });
 
-  // Swap transport buttons: show Start Session, hide Finish Session
+  // Swap transport buttons: show Start, hide Pause + Finish
   const startBtn = document.getElementById('humanStartSessionBtn');
+  const pauseBtn = document.getElementById('humanPauseBtn');
   const finishBtn = document.getElementById('humanFinishSessionBtn');
   if (startBtn) startBtn.style.display = '';
+  if (pauseBtn) pauseBtn.style.display = 'none';
   if (finishBtn) finishBtn.style.display = 'none';
+}
+
+// ── Pause / Resume ───────────────────────────────────────────────────────
+
+function humanTogglePause() {
+  if (!_humanRecording) return;
+  _humanPaused = !_humanPaused;
+  const btn = document.getElementById('humanPauseBtn');
+  const ctrl = document.getElementById('humanControls');
+  if (_humanPaused) {
+    // Freeze timer, lock controls
+    if (_humanTimerInterval) { clearInterval(_humanTimerInterval); _humanTimerInterval = null; }
+    _humanDuration = (Date.now() - _humanStartTime) / 1000;
+    if (btn) { btn.textContent = 'Resume'; btn.classList.add('btn-primary'); }
+    if (ctrl) ctrl.classList.add('controls-locked');
+  } else {
+    // Resume timer from accumulated duration, unlock controls
+    _humanStartTime = Date.now() - _humanDuration * 1000;
+    _humanTimerInterval = setInterval(_humanUpdateTimer, 100);
+    if (btn) { btn.textContent = 'Pause'; btn.classList.remove('btn-primary'); }
+    if (ctrl) ctrl.classList.remove('controls-locked');
+  }
 }
 
 // ── Timer ───────────────────────────────────────────────────────────────
@@ -492,32 +532,7 @@ function _humanUpdateUndoBtn() {
   if (btn) btn.disabled = _humanUndoStack.length === 0;
 }
 
-// ── Restart / New Game ──────────────────────────────────────────────────
-
-async function humanRestartLevel() {
-  if (!_humanGameId) return;
-  if (_humanState.state === 'WIN') return;
-  try {
-    let state;
-    if (FEATURES.pyodide_game && _pyodideGameActive) {
-      state = await _sendGameWorkerMsg({ type: 'jump_level', level: _humanCurrentLevel });
-    } else {
-      state = await fetchJSON('/api/start', { game_id: _humanGameId });
-      _humanSessionId = state.session_id;
-    }
-    if (state && !state.error) {
-      _humanState = state;
-      _humanGrid = state.grid;
-      _humanAvailableActions = state.available_actions || [];
-      _humanAction6Mode = _humanAvailableActions.includes(6);
-      _humanUndoStack = [];
-      _humanRenderGrid(state.grid);
-      _humanUpdateTopBar();
-    }
-  } catch (e) {
-    console.error('[HumanPlay] Restart level failed:', e);
-  }
-}
+// ── New Game / Start Session ─────────────────────────────────────────────
 
 async function humanStartSession() {
   if (!_humanGameId || _humanRecording) return;
@@ -686,14 +701,12 @@ function _humanSaveSession() {
     localStorage.setItem('arc_human_session_data:' + _humanSessionId, JSON.stringify(payload));
   } catch {}
 
-  // Upload to server (fire-and-forget)
-  if (_humanStepsBuffer.length >= 5) {
-    fetch('/api/sessions/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).catch(() => {});
-  }
+  // Upload to server (fire-and-forget, all human sessions)
+  fetch('/api/sessions/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
 }
 
 // ── Game Results ────────────────────────────────────────────────────────
