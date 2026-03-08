@@ -82,6 +82,7 @@
   .controls { margin-top: 24px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
   .controls-lockable.locked .controls-inner { filter: blur(2px) saturate(0.3); opacity: 0.4; pointer-events: none; }
   .controls-inner { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; align-items: center; }
+  #humanControls.controls-locked .controls-inner { filter: saturate(0.3); opacity: 0.4; pointer-events: none; }
   .intervene-toggle { background: transparent; border: 1px solid var(--yellow); color: var(--yellow); padding: 4px 12px;
     border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 11px; transition: all 0.15s; }
   .intervene-toggle:hover { background: #d2992233; }

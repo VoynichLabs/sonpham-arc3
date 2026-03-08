@@ -11,6 +11,9 @@
 {% if turnstile_site_key %}
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {% endif %}
+{% if google_client_id %}
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+{% endif %}
 <!-- Puter.js loaded lazily when a Puter model is selected -->
 <link rel="stylesheet" href="/static/css/main.css?v={{ static_v }}">
 </head>
@@ -269,11 +272,11 @@
                   <button class="btn btn-primary" onclick="humanDoAction(6,true)">Click grid <span class="kbd">Click</span></button>
                 </div>
               </div>
-              <!-- Transport: Undo + New Game -->
+              <!-- Transport: Start / Pause / Finish -->
               <div class="transport-strip human-transport" id="humanTransport" style="display:none;">
                 <div class="transport-bar" style="justify-content:center;gap:8px;">
-                  <button class="btn" onclick="humanRestartLevel()" style="flex:none;padding:6px 20px;">Restart Level</button>
                   <button class="btn btn-primary" id="humanStartSessionBtn" onclick="humanStartSession()" style="flex:none;padding:6px 24px;">Start Session</button>
+                  <button class="btn" id="humanPauseBtn" onclick="humanTogglePause()" style="flex:none;padding:6px 20px;display:none;">Pause</button>
                   <button class="btn btn-danger" id="humanFinishSessionBtn" onclick="humanFinishSession()" style="flex:none;padding:6px 24px;display:none;">Finish Session</button>
                 </div>
               </div>
@@ -354,6 +357,14 @@
           <button onclick="hideLoginModal()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;">&times;</button>
         </div>
         <div id="loginStep1">
+          {% if google_client_id %}
+          <div id="googleSignInBtn" style="display:flex;justify-content:center;margin-bottom:14px;"></div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+            <hr style="flex:1;border:none;border-top:1px solid var(--border);">
+            <span style="font-size:11px;color:var(--text-dim);">or</span>
+            <hr style="flex:1;border:none;border-top:1px solid var(--border);">
+          </div>
+          {% endif %}
           <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">Enter your email to receive a login link. No password needed.</p>
           <input id="loginEmail" type="email" placeholder="you@example.com"
             style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:13px;margin-bottom:10px;">
@@ -635,6 +646,7 @@ const COLORS = {{ color_map | tojson }};
 const ACTION_NAMES = {0:'RESET',1:'UP',2:'DOWN',3:'LEFT',4:'RIGHT',5:'ACT5',6:'CLICK',7:'ACT7'};
 const MODE = {{ mode | tojson }};
 const FEATURES = {{ features | tojson }};
+const GOOGLE_CLIENT_ID = {{ google_client_id | tojson }};
 window.PROMPTS = {{ prompts | tojson }};
 
 </script>

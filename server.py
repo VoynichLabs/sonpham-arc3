@@ -117,6 +117,9 @@ UMAMI_WEBSITE_ID = os.environ.get("UMAMI_WEBSITE_ID", "")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 RESEND_FROM = os.environ.get("RESEND_FROM", "noreply@arc3.sonpham.net")
 
+# Google OAuth — Sign In With Google (GSI)
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+
 BOT_UA_PATTERNS = [
     "bot", "crawler", "spider", "scraper", "wget", "curl", "python-requests",
     "httpx", "aiohttp", "go-http-client", "java/", "libwww", "headlesschrome",
@@ -822,6 +825,7 @@ def index():
                            turnstile_site_key=ts_key,
                            mode=mode, features=features,
                            umami_url=UMAMI_URL, umami_website_id=UMAMI_WEBSITE_ID,
+                           google_client_id=GOOGLE_CLIENT_ID,
                            prompts=_load_prompts(),
                            static_v=_STATIC_VERSION)
 
@@ -962,6 +966,55 @@ def auth_logout():
         _auth_cache.pop(token, None)
     resp = make_response(jsonify({"status": "ok"}))
     resp.delete_cookie("arc_auth")
+    return resp
+
+
+@app.route("/api/auth/google", methods=["POST"])
+@bot_protection
+def auth_google():
+    """Verify a Google ID token and log the user in."""
+    if not GOOGLE_CLIENT_ID:
+        return jsonify({"error": "Google login not configured"}), 503
+    payload = request.get_json(force=True)
+    credential = payload.get("credential", "")
+    if not credential:
+        return jsonify({"error": "Missing credential"}), 400
+    # Verify the ID token with Google
+    try:
+        resp = _httpx.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": credential},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return jsonify({"error": "Invalid Google token"}), 401
+        token_info = resp.json()
+    except Exception as e:
+        app.logger.warning(f"Google token verification failed: {e}")
+        return jsonify({"error": "Token verification failed"}), 500
+    # Validate audience matches our client ID
+    if token_info.get("aud") != GOOGLE_CLIENT_ID:
+        return jsonify({"error": "Token audience mismatch"}), 401
+    email = token_info.get("email", "").lower().strip()
+    if not email or not token_info.get("email_verified", "false") == "true":
+        return jsonify({"error": "Email not verified"}), 401
+    # Find or create user by email
+    google_name = token_info.get("name", "")
+    google_sub = token_info.get("sub", "")
+    user = _turso_find_or_create_user(email, display_name=google_name, google_id=google_sub)
+    if not user:
+        return jsonify({"error": "Service unavailable"}), 503
+    token = _turso_create_auth_token(user["id"])
+    if not token:
+        return jsonify({"error": "Service unavailable"}), 503
+    resp = make_response(jsonify({
+        "status": "ok",
+        "user": {"id": user["id"], "email": user["email"],
+                 "display_name": user.get("display_name")},
+    }))
+    resp.set_cookie("arc_auth", token,
+                     max_age=AUTH_TOKEN_TTL, httponly=True,
+                     samesite="Lax", secure=request.is_secure)
     return resp
 
 
@@ -1585,8 +1638,9 @@ def import_session():
     steps = payload.get("steps", [])
     if not sess or not sess.get("id") or not sess.get("game_id"):
         return _cors_resp({"error": "session.id and session.game_id required"}, 400)
-    # Reject trivially short sessions
-    if len(steps) < 5:
+    # Reject trivially short agent sessions (human sessions always saved)
+    is_human = sess.get("player_type") == "human"
+    if not is_human and len(steps) < 5:
         return _cors_resp({"error": "Session too short (min 5 steps)", "skipped": True})
     try:
         prompts_json = json.dumps(sess.get("prompts")) if sess.get("prompts") else None
@@ -2111,11 +2165,25 @@ def branch_session():
 @bot_protection
 @turnstile_required
 def list_sessions():
-    """List recent sessions (last 100). Merges local SQLite + Turso."""
+    """List recent sessions (last 100). Merges local SQLite + Turso.
+    Query params: player_type=agent|human, mine=1 (only current user's sessions).
+    """
     if not feature_enabled("session_db"):
         return jsonify({"sessions": []})
     try:
         player_type_filter = request.args.get("player_type")
+        mine_only = request.args.get("mine") == "1"
+
+        # If mine=1, return only the authenticated user's sessions from Turso
+        if mine_only:
+            user = get_current_user()
+            if not user:
+                return jsonify({"sessions": [], "error": "Not authenticated"}), 401
+            user_sessions = _turso_get_user_sessions(user["id"])
+            if player_type_filter:
+                user_sessions = [s for s in user_sessions if s.get("player_type") == player_type_filter]
+            return jsonify({"sessions": user_sessions})
+
         _sessions_query = (
             "SELECT s.id, s.game_id, s.model, s.mode, s.created_at, s.result, s.steps, s.levels, "
             "s.parent_session_id, s.branch_at_step, s.total_cost, s.player_type, s.duration_seconds, "
