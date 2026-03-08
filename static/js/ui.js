@@ -507,7 +507,9 @@ function _renderGameGroup(el, label, games, onClick) {
     div.className = 'game-card';
     const shortName = g.title || g.game_id.split('-')[0].toUpperCase();
     const tag = gameDevTag(g.game_id);
-    div.innerHTML = `<div class="title">${shortName}${tag ? ' ' + tag : ''}</div>`;
+    const bareId = g.game_id.split('-')[0];
+    const versionStr = g.version != null ? `${bareId}-v${g.version}` : bareId;
+    div.innerHTML = `<div class="title">${shortName}${tag ? ' ' + tag : ''}</div><div class="game-id-label">${versionStr}</div>`;
     div.dataset.gameId = g.game_id;
     div.onclick = () => onClick(g);
     list.appendChild(div);
@@ -638,7 +640,7 @@ function updateUI(data) {
   currentGrid = data.grid;
   currentChangeMap = data.change_map || null;
   // If viewing historical step via either scrubber, don't render live grid
-  const _inObsMode = document.getElementById('obsScreen')?.style.display === 'flex';
+  const _inObsMode = isObsModeActive();
   const _scrubPaused = _inObsMode ? !_obsScrubLive : !_liveScrubMode;
   if (_scrubPaused) {
     if (!_inObsMode) _liveScrubLiveGrid = data.grid;

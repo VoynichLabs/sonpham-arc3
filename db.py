@@ -1,4 +1,7 @@
-"""ARC-AGI-3 Database Layer — SQLite persistence."""
+"""ARC-AGI-3 Database Layer — SQLite persistence.
+
+Schema docs: .claude/database_structure.md
+"""
 
 import base64
 import json
@@ -22,132 +25,143 @@ DB_PATH = _DATA_DIR / "sessions.db"
 
 
 def _init_db():
-    """Create the sessions database and tables if they don't exist."""
+    """Create the sessions database and tables if they don't exist.
+
+    Also performs schema migrations from the old schema (session_steps, old column names)
+    to the new schema (session_actions, renamed columns).
+    """
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("PRAGMA journal_mode=WAL")
+
+    # ── Migrate old tables before creating new ones ─────────────────────────
+    _migrate_schema(conn)
+
     conn.executescript("""
+        -- Session metadata
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
             game_id TEXT NOT NULL,
-            model TEXT DEFAULT '',
-            mode TEXT DEFAULT 'local',
             created_at REAL NOT NULL,
+            user_id TEXT,
+            player_type TEXT DEFAULT 'agent',
+            scaffolding_json TEXT,
+            model TEXT DEFAULT '',
             result TEXT DEFAULT 'NOT_FINISHED',
             steps INTEGER DEFAULT 0,
-            levels INTEGER DEFAULT 0
+            levels INTEGER DEFAULT 0,
+            steps_per_level_json TEXT,
+            total_cost REAL DEFAULT 0,
+            duration_seconds REAL,
+            parent_session_id TEXT,
+            branch_at_step INTEGER,
+            mode TEXT DEFAULT 'local'
         );
-        CREATE TABLE IF NOT EXISTS session_steps (
+
+        -- Game actions (replaces session_steps)
+        CREATE TABLE IF NOT EXISTS session_actions (
             session_id TEXT NOT NULL,
             step_num INTEGER NOT NULL,
             action INTEGER NOT NULL,
-            data_json TEXT DEFAULT '{}',
-            grid_snapshot TEXT,
-            change_map_json TEXT,
-            llm_response_json TEXT,
+            row INTEGER,
+            col INTEGER,
+            author_id TEXT,
+            author_type TEXT,
+            call_id INTEGER,
+            states_json TEXT,
             timestamp REAL NOT NULL,
             PRIMARY KEY (session_id, step_num),
             FOREIGN KEY (session_id) REFERENCES sessions(id)
         );
-    """)
-    # Schema migration: add columns (idempotent)
-    for col, defn in [("parent_session_id", "TEXT DEFAULT NULL"),
-                      ("branch_at_step", "INTEGER DEFAULT NULL"),
-                      ("total_cost", "REAL DEFAULT 0"),
-                      ("prompts_json", "TEXT DEFAULT NULL"),
-                      ("timeline_json", "TEXT DEFAULT NULL"),
-                      ("user_id", "TEXT DEFAULT NULL"),
-                      ("player_type", "TEXT DEFAULT 'agent'"),
-                      ("duration_seconds", "REAL DEFAULT NULL")]:
-        try:
-            conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {defn}")
-        except sqlite3.OperationalError:
-            pass  # column already exists
-    # Session events table (compaction, branch, resume tracking)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS session_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            step_num INTEGER,
-            data_json TEXT DEFAULT '{}',
-            timestamp REAL NOT NULL,
-            FOREIGN KEY (session_id) REFERENCES sessions(id)
-        )
-    """)
-    # LLM call log table
-    conn.execute("""
+
+        -- LLM calls
         CREATE TABLE IF NOT EXISTS llm_calls (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id TEXT NOT NULL,
-            call_type TEXT NOT NULL,
+            agent_type TEXT NOT NULL,
+            agent_id TEXT,
             step_num INTEGER,
+            turn_num INTEGER,
             parent_call_id INTEGER,
             model TEXT NOT NULL,
-            prompt_preview TEXT,
-            prompt_length INTEGER,
-            response_preview TEXT,
-            response_json TEXT,
+            input_json TEXT,
             input_tokens INTEGER DEFAULT 0,
+            output_json TEXT,
             output_tokens INTEGER DEFAULT 0,
             cost REAL DEFAULT 0,
             duration_ms INTEGER DEFAULT 0,
-            thinking_level TEXT,
-            tools_active INTEGER DEFAULT 0,
-            cache_active INTEGER DEFAULT 0,
             error TEXT,
-            attempt INTEGER DEFAULT 0,
             timestamp REAL NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id)
-        )
-    """)
-    try:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id)")
-    except sqlite3.OperationalError:
-        pass
-    # Schema migration: add turn_num to llm_calls
-    try:
-        conn.execute("ALTER TABLE llm_calls ADD COLUMN turn_num INTEGER")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    # Session turns table (planning cycles)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS session_turns (
+        );
+        CREATE INDEX IF NOT EXISTS idx_llm_calls_session ON llm_calls(session_id);
+
+        -- Tool executions (REPL code, memory ops)
+        CREATE TABLE IF NOT EXISTS tool_executions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id TEXT NOT NULL,
-            turn_num INTEGER NOT NULL,
-            turn_type TEXT NOT NULL,
-            goal TEXT,
-            plan_json TEXT,
-            steps_planned INTEGER DEFAULT 0,
-            steps_executed INTEGER DEFAULT 0,
-            step_start INTEGER,
-            step_end INTEGER,
-            llm_calls INTEGER DEFAULT 0,
-            total_input_tokens INTEGER DEFAULT 0,
-            total_output_tokens INTEGER DEFAULT 0,
-            total_cost REAL DEFAULT 0,
-            total_duration_ms INTEGER DEFAULT 0,
-            replan_reason TEXT,
-            world_model_updated INTEGER DEFAULT 0,
-            rules_version INTEGER DEFAULT 0,
-            timestamp_start REAL NOT NULL,
-            timestamp_end REAL,
-            FOREIGN KEY (session_id) REFERENCES sessions(id)
-        )
-    """)
-    try:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_turns_session ON session_turns(session_id)")
-    except sqlite3.OperationalError:
-        pass
-    # Leaderboard index: covers player_type filter + ORDER BY levels/steps
-    try:
-        conn.execute("""CREATE INDEX IF NOT EXISTS idx_sessions_leaderboard
-                        ON sessions(player_type, steps, levels DESC)""")
-    except sqlite3.OperationalError:
-        pass
-    # Batch tables
-    conn.executescript("""
+            call_id INTEGER,
+            agent_id TEXT,
+            tool_name TEXT NOT NULL,
+            code TEXT,
+            output TEXT,
+            error TEXT,
+            variables_snapshot_json TEXT,
+            is_checkpoint INTEGER DEFAULT 0,
+            timestamp REAL NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id),
+            FOREIGN KEY (call_id) REFERENCES llm_calls(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_exec_session ON tool_executions(session_id);
+
+        -- Comments
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            author_name TEXT NOT NULL,
+            body TEXT NOT NULL,
+            upvotes INTEGER DEFAULT 0,
+            downvotes INTEGER DEFAULT 0,
+            location TEXT NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_comments_location ON comments(location, created_at DESC);
+
+        -- Comment votes
+        CREATE TABLE IF NOT EXISTS comment_votes (
+            comment_id INTEGER NOT NULL,
+            voter_id TEXT NOT NULL,
+            vote INTEGER NOT NULL,
+            PRIMARY KEY (comment_id, voter_id),
+            FOREIGN KEY (comment_id) REFERENCES comments(id)
+        );
+
+        -- Auth
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            created_at REAL NOT NULL,
+            last_login_at REAL,
+            display_name TEXT DEFAULT NULL,
+            google_id TEXT DEFAULT NULL
+        );
+        CREATE TABLE IF NOT EXISTS auth_tokens (
+            token TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            last_used_at REAL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS magic_links (
+            code TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            used INTEGER DEFAULT 0
+        );
+
+        -- Batch tables (CLI batch runner)
         CREATE TABLE IF NOT EXISTS batch_runs (
             id TEXT PRIMARY KEY,
             created_at REAL NOT NULL,
@@ -172,76 +186,177 @@ def _init_db():
             error TEXT,
             PRIMARY KEY (batch_id, game_id)
         );
+
+        -- Leaderboard index
+        CREATE INDEX IF NOT EXISTS idx_sessions_leaderboard
+            ON sessions(player_type, steps, levels DESC);
     """)
-    # Observability events table (client-side obs screen events synced to server)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS obs_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            event_idx INTEGER NOT NULL,
-            event_json TEXT NOT NULL,
-            timestamp REAL NOT NULL
-        )
-    """)
-    try:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_session ON obs_events(session_id, event_idx)")
-    except sqlite3.OperationalError:
-        pass
-    # Comments table (per-game discussion)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS comments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_id TEXT NOT NULL,
-            author_id TEXT NOT NULL,
-            author_name TEXT NOT NULL,
-            body TEXT NOT NULL,
-            upvotes INTEGER DEFAULT 0,
-            downvotes INTEGER DEFAULT 0,
-            created_at REAL NOT NULL
-        )
-    """)
-    try:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_comments_game ON comments(game_id, created_at DESC)")
-    except sqlite3.OperationalError:
-        pass
-    # Track who voted on which comment (prevent double-voting)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS comment_votes (
-            comment_id INTEGER NOT NULL,
-            voter_id TEXT NOT NULL,
-            vote INTEGER NOT NULL,
-            PRIMARY KEY (comment_id, voter_id),
-            FOREIGN KEY (comment_id) REFERENCES comments(id)
-        )
-    """)
-    # Auth tables
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            email TEXT NOT NULL UNIQUE,
-            created_at REAL NOT NULL,
-            last_login_at REAL,
-            display_name TEXT DEFAULT NULL,
-            google_id TEXT DEFAULT NULL
-        );
-        CREATE TABLE IF NOT EXISTS auth_tokens (
-            token TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            expires_at REAL NOT NULL,
-            last_used_at REAL,
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
-        CREATE TABLE IF NOT EXISTS magic_links (
-            code TEXT PRIMARY KEY,
-            email TEXT NOT NULL,
-            created_at REAL NOT NULL,
-            expires_at REAL NOT NULL,
-            used INTEGER DEFAULT 0
-        );
-    """)
+
     conn.commit()
     conn.close()
+
+
+def _get_table_columns(conn, table_name: str) -> set[str]:
+    """Return a set of column names for a table (empty set if table doesn't exist)."""
+    try:
+        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        return {r[1] for r in rows}
+    except Exception:
+        return set()
+
+
+def _table_exists(conn, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+    ).fetchone()
+    return row is not None
+
+
+def _migrate_schema(conn):
+    """Migrate old DB schema to the new one. Idempotent — safe to run multiple times."""
+
+    # ── 1. sessions: rename prompts_json → scaffolding_json, drop timeline_json ──
+    sess_cols = _get_table_columns(conn, "sessions")
+    if "prompts_json" in sess_cols and "scaffolding_json" not in sess_cols:
+        conn.execute("ALTER TABLE sessions RENAME COLUMN prompts_json TO scaffolding_json")
+        log.info("Migrated sessions: prompts_json → scaffolding_json")
+    if "timeline_json" in sess_cols:
+        # SQLite can't DROP columns before 3.35. We leave it in place but stop using it.
+        # On newer SQLite we could drop it, but it's harmless to keep.
+        pass
+    if "steps_per_level_json" not in sess_cols and sess_cols:
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN steps_per_level_json TEXT")
+            log.info("Migrated sessions: added steps_per_level_json")
+        except Exception:
+            pass
+    if "scaffolding_json" not in sess_cols and "prompts_json" not in sess_cols and sess_cols:
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN scaffolding_json TEXT")
+            log.info("Migrated sessions: added scaffolding_json")
+        except Exception:
+            pass
+
+    # ── 2. session_steps → session_actions (migrate data) ──────────────────────
+    if _table_exists(conn, "session_steps") and not _table_exists(conn, "session_actions"):
+        log.info("Migrating session_steps → session_actions ...")
+        conn.execute("""
+            CREATE TABLE session_actions (
+                session_id TEXT NOT NULL,
+                step_num INTEGER NOT NULL,
+                action INTEGER NOT NULL,
+                row INTEGER,
+                col INTEGER,
+                author_id TEXT,
+                author_type TEXT,
+                call_id INTEGER,
+                states_json TEXT,
+                timestamp REAL NOT NULL,
+                PRIMARY KEY (session_id, step_num),
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        """)
+        # Copy data, converting data_json→row/col and grid_snapshot→states_json
+        old_rows = conn.execute("SELECT * FROM session_steps").fetchall()
+        old_cols = _get_table_columns(conn, "session_steps")
+        for r in old_rows:
+            rd = {col: r[i] for i, col in enumerate(
+                [desc[0] for desc in conn.execute("SELECT * FROM session_steps LIMIT 0").description]
+            )} if not isinstance(r, dict) else r
+            # Parse data_json for row/col
+            act_row, act_col = None, None
+            if rd.get("data_json"):
+                try:
+                    d = json.loads(rd["data_json"]) if isinstance(rd["data_json"], str) else rd["data_json"]
+                    if isinstance(d, dict):
+                        act_col = d.get("x")
+                        act_row = d.get("y")
+                except Exception:
+                    pass
+            # Convert grid_snapshot to states_json
+            states_json = None
+            if rd.get("grid_snapshot"):
+                states_json = json.dumps([{"grid": rd["grid_snapshot"]}])
+            conn.execute(
+                "INSERT OR IGNORE INTO session_actions "
+                "(session_id, step_num, action, row, col, states_json, timestamp) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (rd.get("session_id"), rd.get("step_num"), rd.get("action", 0),
+                 act_row, act_col, states_json, rd.get("timestamp", 0)),
+            )
+        conn.execute("DROP TABLE session_steps")
+        log.info(f"Migrated {len(old_rows)} rows from session_steps → session_actions")
+
+    # ── 3. llm_calls: rename call_type → agent_type, response_json → output_json, etc. ──
+    llm_cols = _get_table_columns(conn, "llm_calls")
+    if "call_type" in llm_cols and "agent_type" not in llm_cols:
+        conn.execute("ALTER TABLE llm_calls RENAME COLUMN call_type TO agent_type")
+        log.info("Migrated llm_calls: call_type → agent_type")
+    if "response_json" in llm_cols and "output_json" not in llm_cols:
+        conn.execute("ALTER TABLE llm_calls RENAME COLUMN response_json TO output_json")
+        log.info("Migrated llm_calls: response_json → output_json")
+    if "response_preview" in llm_cols and "output_json" not in llm_cols and "response_json" not in llm_cols:
+        # Old schema had response_preview but not response_json — add output_json
+        try:
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN output_json TEXT")
+            # Copy data from response_preview to output_json
+            conn.execute("UPDATE llm_calls SET output_json = response_preview WHERE output_json IS NULL AND response_preview IS NOT NULL")
+            log.info("Migrated llm_calls: added output_json from response_preview")
+        except Exception:
+            pass
+    if "agent_id" not in llm_cols and llm_cols:
+        try:
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN agent_id TEXT")
+            log.info("Migrated llm_calls: added agent_id")
+        except Exception:
+            pass
+    if "input_json" not in llm_cols and llm_cols:
+        try:
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN input_json TEXT")
+            # Copy from prompt_preview if available
+            if "prompt_preview" in llm_cols:
+                conn.execute("UPDATE llm_calls SET input_json = prompt_preview WHERE input_json IS NULL AND prompt_preview IS NOT NULL")
+            log.info("Migrated llm_calls: added input_json")
+        except Exception:
+            pass
+    if "output_json" not in llm_cols and "response_json" not in llm_cols and "response_preview" not in llm_cols and llm_cols:
+        try:
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN output_json TEXT")
+            log.info("Migrated llm_calls: added output_json")
+        except Exception:
+            pass
+    if "parent_call_id" not in llm_cols and llm_cols:
+        try:
+            conn.execute("ALTER TABLE llm_calls ADD COLUMN parent_call_id INTEGER")
+            log.info("Migrated llm_calls: added parent_call_id")
+        except Exception:
+            pass
+
+    # ── 4. comments: rename game_id → location, author_id → user_id ───────────
+    comment_cols = _get_table_columns(conn, "comments")
+    if "game_id" in comment_cols and "location" not in comment_cols:
+        conn.execute("ALTER TABLE comments RENAME COLUMN game_id TO location")
+        # Drop old index, new one will be created by main script
+        try:
+            conn.execute("DROP INDEX IF EXISTS idx_comments_game")
+        except Exception:
+            pass
+        log.info("Migrated comments: game_id → location")
+    if "author_id" in comment_cols and "user_id" not in comment_cols:
+        conn.execute("ALTER TABLE comments RENAME COLUMN author_id TO user_id")
+        log.info("Migrated comments: author_id → user_id")
+
+    # ── 5. Drop removed tables (session_events, obs_events, session_turns, session_steps) ──
+    for old_table in ("session_events", "obs_events", "session_turns"):
+        if _table_exists(conn, old_table):
+            conn.execute(f"DROP TABLE {old_table}")
+            log.info(f"Dropped removed table: {old_table}")
+    # Drop session_steps if session_actions already exists (migration done)
+    if _table_exists(conn, "session_steps") and _table_exists(conn, "session_actions"):
+        conn.execute("DROP TABLE session_steps")
+        log.info("Dropped old session_steps table (session_actions exists)")
+
+    conn.commit()
 
 
 def _get_db() -> sqlite3.Connection:
@@ -249,6 +364,10 @@ def _get_db() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     return conn
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COMPRESSION HELPERS
+# ═══════════════════════════════════════════════════════════════════════════
 
 def _compress_grid(grid: list) -> str:
     """Compress a grid to zlib+base64 for storage."""
@@ -261,13 +380,17 @@ def _decompress_grid(data: str) -> list:
     return json.loads(zlib.decompress(base64.b64decode(data)))
 
 
-def _db_insert_session(session_id: str, game_id: str, mode: str):
+# ═══════════════════════════════════════════════════════════════════════════
+# SESSION CRUD
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _db_insert_session(session_id: str, game_id: str, mode: str, user_id: str | None = None):
     """Insert a new session record."""
     try:
         conn = _get_db()
         conn.execute(
-            "INSERT OR IGNORE INTO sessions (id, game_id, mode, created_at) VALUES (?, ?, ?, ?)",
-            (session_id, game_id, mode, time.time()),
+            "INSERT OR IGNORE INTO sessions (id, game_id, mode, created_at, user_id) VALUES (?, ?, ?, ?, ?)",
+            (session_id, game_id, mode, time.time(), user_id),
         )
         conn.commit()
         conn.close()
@@ -275,33 +398,34 @@ def _db_insert_session(session_id: str, game_id: str, mode: str):
         log.warning(f"DB insert session failed: {e}")
 
 
-def _db_insert_step(session_id: str, step_num: int, action: int,
-                     data: dict, grid: list, change_map: dict,
-                     llm_response: dict | None = None):
-    """Insert a step record with compressed grid."""
+def _db_insert_action(session_id: str, step_num: int, action: int,
+                      states: list | None = None, *,
+                      row: int | None = None, col: int | None = None,
+                      author_id: str | None = None,
+                      author_type: str | None = None,
+                      call_id: int | None = None):
+    """Insert a game action record."""
     try:
         conn = _get_db()
         conn.execute(
-            "INSERT OR REPLACE INTO session_steps "
-            "(session_id, step_num, action, data_json, grid_snapshot, change_map_json, llm_response_json, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO session_actions "
+            "(session_id, step_num, action, row, col, author_id, author_type, call_id, states_json, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session_id, step_num, action,
-                json.dumps(data),
-                _compress_grid(grid) if grid else None,
-                json.dumps(change_map) if change_map else None,
-                json.dumps(llm_response) if llm_response else None,
+                row, col, author_id, author_type, call_id,
+                json.dumps(states) if states else None,
                 time.time(),
             ),
         )
         conn.execute(
-            "UPDATE sessions SET steps = ?, result = (SELECT result FROM sessions WHERE id = ?) WHERE id = ?",
-            (step_num, session_id, session_id),
+            "UPDATE sessions SET steps = ? WHERE id = ?",
+            (step_num, session_id),
         )
         conn.commit()
         conn.close()
     except Exception as e:
-        log.warning(f"DB insert step failed: {e}")
+        log.warning(f"DB insert action failed: {e}")
 
 
 def _db_update_session(session_id: str, **kwargs):
@@ -315,6 +439,127 @@ def _db_update_session(session_id: str, **kwargs):
         conn.close()
     except Exception as e:
         log.warning(f"DB update session failed: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LLM CALLS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _log_llm_call(session_id: str, agent_type: str, model: str, *,
+                   agent_id: str | None = None,
+                   step_num: int | None = None,
+                   turn_num: int | None = None,
+                   parent_call_id: int | None = None,
+                   input_json: str | None = None,
+                   input_tokens: int = 0,
+                   output_json: str | None = None,
+                   output_tokens: int = 0,
+                   cost: float = 0,
+                   duration_ms: int = 0,
+                   error: str | None = None) -> int | None:
+    """Insert an LLM call log row. Returns call_id or None on failure."""
+    try:
+        conn = _get_db()
+        cur = conn.execute(
+            "INSERT INTO llm_calls "
+            "(session_id, agent_type, agent_id, step_num, turn_num, parent_call_id, model, "
+            " input_json, input_tokens, output_json, output_tokens, "
+            " cost, duration_ms, error, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id, agent_type, agent_id,
+                step_num, turn_num, parent_call_id, model,
+                input_json, input_tokens, output_json, output_tokens,
+                cost, duration_ms, error, time.time(),
+            ),
+        )
+        call_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return call_id
+    except Exception as e:
+        log.warning(f"_log_llm_call failed: {e}")
+        return None
+
+
+def _get_session_calls(session_id: str) -> list[dict]:
+    """Return all llm_calls for a session, ordered by timestamp."""
+    try:
+        conn = _get_db()
+        rows = conn.execute(
+            "SELECT * FROM llm_calls WHERE session_id = ? ORDER BY timestamp",
+            (session_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.warning(f"_get_session_calls failed: {e}")
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TOOL EXECUTIONS
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _log_tool_execution(session_id: str, tool_name: str, *,
+                         call_id: int | None = None,
+                         agent_id: str | None = None,
+                         code: str | None = None,
+                         output: str | None = None,
+                         error: str | None = None,
+                         variables_snapshot: dict | None = None,
+                         is_checkpoint: bool = False) -> int | None:
+    """Insert a tool execution record. Returns id or None on failure."""
+    try:
+        conn = _get_db()
+        cur = conn.execute(
+            "INSERT INTO tool_executions "
+            "(session_id, call_id, agent_id, tool_name, code, output, error, "
+            " variables_snapshot_json, is_checkpoint, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id, call_id, agent_id, tool_name,
+                code, output, error,
+                json.dumps(variables_snapshot) if variables_snapshot else None,
+                int(is_checkpoint), time.time(),
+            ),
+        )
+        exec_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+        return exec_id
+    except Exception as e:
+        log.warning(f"_log_tool_execution failed: {e}")
+        return None
+
+
+def _get_session_tool_executions(session_id: str) -> list[dict]:
+    """Return all tool_executions for a session, ordered by id."""
+    try:
+        conn = _get_db()
+        rows = conn.execute(
+            "SELECT * FROM tool_executions WHERE session_id = ? ORDER BY id",
+            (session_id,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.warning(f"_get_session_tool_executions failed: {e}")
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DEPRECATED — backward compat stubs for removed tables
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _log_turn(session_id: str, turn_num: int, scaffolding_type: str, **kwargs):
+    """Deprecated: session_turns table removed. No-op for backward compat."""
+    pass
+
+
+def _get_session_turns(session_id: str) -> list[dict]:
+    """Deprecated: session_turns table removed. Returns empty list."""
+    return []
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -478,7 +723,8 @@ def get_user_sessions(user_id: str) -> list[dict]:
         conn = _get_db()
         rows = conn.execute(
             "SELECT id, game_id, model, mode, created_at, result, steps, levels, "
-            "parent_session_id, branch_at_step, total_cost, user_id "
+            "parent_session_id, branch_at_step, total_cost, user_id, player_type, "
+            "steps_per_level_json, duration_seconds "
             "FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 200",
             (user_id,),
         ).fetchall()
@@ -502,124 +748,6 @@ def count_recent_magic_links(email: str, window: float = 900) -> int:
     except Exception as e:
         log.warning(f"count_recent_magic_links failed: {e}")
         return 0
-
-
-def _log_llm_call(session_id: str, call_type: str, model: str, *,
-                   step_num: int | None = None,
-                   turn_num: int | None = None,
-                   parent_call_id: int | None = None,
-                   prompt_preview: str | None = None,
-                   prompt_length: int = 0,
-                   response_preview: str | None = None,
-                   response_json: dict | None = None,
-                   input_tokens: int = 0,
-                   output_tokens: int = 0,
-                   cost: float = 0,
-                   duration_ms: int = 0,
-                   thinking_level: str | None = None,
-                   tools_active: bool = False,
-                   cache_active: bool = False,
-                   error: str | None = None,
-                   attempt: int = 0) -> int | None:
-    """Insert an LLM call log row. Returns call_id or None on failure."""
-    try:
-        conn = _get_db()
-        cur = conn.execute(
-            "INSERT INTO llm_calls "
-            "(session_id, call_type, step_num, turn_num, parent_call_id, model, "
-            " prompt_preview, prompt_length, response_preview, response_json, "
-            " input_tokens, output_tokens, cost, duration_ms, "
-            " thinking_level, tools_active, cache_active, error, attempt, timestamp) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                session_id, call_type, step_num, turn_num, parent_call_id, model,
-                prompt_preview[:500] if prompt_preview else None,
-                prompt_length,
-                response_preview[:1000] if response_preview else None,
-                json.dumps(response_json) if response_json else None,
-                input_tokens, output_tokens, cost, duration_ms,
-                thinking_level, int(tools_active), int(cache_active),
-                error, attempt, time.time(),
-            ),
-        )
-        call_id = cur.lastrowid
-        conn.commit()
-        conn.close()
-        return call_id
-    except Exception as e:
-        log.warning(f"_log_llm_call failed: {e}")
-        return None
-
-
-def _get_session_calls(session_id: str) -> list[dict]:
-    """Return all llm_calls for a session, ordered by timestamp."""
-    try:
-        conn = _get_db()
-        rows = conn.execute(
-            "SELECT * FROM llm_calls WHERE session_id = ? ORDER BY timestamp",
-            (session_id,),
-        ).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
-    except Exception as e:
-        log.warning(f"_get_session_calls failed: {e}")
-        return []
-
-
-def _log_turn(session_id: str, turn_num: int, turn_type: str, *,
-               goal: str = "", plan_json: str | None = None,
-               steps_planned: int = 0, steps_executed: int = 0,
-               step_start: int | None = None, step_end: int | None = None,
-               llm_calls: int = 0,
-               total_input_tokens: int = 0, total_output_tokens: int = 0,
-               total_cost: float = 0, total_duration_ms: int = 0,
-               replan_reason: str | None = None,
-               world_model_updated: bool = False, rules_version: int = 0,
-               timestamp_start: float = 0, timestamp_end: float | None = None) -> int | None:
-    """Insert a turn log row. Returns turn_id or None on failure."""
-    try:
-        conn = _get_db()
-        cur = conn.execute(
-            "INSERT INTO session_turns "
-            "(session_id, turn_num, turn_type, goal, plan_json, "
-            " steps_planned, steps_executed, step_start, step_end, "
-            " llm_calls, total_input_tokens, total_output_tokens, "
-            " total_cost, total_duration_ms, replan_reason, "
-            " world_model_updated, rules_version, timestamp_start, timestamp_end) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                session_id, turn_num, turn_type,
-                goal[:500] if goal else None, plan_json,
-                steps_planned, steps_executed, step_start, step_end,
-                llm_calls, total_input_tokens, total_output_tokens,
-                total_cost, total_duration_ms, replan_reason,
-                int(world_model_updated), rules_version,
-                timestamp_start or time.time(),
-                timestamp_end,
-            ),
-        )
-        turn_id = cur.lastrowid
-        conn.commit()
-        conn.close()
-        return turn_id
-    except Exception as e:
-        log.warning(f"_log_turn failed: {e}")
-        return None
-
-
-def _get_session_turns(session_id: str) -> list[dict]:
-    """Return all session_turns for a session, ordered by turn_num."""
-    try:
-        conn = _get_db()
-        rows = conn.execute(
-            "SELECT * FROM session_turns WHERE session_id = ? ORDER BY turn_num",
-            (session_id,),
-        ).fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
-    except Exception as e:
-        log.warning(f"_get_session_turns failed: {e}")
-        return []
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -646,14 +774,14 @@ def _export_session_to_file(session_id: str) -> Path | None:
             return None
         sess = dict(sess_row)
 
-        steps = [dict(r) for r in conn.execute(
-            "SELECT * FROM session_steps WHERE session_id = ? ORDER BY step_num", (session_id,),
+        actions = [dict(r) for r in conn.execute(
+            "SELECT * FROM session_actions WHERE session_id = ? ORDER BY step_num", (session_id,),
         ).fetchall()]
         calls = [dict(r) for r in conn.execute(
             "SELECT * FROM llm_calls WHERE session_id = ? ORDER BY id", (session_id,),
         ).fetchall()]
-        turns = [dict(r) for r in conn.execute(
-            "SELECT * FROM session_turns WHERE session_id = ? ORDER BY turn_num", (session_id,),
+        tool_execs = [dict(r) for r in conn.execute(
+            "SELECT * FROM tool_executions WHERE session_id = ? ORDER BY id", (session_id,),
         ).fetchall()]
         conn.close()
 
@@ -662,81 +790,76 @@ def _export_session_to_file(session_id: str) -> Path | None:
         out_dir.mkdir(parents=True, exist_ok=True)
         out_db_path = out_dir / "session.db"
 
-        # Create self-contained SQLite
+        # Create self-contained SQLite with new schema
         out_conn = sqlite3.connect(str(out_db_path))
         out_conn.execute("PRAGMA journal_mode=WAL")
         out_conn.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY, game_id TEXT NOT NULL, model TEXT DEFAULT '',
-                mode TEXT DEFAULT 'local', created_at REAL NOT NULL,
-                result TEXT DEFAULT 'NOT_FINISHED', steps INTEGER DEFAULT 0,
-                levels INTEGER DEFAULT 0, parent_session_id TEXT, branch_at_step INTEGER,
-                total_cost REAL DEFAULT 0, prompts_json TEXT, timeline_json TEXT, user_id TEXT
+                id TEXT PRIMARY KEY, game_id TEXT NOT NULL, created_at REAL NOT NULL,
+                user_id TEXT, player_type TEXT DEFAULT 'agent', scaffolding_json TEXT,
+                model TEXT DEFAULT '', result TEXT DEFAULT 'NOT_FINISHED',
+                steps INTEGER DEFAULT 0, levels INTEGER DEFAULT 0,
+                steps_per_level_json TEXT, total_cost REAL DEFAULT 0,
+                duration_seconds REAL, parent_session_id TEXT, branch_at_step INTEGER,
+                mode TEXT DEFAULT 'local'
             );
-            CREATE TABLE IF NOT EXISTS session_steps (
+            CREATE TABLE IF NOT EXISTS session_actions (
                 session_id TEXT NOT NULL, step_num INTEGER NOT NULL, action INTEGER NOT NULL,
-                data_json TEXT DEFAULT '{}', grid_snapshot TEXT, change_map_json TEXT,
-                llm_response_json TEXT, timestamp REAL NOT NULL,
+                row INTEGER, col INTEGER, author_id TEXT, author_type TEXT,
+                call_id INTEGER, states_json TEXT, timestamp REAL NOT NULL,
                 PRIMARY KEY (session_id, step_num)
             );
             CREATE TABLE IF NOT EXISTS llm_calls (
-                id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, call_type TEXT NOT NULL,
-                step_num INTEGER, turn_num INTEGER, parent_call_id INTEGER, model TEXT NOT NULL,
-                prompt_preview TEXT, prompt_length INTEGER, response_preview TEXT, response_json TEXT,
-                input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0,
-                cost REAL DEFAULT 0, duration_ms INTEGER DEFAULT 0, thinking_level TEXT,
-                tools_active INTEGER DEFAULT 0, cache_active INTEGER DEFAULT 0,
-                error TEXT, attempt INTEGER DEFAULT 0, timestamp REAL NOT NULL
+                id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, agent_type TEXT NOT NULL,
+                agent_id TEXT, step_num INTEGER, turn_num INTEGER, parent_call_id INTEGER,
+                model TEXT NOT NULL, input_json TEXT, input_tokens INTEGER DEFAULT 0,
+                output_json TEXT, output_tokens INTEGER DEFAULT 0,
+                cost REAL DEFAULT 0, duration_ms INTEGER DEFAULT 0,
+                error TEXT, timestamp REAL NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS session_turns (
-                id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, turn_num INTEGER NOT NULL,
-                turn_type TEXT NOT NULL, goal TEXT, plan_json TEXT,
-                steps_planned INTEGER DEFAULT 0, steps_executed INTEGER DEFAULT 0,
-                step_start INTEGER, step_end INTEGER, llm_calls INTEGER DEFAULT 0,
-                total_input_tokens INTEGER DEFAULT 0, total_output_tokens INTEGER DEFAULT 0,
-                total_cost REAL DEFAULT 0, total_duration_ms INTEGER DEFAULT 0,
-                replan_reason TEXT, world_model_updated INTEGER DEFAULT 0,
-                rules_version INTEGER DEFAULT 0, timestamp_start REAL NOT NULL, timestamp_end REAL
+            CREATE TABLE IF NOT EXISTS tool_executions (
+                id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, call_id INTEGER,
+                agent_id TEXT, tool_name TEXT NOT NULL, code TEXT, output TEXT, error TEXT,
+                variables_snapshot_json TEXT, is_checkpoint INTEGER DEFAULT 0,
+                timestamp REAL NOT NULL
             );
         """)
 
         # Insert session
-        sess_cols = ["id", "game_id", "model", "mode", "created_at", "result", "steps", "levels",
-                     "parent_session_id", "branch_at_step", "total_cost", "prompts_json", "timeline_json", "user_id"]
+        sess_cols = ["id", "game_id", "created_at", "user_id", "player_type", "scaffolding_json",
+                     "model", "result", "steps", "levels", "steps_per_level_json",
+                     "total_cost", "duration_seconds", "parent_session_id", "branch_at_step", "mode"]
         out_conn.execute(
             f"INSERT OR REPLACE INTO sessions ({','.join(sess_cols)}) VALUES ({','.join('?' for _ in sess_cols)})",
             tuple(sess.get(c) for c in sess_cols),
         )
 
-        # Insert steps
-        step_cols = ["session_id", "step_num", "action", "data_json", "grid_snapshot",
-                     "change_map_json", "llm_response_json", "timestamp"]
-        for s in steps:
+        # Insert actions
+        action_cols = ["session_id", "step_num", "action", "row", "col",
+                       "author_id", "author_type", "call_id", "states_json", "timestamp"]
+        for a in actions:
             out_conn.execute(
-                f"INSERT OR REPLACE INTO session_steps ({','.join(step_cols)}) VALUES ({','.join('?' for _ in step_cols)})",
-                tuple(s.get(c) for c in step_cols),
+                f"INSERT OR REPLACE INTO session_actions ({','.join(action_cols)}) VALUES ({','.join('?' for _ in action_cols)})",
+                tuple(a.get(c) for c in action_cols),
             )
 
         # Insert calls
-        call_cols = ["id", "session_id", "call_type", "step_num", "turn_num", "parent_call_id", "model",
-                     "prompt_preview", "prompt_length", "response_preview", "response_json",
-                     "input_tokens", "output_tokens", "cost", "duration_ms", "thinking_level",
-                     "tools_active", "cache_active", "error", "attempt", "timestamp"]
+        call_cols = ["id", "session_id", "agent_type", "agent_id", "step_num", "turn_num",
+                     "parent_call_id", "model", "input_json", "input_tokens",
+                     "output_json", "output_tokens", "cost", "duration_ms", "error", "timestamp"]
         for c in calls:
             out_conn.execute(
                 f"INSERT OR REPLACE INTO llm_calls ({','.join(call_cols)}) VALUES ({','.join('?' for _ in call_cols)})",
                 tuple(c.get(col) for col in call_cols),
             )
 
-        # Insert turns
-        turn_cols = ["id", "session_id", "turn_num", "turn_type", "goal", "plan_json",
-                     "steps_planned", "steps_executed", "step_start", "step_end", "llm_calls",
-                     "total_input_tokens", "total_output_tokens", "total_cost", "total_duration_ms",
-                     "replan_reason", "world_model_updated", "rules_version", "timestamp_start", "timestamp_end"]
-        for t in turns:
+        # Insert tool executions
+        te_cols = ["id", "session_id", "call_id", "agent_id", "tool_name", "code",
+                   "output", "error", "variables_snapshot_json", "is_checkpoint", "timestamp"]
+        for t in tool_execs:
             out_conn.execute(
-                f"INSERT OR REPLACE INTO session_turns ({','.join(turn_cols)}) VALUES ({','.join('?' for _ in turn_cols)})",
-                tuple(t.get(col) for col in turn_cols),
+                f"INSERT OR REPLACE INTO tool_executions ({','.join(te_cols)}) VALUES ({','.join('?' for _ in te_cols)})",
+                tuple(t.get(col) for col in te_cols),
             )
 
         out_conn.commit()
@@ -754,7 +877,6 @@ def _export_session_to_file(session_id: str) -> Path | None:
             "total_cost": round(total_cost, 4),
             "created_at": sess.get("created_at", 0),
             "calls": len(calls),
-            "turns": len(turns),
         }
         (out_dir / "meta.json").write_text(json.dumps(meta))
 
@@ -768,7 +890,7 @@ def _export_session_to_file(session_id: str) -> Path | None:
 def _read_session_from_file(session_id: str) -> dict | None:
     """Read a session from its per-session file directory.
 
-    Returns {"session": {...}, "steps": [...], "calls": [...], "turns": [...]}
+    Returns {"session": {...}, "actions": [...], "calls": [...], "tool_executions": [...]}
     or None if the directory doesn't exist.
     """
     session_dir = SESSIONS_DIR / session_id
@@ -782,17 +904,17 @@ def _read_session_from_file(session_id: str) -> dict | None:
         if not sess_row:
             conn.close()
             return None
-        steps = [dict(r) for r in conn.execute(
-            "SELECT * FROM session_steps WHERE session_id = ? ORDER BY step_num", (session_id,),
+        actions = [dict(r) for r in conn.execute(
+            "SELECT * FROM session_actions WHERE session_id = ? ORDER BY step_num", (session_id,),
         ).fetchall()]
         calls = [dict(r) for r in conn.execute(
             "SELECT * FROM llm_calls WHERE session_id = ? ORDER BY id", (session_id,),
         ).fetchall()]
-        turns = [dict(r) for r in conn.execute(
-            "SELECT * FROM session_turns WHERE session_id = ? ORDER BY turn_num", (session_id,),
+        tool_execs = [dict(r) for r in conn.execute(
+            "SELECT * FROM tool_executions WHERE session_id = ? ORDER BY id", (session_id,),
         ).fetchall()]
         conn.close()
-        return {"session": dict(sess_row), "steps": steps, "calls": calls, "turns": turns}
+        return {"session": dict(sess_row), "actions": actions, "calls": calls, "tool_executions": tool_execs}
     except Exception as e:
         log.warning(f"_read_session_from_file failed for {session_id}: {e}")
         return None

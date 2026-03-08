@@ -43,6 +43,7 @@
   .game-card.active { background: #1f6feb22; border-left: 3px solid var(--accent); }
   .game-card .title { font-weight: 600; font-size: 13px; }
   .game-card .meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .game-card .game-id-label { font-size: 10px; color: var(--text-dim); opacity: 0.6; margin-top: 1px; font-family: monospace; }
   .dev-tag { font-size: 9px; color: var(--accent); opacity: 0.7; border: 1px solid var(--accent);
     padding: 0 4px; border-radius: 3px; cursor: help; letter-spacing: 0.3px; position: relative;
     display: inline-block; margin-top: 2px; }
@@ -294,6 +295,14 @@
   .as-legend { position: absolute; bottom: 8px; left: 8px; display: flex; gap: 10px; font-size: 10px; color: var(--text-dim); z-index: 10; }
   .as-legend-item { display: flex; align-items: center; gap: 4px; }
   .as-legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+
+  /* ── View Mode Toggle ───────────────────────────────────────────────── */
+  /* Settings View (default): sidebar + game-area + right-panel visible, obs hidden */
+  /* Observatory View (.view-observatory on #outerLayout): sidebar + game-area + right-panel hidden, obs visible */
+  #outerLayout.view-observatory > #gameSidebar { display: none !important; }
+  #outerLayout.view-observatory .game-area { display: none !important; }
+  #outerLayout.view-observatory .right-panel { display: none !important; }
+  #outerLayout.view-observatory .obs-screen { display: flex !important; }
 
   /* ── Observability Screen ────────────────────────────────────────────── */
   .obs-screen { display: none; flex: 1; overflow: hidden; background: var(--bg); }
@@ -688,7 +697,7 @@
 
   /* ── Sidebar lock (game running) ─────────────────────────────────────── */
   .sidebar.locked { pointer-events: none; opacity: 0.4; transition: all 0.3s; }
-  .sidebar.human-sidebar { width: 346px; }
+  .sidebar.human-sidebar { width: 260px; }
 
   /* ── Comments ──────────────────────────────────────────────────────── */
   .comments-list { display: flex; flex-direction: column; gap: 8px; }

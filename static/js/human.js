@@ -18,6 +18,7 @@ let _humanStartTime = null;    // when timer started (ms)
 let _humanTimerInterval = null;
 let _humanDuration = 0;        // accumulated seconds
 let _humanAction6Mode = false;
+let _humanProcessing = false;  // true while a game step is being processed
 let _humanAvailableActions = [];
 let _humanLevelCount = 0;      // total levels in game
 let _humanCurrentLevel = 0;    // currently selected level
@@ -228,7 +229,7 @@ async function _humanJumpToLevel(levelIndex) {
 
 async function humanDoAction(actionId, isClick, direct = false) {
   if (!_humanSessionId) return;
-  if (!_humanRecording || _humanPaused) return;
+  if (!_humanRecording || _humanPaused || _humanProcessing) return;
   if (_humanState.state === 'WIN' || _humanState.state === 'GAME_OVER') return;
 
   if (!direct && (isClick || actionId === 6)) {
@@ -239,6 +240,7 @@ async function humanDoAction(actionId, isClick, direct = false) {
   }
 
   _humanStarted = true;
+  _humanSetProcessing(true);
 
   // Save undo snapshot
   _humanUndoStack.push({
@@ -251,7 +253,7 @@ async function humanDoAction(actionId, isClick, direct = false) {
   _humanStepCount++;
   const prevGrid = _humanGrid ? JSON.stringify(_humanGrid) : null;
   const data = await _humanGameStep(actionId, {});
-  if (data.error) { _humanUndoStack.pop(); _humanStepCount--; alert(data.error); return; }
+  if (data.error) { _humanUndoStack.pop(); _humanStepCount--; _humanSetProcessing(false); alert(data.error); return; }
 
   _humanMoveHistory.push({ step: _humanStepCount, action: actionId, state: data.state, levels: data.levels_completed, grid: data.grid });
   if (_humanRecording) {
@@ -285,12 +287,13 @@ async function humanDoAction(actionId, isClick, direct = false) {
   _humanUpdateTopBar();
   if (_humanRecording) _humanUpdateRecorder(actionId, {});
   _humanUpdateUndoBtn();
+  _humanSetProcessing(false);
   _humanCheckEnd();
 }
 
 async function _humanCanvasClick(e) {
   if (!_humanAction6Mode || !_humanSessionId) return;
-  if (!_humanRecording || _humanPaused) return;
+  if (!_humanRecording || _humanPaused || _humanProcessing) return;
   if (_humanState.state === 'WIN' || _humanState.state === 'GAME_OVER') return;
 
   const c = _humanCanvas();
@@ -299,6 +302,7 @@ async function _humanCanvasClick(e) {
   const y = Math.floor((e.clientY - rect.top) * 64 / c.clientHeight);
 
   _humanStarted = true;
+  _humanSetProcessing(true);
 
   _humanUndoStack.push({
     grid: _humanGrid ? _humanGrid.map(r => [...r]) : [],
@@ -309,7 +313,7 @@ async function _humanCanvasClick(e) {
 
   _humanStepCount++;
   const data = await _humanGameStep(6, { x, y });
-  if (data.error) { _humanUndoStack.pop(); _humanStepCount--; alert(data.error); return; }
+  if (data.error) { _humanUndoStack.pop(); _humanStepCount--; _humanSetProcessing(false); alert(data.error); return; }
 
   _humanMoveHistory.push({ step: _humanStepCount, action: 6, x, y, state: data.state, levels: data.levels_completed, grid: data.grid });
   if (_humanRecording) {
@@ -346,6 +350,7 @@ async function _humanCanvasClick(e) {
   _humanUpdateTopBar();
   if (_humanRecording) _humanUpdateRecorder(6, { x, y });
   _humanUpdateUndoBtn();
+  _humanSetProcessing(false);
   _humanCheckEnd();
 }
 
@@ -359,7 +364,7 @@ function _setupHumanKeyboard() {
     // Only handle when human view is visible
     const hv = document.getElementById('humanView');
     if (!hv || hv.style.display === 'none') return;
-    if (!_humanSessionId || !_humanRecording || _humanPaused) return;
+    if (!_humanSessionId || !_humanRecording || _humanPaused || _humanProcessing) return;
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -455,6 +460,24 @@ function _humanUnlockPlay() {
   if (finishBtn) finishBtn.style.display = 'none';
 }
 
+// ── Processing Lock (blocks input while game step is running) ────────────
+
+function _humanSetProcessing(on) {
+  _humanProcessing = on;
+  const ctrl = document.getElementById('humanControls');
+  const canvas = _humanCanvas();
+  if (on) {
+    if (ctrl) ctrl.classList.add('controls-locked');
+    if (canvas) canvas.style.cursor = 'wait';
+    document.body.style.cursor = 'wait';
+  } else {
+    // Only unlock if not paused
+    if (ctrl && !_humanPaused) ctrl.classList.remove('controls-locked');
+    if (canvas) canvas.style.cursor = _humanAction6Mode ? 'crosshair' : 'default';
+    document.body.style.cursor = '';
+  }
+}
+
 // ── Pause / Resume ───────────────────────────────────────────────────────
 
 function humanTogglePause() {
@@ -462,18 +485,29 @@ function humanTogglePause() {
   _humanPaused = !_humanPaused;
   const btn = document.getElementById('humanPauseBtn');
   const ctrl = document.getElementById('humanControls');
+  const canvas = _humanCanvas();
   if (_humanPaused) {
-    // Freeze timer, lock controls
+    // Freeze timer, lock controls, black out canvas
     if (_humanTimerInterval) { clearInterval(_humanTimerInterval); _humanTimerInterval = null; }
     _humanDuration = (Date.now() - _humanStartTime) / 1000;
     if (btn) { btn.textContent = 'Resume'; btn.classList.add('btn-primary'); }
     if (ctrl) ctrl.classList.add('controls-locked');
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#555';
+      ctx.font = '24px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2);
+    }
   } else {
-    // Resume timer from accumulated duration, unlock controls
+    // Resume timer from accumulated duration, unlock controls, restore canvas
     _humanStartTime = Date.now() - _humanDuration * 1000;
     _humanTimerInterval = setInterval(_humanUpdateTimer, 100);
     if (btn) { btn.textContent = 'Pause'; btn.classList.remove('btn-primary'); }
     if (ctrl) ctrl.classList.remove('controls-locked');
+    if (_humanGrid) _humanRenderGrid(_humanGrid);
   }
 }
 

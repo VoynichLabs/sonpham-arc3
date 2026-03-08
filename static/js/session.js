@@ -1698,8 +1698,6 @@ function showMenuView() {
   sessionHost.style.display = 'none';
   emptyApp.style.display = 'none';
   browseView.style.display = 'none';
-  // Hide game sidebar — menu has its own layout
-  document.getElementById('gameSidebar').style.display = 'none';
   // Highlight Play nav link
   document.querySelectorAll('.top-nav .nav-link').forEach(l => l.classList.remove('active'));
   document.querySelectorAll('.top-nav .nav-link')[0]?.classList.add('active');
@@ -2041,7 +2039,7 @@ function createNewSession() {
     _menuActive = false;
     document.getElementById('menuView').classList.remove('visible');
     document.getElementById('sessionViewHost').style.display = '';
-    document.getElementById('gameSidebar').style.display = '';
+    document.getElementById('outerLayout')?.classList.remove('view-observatory');
   }
   // Save + detach current session if one exists
   if (activeSessionId && sessions.has(activeSessionId)) {
@@ -2087,7 +2085,7 @@ function switchSession(targetId) {
     _menuActive = false;
     document.getElementById('menuView').classList.remove('visible');
     document.getElementById('sessionViewHost').style.display = '';
-    document.getElementById('gameSidebar').style.display = '';
+    document.getElementById('outerLayout')?.classList.remove('view-observatory');
   }
 
   // If returning from menu to the same session, just re-show — don't re-attach
@@ -2115,7 +2113,7 @@ function switchSession(targetId) {
   }
 
   // If target session is in obs/autoplay mode, re-enter observatory view
-  if (target.autoPlaying || document.getElementById('obsScreen')?.style.display === 'flex') {
+  if (target.autoPlaying || isObsModeActive()) {
     enterObsMode(target);
   }
 }
@@ -2213,7 +2211,6 @@ function updateEmptyAppState() {
     sessionHost.style.display = 'none';
     _menuActive = true;
     menuView.classList.add('visible');
-    document.getElementById('gameSidebar').style.display = 'none';
     renderMenuSessions();
     renderSessionTabs();
   } else {
@@ -2362,9 +2359,9 @@ function showLoginModal() {
   document.getElementById('loginError').style.display = 'none';
   const emailEl = document.getElementById('loginEmail');
   if (emailEl) { emailEl.value = ''; emailEl.focus(); }
-  // Render Google button if GSI is loaded
-  if (typeof GOOGLE_CLIENT_ID !== 'undefined' && GOOGLE_CLIENT_ID && window.google?.accounts?.id) {
-    _initGoogleSignIn();
+  // Render Google button after modal is visible (GSI needs visible container)
+  if (typeof GOOGLE_CLIENT_ID !== 'undefined' && GOOGLE_CLIENT_ID) {
+    requestAnimationFrame(() => _initGoogleSignIn());
   }
 }
 
@@ -2374,23 +2371,28 @@ function hideLoginModal() {
 
 // ── Google Sign-In (GSI) ────────────────────────────────────────────────
 
-let _gsiInitialized = false;
+let _gsiIdInitialized = false;
 
 function _initGoogleSignIn() {
-  if (_gsiInitialized) return;
   const container = document.getElementById('googleSignInBtn');
   if (!container || !window.google?.accounts?.id) return;
-  google.accounts.id.initialize({
-    client_id: GOOGLE_CLIENT_ID,
-    callback: _handleGoogleCredential,
-  });
+  // google.accounts.id.initialize() should only be called once
+  if (!_gsiIdInitialized) {
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: _handleGoogleCredential,
+    });
+    _gsiIdInitialized = true;
+  }
+  // renderButton must be called each time the modal opens because
+  // it can't render into a display:none container
+  container.innerHTML = '';
   google.accounts.id.renderButton(container, {
     theme: 'outline',
     size: 'large',
     width: 312,
     text: 'signin_with',
   });
-  _gsiInitialized = true;
 }
 
 async function _handleGoogleCredential(response) {
@@ -2413,19 +2415,6 @@ async function _handleGoogleCredential(response) {
   } catch (e) {
     if (errEl) { errEl.textContent = 'Network error. Please try again.'; errEl.style.display = ''; }
   }
-}
-
-// Initialize GSI when the script loads (if available)
-if (typeof GOOGLE_CLIENT_ID !== 'undefined' && GOOGLE_CLIENT_ID) {
-  // GSI script may load after this file — wait for it
-  const _waitGSI = setInterval(() => {
-    if (window.google?.accounts?.id) {
-      clearInterval(_waitGSI);
-      _initGoogleSignIn();
-    }
-  }, 200);
-  // Stop waiting after 10 seconds
-  setTimeout(() => clearInterval(_waitGSI), 10000);
 }
 
 // Close modal on backdrop click

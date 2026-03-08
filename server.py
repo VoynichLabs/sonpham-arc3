@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import sqlite3
+import subprocess
 import sys
 import io
 import threading
@@ -62,7 +63,7 @@ FEATURES = {
 }
 
 # Games hidden in prod mode (non-foundation games)
-HIDDEN_GAMES = ["ab01", "fd01", "fy01", "pt01", "sh02"]
+HIDDEN_GAMES = ["ab", "fd", "fy", "pt", "sh"]
 
 DEV_SECRET = os.environ.get("DEV_SECRET", "arc-dev-2026")
 
@@ -271,9 +272,9 @@ _custom_hard_memory: Optional[str] = None    # extra agent memory injected into 
 
 from db import (
     DB_PATH, _init_db, _get_db, _compress_grid, _decompress_grid,
-    _db_insert_session, _db_insert_step, _db_update_session,
+    _db_insert_session, _db_insert_action, _db_update_session,
     _log_llm_call, _get_session_calls, _read_session_from_file,
-    _list_file_sessions,
+    _list_file_sessions, _log_tool_execution, _get_session_tool_executions,
 )
 
 def _reconstruct_session(game_id: str, actions: list[dict], capture_per_step: bool = False):
@@ -303,7 +304,7 @@ def _reconstruct_session(game_id: str, actions: list[dict], capture_per_step: bo
 
 
 def _try_recover_session(session_id: str):
-    """Try to recover a session from DB by replaying its steps. Returns (env, state) or (None, None)."""
+    """Try to recover a session from DB by replaying its actions. Returns (env, state) or (None, None)."""
     try:
         conn = _get_db()
         sess = conn.execute("SELECT game_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
@@ -311,12 +312,12 @@ def _try_recover_session(session_id: str):
             conn.close()
             return None, None
         rows = conn.execute(
-            "SELECT action, data_json FROM session_steps WHERE session_id = ? ORDER BY step_num",
+            "SELECT action, row, col FROM session_actions WHERE session_id = ? ORDER BY step_num",
             (session_id,),
         ).fetchall()
         conn.close()
         if not rows:
-            # Session exists but no steps — just recreate env at initial state
+            # Session exists but no actions — just recreate env at initial state
             bare_id = sess["game_id"].split("-")[0]
             arc = get_arcade()
             env = arc.make(bare_id)
@@ -326,17 +327,24 @@ def _try_recover_session(session_id: str):
                 session_grids[session_id] = state.get("grid", [])
                 session_snapshots[session_id] = []
                 session_step_counts[session_id] = 0
-            app.logger.info(f"Recovered session {session_id} (0 steps)")
+            app.logger.info(f"Recovered session {session_id} (0 actions)")
             return env, state
 
-        actions = [{"action": r["action"], "data": r["data_json"]} for r in rows]
+        actions = []
+        for r in rows:
+            act = {"action": r["action"]}
+            if r["row"] is not None and r["col"] is not None:
+                act["data"] = json.dumps({"x": r["col"], "y": r["row"]})
+            else:
+                act["data"] = None
+            actions.append(act)
         env, state = _reconstruct_session(sess["game_id"], actions)
         with session_lock:
             game_sessions[session_id] = env
             session_grids[session_id] = state.get("grid", [])
             session_snapshots[session_id] = []
             session_step_counts[session_id] = len(actions)
-        app.logger.info(f"Recovered session {session_id} ({len(actions)} steps replayed)")
+        app.logger.info(f"Recovered session {session_id} ({len(actions)} actions replayed)")
         return env, state
     except Exception as e:
         app.logger.warning(f"Session recovery failed for {session_id}: {e}")
@@ -399,6 +407,19 @@ def get_arcade():
     if arcade_instance is None:
         arcade_instance = arc_agi.Arcade()
     return arcade_instance
+
+
+def get_game_version(game_id: str) -> int:
+    """Return the git commit count touching this game's directory (follows renames)."""
+    bare_id = game_id.split("-")[0]
+    try:
+        out = subprocess.check_output(
+            ["git", "log", "--oneline", "--follow", "--", f"environment_files/{bare_id}/"],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+        return len(out.splitlines()) if out else 0
+    except Exception:
+        return 0
 
 
 def frame_to_grid(frame) -> list[list[int]]:
@@ -803,8 +824,8 @@ def add_cache_headers(response):
     return response
 
 
-@app.route("/games/ab01")
-def game_ab01():
+@app.route("/games/ab")
+def game_ab():
     return render_template("ab01.html")
 
 
@@ -1035,7 +1056,8 @@ def list_games():
     arc = get_arcade()
     envs = arc.get_environments()
     games = [
-        {"game_id": e.game_id, "title": e.title, "default_fps": e.default_fps}
+        {"game_id": e.game_id, "title": e.title, "default_fps": e.default_fps,
+         "version": get_game_version(e.game_id)}
         for e in envs
     ]
     # In prod mode, hide non-foundation games unless ?show_all=1
@@ -1065,6 +1087,7 @@ def game_source(game_id):
         "class_name": env_info.class_name,
         "game_id": env_info.game_id,
         "default_fps": env_info.default_fps,
+        "version": get_game_version(env_info.game_id),
     })
 
 
@@ -1094,9 +1117,11 @@ def start_game():
     state["session_id"] = session_id
     state["change_map"] = {"changes": [], "change_count": 0, "change_map_text": "(initial)"}
 
-    # Persist to SQLite
+    # Persist to SQLite (tag with user_id if authenticated)
     if feature_enabled("session_db"):
-        _db_insert_session(session_id, game_id, get_mode())
+        user = get_current_user()
+        _db_insert_session(session_id, game_id, get_mode(),
+                           user_id=user["id"] if user else None)
 
     return jsonify(state)
 
@@ -1155,11 +1180,16 @@ def step_game():
         # Pop any stashed LLM response, or use client-provided one
         llm_resp = session_last_llm.pop(session_id, None) or client_llm_response
 
-    # Persist step to SQLite
+    # Persist action to SQLite
     if feature_enabled("session_db"):
-        _db_insert_step(
-            session_id, step_num, int(action_id), action_data or {},
-            curr_grid, change_map, llm_resp,
+        # Build states_json: array of state dicts with compressed grid
+        states = [{"grid": _compress_grid(curr_grid)}] if curr_grid else None
+        # Extract row/col for click actions
+        act_row = action_data.get("y") if action_data else None
+        act_col = action_data.get("x") if action_data else None
+        _db_insert_action(
+            session_id, step_num, int(action_id), states,
+            row=act_row, col=act_col,
         )
         update_kwargs = dict(
             result=state.get("state", "NOT_FINISHED"),
@@ -1636,8 +1666,7 @@ def import_session():
     if not is_human and len(steps) < 5:
         return _cors_resp({"error": "Session too short (min 5 steps)", "skipped": True})
     try:
-        prompts_json = json.dumps(sess.get("prompts")) if sess.get("prompts") else None
-        timeline_json = json.dumps(sess.get("timeline")) if sess.get("timeline") else None
+        scaffolding_json = json.dumps(sess.get("prompts") or sess.get("scaffolding")) if (sess.get("prompts") or sess.get("scaffolding")) else None
         # Tag with authenticated user if present
         user = get_current_user()
         user_id = sess.get("user_id") or (user["id"] if user else None)
@@ -1646,14 +1675,13 @@ def import_session():
         conn = _get_db()
         conn.execute(
             """INSERT INTO sessions (id, game_id, model, mode, created_at, result, steps, levels,
-                                     parent_session_id, branch_at_step, prompts_json, timeline_json,
+                                     parent_session_id, branch_at_step, scaffolding_json,
                                      user_id, player_type, duration_seconds)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  result = excluded.result, steps = excluded.steps, levels = excluded.levels,
                  model = COALESCE(excluded.model, sessions.model),
-                 prompts_json = COALESCE(excluded.prompts_json, sessions.prompts_json),
-                 timeline_json = COALESCE(excluded.timeline_json, sessions.timeline_json),
+                 scaffolding_json = COALESCE(excluded.scaffolding_json, sessions.scaffolding_json),
                  user_id = COALESCE(excluded.user_id, sessions.user_id),
                  player_type = COALESCE(excluded.player_type, sessions.player_type),
                  duration_seconds = COALESCE(excluded.duration_seconds, sessions.duration_seconds)""",
@@ -1661,25 +1689,28 @@ def import_session():
              sess.get("mode", "online"), sess.get("created_at", time.time()),
              sess.get("result", "NOT_FINISHED"), sess.get("steps", 0),
              sess.get("levels", 0), sess.get("parent_session_id"),
-             sess.get("branch_at_step"), prompts_json, timeline_json, user_id,
+             sess.get("branch_at_step"), scaffolding_json, user_id,
              sess.get("player_type", "agent"), sess.get("duration_seconds")),
         )
-        llm_count = sum(1 for s in steps if s.get("llm_response"))
-        app.logger.info(f"[import] session={sess['id'][:30]} steps={len(steps)} with_llm={llm_count}")
+        app.logger.info(f"[import] session={sess['id'][:30]} steps={len(steps)}")
         for s in steps:
-            grid_snapshot = None
+            states_json = None
             if s.get("grid"):
-                grid_snapshot = _compress_grid(s["grid"])
+                states_json = json.dumps([{"grid": _compress_grid(s["grid"])}])
+            # Extract row/col from click data
+            sdata = s.get("data") or {}
+            act_row = sdata.get("y") if isinstance(sdata, dict) else None
+            act_col = sdata.get("x") if isinstance(sdata, dict) else None
+            # Determine author_type from step metadata
+            author_type = s.get("author_type") or ("agent" if s.get("llm_response") else None)
             conn.execute(
-                """INSERT OR REPLACE INTO session_steps
-                   (session_id, step_num, action, data_json, grid_snapshot,
-                    change_map_json, llm_response_json, timestamp)
+                """INSERT OR REPLACE INTO session_actions
+                   (session_id, step_num, action, row, col,
+                    author_type, states_json, timestamp)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (sess["id"], s.get("step_num", 0), s.get("action", 0),
-                 json.dumps(s.get("data", {})),
-                 grid_snapshot,
-                 json.dumps(s.get("change_map")) if s.get("change_map") else None,
-                 json.dumps(s.get("llm_response")) if s.get("llm_response") else None,
+                 act_row, act_col, author_type,
+                 states_json,
                  s.get("timestamp", time.time())),
             )
         # Extract timeline events into llm_calls rows (delete existing to avoid duplicates on re-upload)
@@ -1704,11 +1735,11 @@ def import_session():
         #            as_orch_*, as_sub_* (agent_spawn scaffold)
         for ev in timeline:
             etype = ev.get("type", "")
-            # Determine call_type
+            # Determine agent_type
             if etype in ("reasoning", "compact", "interrupt"):
-                call_type = ev.get("call_type", etype)
+                agent_type = ev.get("call_type", etype)
             elif etype.startswith("as_"):
-                call_type = etype  # e.g. as_orch_delegate, as_sub_result
+                agent_type = etype  # e.g. as_orch_delegate, as_sub_result
             else:
                 continue  # skip non-LLM events (act, game state, etc.)
 
@@ -1721,32 +1752,30 @@ def import_session():
             if not ts:
                 ts = sess.get("created_at", time.time())
 
-            # Build response_preview from available fields
-            preview = (ev.get("response_preview") or ev.get("response")
-                       or ev.get("reasoning") or ev.get("summary") or "")
-            if len(preview) > 1000:
-                preview = preview[:1000]
+            # Build input/output JSON from available fields
+            input_data = (ev.get("task") or "")[:500]
+            output_preview = (ev.get("response_preview") or ev.get("response")
+                              or ev.get("reasoning") or ev.get("summary") or "")
+            if len(output_preview) > 1000:
+                output_preview = output_preview[:1000]
 
             conn.execute(
                 """INSERT OR IGNORE INTO llm_calls
-                   (session_id, call_type, step_num, turn_num, model,
-                    prompt_preview, prompt_length, response_preview,
-                    input_tokens, output_tokens, cost, duration_ms,
-                    thinking_level, cache_active, error, attempt, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (sess["id"], call_type,
+                   (session_id, agent_type, step_num, turn_num, model,
+                    input_json, input_tokens, output_json, output_tokens,
+                    cost, duration_ms, error, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (sess["id"], agent_type,
                  ev.get("stepStart") or ev.get("step_num"),
                  ev.get("turn") or ev.get("parentTurn"),
                  ev.get("model", ""),
-                 (ev.get("task") or "")[:500],  # use task as prompt_preview for agent_spawn
-                 ev.get("prompt_length", 0),
-                 preview,
-                 ev.get("input_tokens", 0), ev.get("output_tokens", 0),
+                 json.dumps(input_data) if input_data else None,
+                 ev.get("input_tokens", 0),
+                 json.dumps(output_preview) if output_preview else None,
+                 ev.get("output_tokens", 0),
                  ev.get("cost", 0),
                  ev.get("duration") or ev.get("duration_ms") or 0,
-                 ev.get("thinking_level"),
-                 int(bool(ev.get("cache_active"))),
-                 ev.get("error"), ev.get("attempt", 0), ts),
+                 ev.get("error"), ts),
             )
             calls_imported += 1
 
@@ -1770,11 +1799,11 @@ def resume_session():
     session_id = payload.get("session_id")
     if not session_id:
         return jsonify({"error": "session_id required"}), 400
-    # Fetch session metadata and step rows from DB
+    # Fetch session metadata and action rows from DB
     try:
         conn = _get_db()
         sess = conn.execute(
-            "SELECT game_id, model, parent_session_id, branch_at_step, timeline_json FROM sessions WHERE id = ?",
+            "SELECT game_id, model, parent_session_id, branch_at_step FROM sessions WHERE id = ?",
             (session_id,),
         ).fetchone()
         if sess:
@@ -1786,11 +1815,11 @@ def resume_session():
         if sess:
             if sess.get("parent_session_id") and sess.get("branch_at_step") is not None:
                 parent_rows = conn.execute(
-                    "SELECT * FROM session_steps WHERE session_id = ? AND step_num <= ? ORDER BY step_num",
+                    "SELECT * FROM session_actions WHERE session_id = ? AND step_num <= ? ORDER BY step_num",
                     (sess["parent_session_id"], sess["branch_at_step"]),
                 ).fetchall()
             own_rows = conn.execute(
-                "SELECT * FROM session_steps WHERE session_id = ? ORDER BY step_num",
+                "SELECT * FROM session_actions WHERE session_id = ? ORDER BY step_num",
                 (session_id,),
             ).fetchall()
         conn.close()
@@ -1800,11 +1829,21 @@ def resume_session():
     except Exception as e:
         return jsonify({"error": f"DB error: {e}"}), 500
 
-    # Combine: parent steps + own steps = full action history
+    # Combine: parent actions + own actions = full action history
     all_rows = list(parent_rows) + list(own_rows)
 
+    # Build action dicts for replay
+    actions = []
+    for r in all_rows:
+        rd = dict(r) if not isinstance(r, dict) else r
+        act = {"action": rd["action"]}
+        if rd.get("row") is not None and rd.get("col") is not None:
+            act["data"] = json.dumps({"x": rd["col"], "y": rd["row"]})
+        else:
+            act["data"] = None
+        actions.append(act)
+
     # Replay all moves to get correct env state + per-step game stats
-    actions = [{"action": r["action"], "data": r["data_json"]} for r in all_rows]
     env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True)
 
     # Register the recovered env in global state
@@ -1819,166 +1858,53 @@ def resume_session():
     state["resumed_step_count"] = len(actions)
 
     # Build step history with per-step game stats from replay
-    step_list = [_format_step_row(dict(r)) for r in all_rows]
+    step_list = [_format_action_row(dict(r)) for r in all_rows]
     for i, s in enumerate(step_list):
         if i < len(per_step_states):
             s["result_state"] = per_step_states[i]["state"]
             s["levels_completed"] = per_step_states[i]["levels_completed"]
     state["steps"] = step_list
     state["model"] = sess["model"] or ""
-    # Include timeline events for obs reconstruction
-    tl_raw = sess.get("timeline_json")
-    if tl_raw:
-        try:
-            state["timeline"] = json.loads(tl_raw) if isinstance(tl_raw, str) else tl_raw
-        except Exception:
-            state["timeline"] = []
     return jsonify(state)
 
 
 @app.route("/api/sessions/<session_id>/event", methods=["POST"])
 @bot_protection
 def log_session_event(session_id):
-    """Log a session event (compact, branch, resume)."""
-    if not feature_enabled("session_db"):
-        return jsonify({"error": "Session DB not enabled"}), 400
-    payload = request.get_json(force=True)
-    event_type = payload.get("event_type")
-    step_num = payload.get("step_num")
-    event_data = payload.get("data", {})
-    try:
-        conn = _get_db()
-        conn.execute(
-            "INSERT INTO session_events (session_id, event_type, step_num, data_json, timestamp) VALUES (?, ?, ?, ?, ?)",
-            (session_id, event_type, step_num, json.dumps(event_data), time.time()))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        app.logger.warning(f"Event log failed: {e}")
+    """Log a session event (compact, branch, resume). Deprecated — session_events table removed."""
+    # session_events table has been removed; return OK for backward compat
     return jsonify({"status": "ok"})
 
 
 @app.route("/api/sessions/<session_id>/obs-events", methods=["GET", "POST"])
 @bot_protection
 def session_obs_events(session_id):
-    """GET: reconstruct obs events for replay. POST: save events from client."""
+    """GET: reconstruct obs events for replay. POST: no-op (obs_events table removed)."""
     if request.method == "POST":
-        if not feature_enabled("session_db"):
-            return jsonify({"error": "Session DB not enabled"}), 400
+        # obs_events table removed — accept POST for backward compat but don't store
         payload = request.get_json(force=True)
-        events = payload.get("events", [])
         cursor = payload.get("cursor", 0)
-        if not events:
-            return jsonify({"ok": True, "cursor": cursor})
-        try:
-            conn = _get_db()
-            now = time.time()
-            for i, ev in enumerate(events):
-                conn.execute(
-                    "INSERT OR IGNORE INTO obs_events (session_id, event_idx, event_json, timestamp) VALUES (?, ?, ?, ?)",
-                    (session_id, cursor + i, json.dumps(ev), now))
-            conn.commit()
-            conn.close()
-            new_cursor = cursor + len(events)
-            return jsonify({"ok": True, "cursor": new_cursor})
-        except Exception as e:
-            app.logger.warning(f"Obs events save failed: {e}")
-            return jsonify({"error": str(e)}), 500
+        events = payload.get("events", [])
+        return jsonify({"ok": True, "cursor": cursor + len(events)})
 
-    # GET — reconstruct events from DB for replay
+    # GET — reconstruct events from llm_calls + session_actions
     try:
         conn = _get_db()
-        # Try stored obs_events first
-        stored = conn.execute(
-            "SELECT event_json FROM obs_events WHERE session_id = ? ORDER BY event_idx",
-            (session_id,),
-        ).fetchall()
-        if stored:
-            # Enrich events with grid snapshots from session_steps
-            grid_rows = conn.execute(
-                "SELECT step_num, grid_snapshot FROM session_steps "
-                "WHERE session_id = ? AND grid_snapshot IS NOT NULL ORDER BY step_num",
-                (session_id,),
-            ).fetchall()
-            conn.close()
-            step_grids = {}
-            for gr in grid_rows:
-                try:
-                    step_grids[gr["step_num"]] = _decompress_grid(gr["grid_snapshot"])
-                except Exception:
-                    pass
-            events = []
-            for r in stored:
-                ev = json.loads(r["event_json"])
-                # Attach grid to events that have a step_num (action events)
-                if not ev.get("grid") and ev.get("step_num") is not None:
-                    grid = step_grids.get(ev["step_num"])
-                    if grid:
-                        ev["grid"] = grid
-                events.append(ev)
-            return jsonify({"events": events})
-
-        # Reconstruct from llm_calls + session_steps
         calls = conn.execute(
             "SELECT * FROM llm_calls WHERE session_id = ? ORDER BY timestamp",
             (session_id,),
         ).fetchall()
-        steps = conn.execute(
-            "SELECT * FROM session_steps WHERE session_id = ? ORDER BY step_num",
+        action_rows = conn.execute(
+            "SELECT * FROM session_actions WHERE session_id = ? ORDER BY step_num",
             (session_id,),
         ).fetchall()
-
-        # Fallback: if no llm_calls rows, reconstruct from timeline_json
-        if not calls:
-            sess_row = conn.execute(
-                "SELECT timeline_json FROM sessions WHERE id = ?", (session_id,),
-            ).fetchone()
-            if sess_row and sess_row["timeline_json"]:
-                try:
-                    timeline = json.loads(sess_row["timeline_json"])
-                except Exception:
-                    timeline = []
-                # Build step_num→timestamp lookup
-                step_ts = {}
-                for s in steps:
-                    sd = dict(s)
-                    sn = sd.get("step_num")
-                    if sn is not None:
-                        step_ts[sn] = sd.get("timestamp", 0)
-                # Convert timeline events to pseudo-call dicts
-                calls = []
-                for ev in timeline:
-                    etype = ev.get("type", "")
-                    if etype in ("reasoning", "compact", "interrupt") or etype.startswith("as_"):
-                        ts = ev.get("timestamp") or 0
-                        if not ts:
-                            sn = ev.get("stepStart") or ev.get("step_num")
-                            if sn and sn in step_ts:
-                                ts = step_ts[sn]
-                        preview = (ev.get("response_preview") or ev.get("response")
-                                   or ev.get("reasoning") or ev.get("summary") or "")
-                        calls.append({
-                            "timestamp": ts,
-                            "call_type": ev.get("call_type", etype),
-                            "model": ev.get("model", ""),
-                            "input_tokens": ev.get("input_tokens", 0),
-                            "output_tokens": ev.get("output_tokens", 0),
-                            "cost": ev.get("cost", 0),
-                            "duration_ms": ev.get("duration") or ev.get("duration_ms") or 0,
-                            "step_num": ev.get("stepStart") or ev.get("step_num"),
-                            "turn_num": ev.get("turn") or ev.get("parentTurn"),
-                            "thinking_level": ev.get("thinking_level"),
-                            "response_preview": preview[:1000] if preview else "",
-                            "prompt_preview": (ev.get("task") or "")[:500],
-                        })
-
         conn.close()
 
         raw_events = []
-        for c in [dict(c) if not isinstance(c, dict) else c for c in calls]:
+        for c in [dict(c) for c in calls]:
             raw_events.append({
                 "ts": c.get("timestamp", 0),
-                "agent": c.get("call_type", "planner"),
+                "agent": c.get("agent_type", "planner"),
                 "event": "llm_call",
                 "model": c.get("model", ""),
                 "input_tokens": c.get("input_tokens", 0),
@@ -1987,15 +1913,15 @@ def session_obs_events(session_id):
                 "duration_ms": c.get("duration_ms", 0),
                 "step_num": c.get("step_num"),
                 "turn_num": c.get("turn_num"),
-                "thinking_level": c.get("thinking_level"),
-                "response": c.get("response_preview", ""),
-                "prompt_preview": c.get("prompt_preview", ""),
+                "response": (c.get("output_json") or "")[:1000],
             })
-        for s in [dict(s) for s in steps]:
+        for s in [dict(s) for s in action_rows]:
             grid = None
-            if s.get("grid_snapshot"):
+            if s.get("states_json"):
                 try:
-                    grid = _decompress_grid(s["grid_snapshot"])
+                    states = json.loads(s["states_json"])
+                    if states and isinstance(states, list) and states[0].get("grid"):
+                        grid = _decompress_grid(states[0]["grid"])
                 except Exception:
                     pass
             action_id = s.get("action", 0)
@@ -2003,14 +1929,8 @@ def session_obs_events(session_id):
                 action_name = GameAction.from_id(int(action_id)).name
             except Exception:
                 action_name = str(action_id)
-            data = {}
-            if s.get("data_json"):
-                try:
-                    data = json.loads(s["data_json"]) if isinstance(s["data_json"], str) else s["data_json"]
-                except Exception:
-                    pass
-            if data and "x" in data and "y" in data:
-                action_name = f"{action_name}@({data['x']},{data['y']})"
+            if s.get("row") is not None and s.get("col") is not None:
+                action_name = f"{action_name}@({s['col']},{s['row']})"
             raw_events.append({
                 "ts": s.get("timestamp", 0),
                 "agent": "executor",
@@ -2068,17 +1988,21 @@ def branch_session():
             conn.close()
             return jsonify({"error": "Parent session not found"}), 404
         action_rows = conn.execute(
-            "SELECT action, data_json FROM session_steps WHERE session_id = ? AND step_num <= ? ORDER BY step_num",
-            (parent_id, step_num),
-        ).fetchall()
-        # Also fetch full step rows for reasoning trace
-        full_rows = conn.execute(
-            "SELECT * FROM session_steps WHERE session_id = ? AND step_num <= ? ORDER BY step_num",
+            "SELECT * FROM session_actions WHERE session_id = ? AND step_num <= ? ORDER BY step_num",
             (parent_id, step_num),
         ).fetchall()
         conn.close()
 
-        actions = [{"action": r["action"], "data": r["data_json"]} for r in action_rows]
+        # Build action dicts for replay
+        actions = []
+        for r in action_rows:
+            rd = dict(r) if not isinstance(r, dict) else r
+            act = {"action": rd["action"]}
+            if rd.get("row") is not None and rd.get("col") is not None:
+                act["data"] = json.dumps({"x": rd["col"], "y": rd["row"]})
+            else:
+                act["data"] = None
+            actions.append(act)
         env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True)
 
         # Generate new session ID
@@ -2108,7 +2032,7 @@ def branch_session():
         state["change_map"] = {"changes": [], "change_count": 0, "change_map_text": "(branch)"}
 
         # Include step history with per-step game stats for reasoning trace
-        step_list = [_format_step_row(dict(r)) for r in full_rows]
+        step_list = [_format_action_row(dict(r)) for r in action_rows]
         for i, s in enumerate(step_list):
             if i < len(per_step_states):
                 s["result_state"] = per_step_states[i]["state"]
@@ -2150,7 +2074,7 @@ def list_sessions():
         _sessions_query = (
             "SELECT s.id, s.game_id, s.model, s.mode, s.created_at, s.result, s.steps, s.levels, "
             "s.parent_session_id, s.branch_at_step, s.total_cost, s.player_type, s.duration_seconds, "
-            "(SELECT MAX(st.timestamp) - MIN(st.timestamp) FROM session_steps st WHERE st.session_id = s.id) AS duration "
+            "(SELECT MAX(st.timestamp) - MIN(st.timestamp) FROM session_actions st WHERE st.session_id = s.id) AS duration "
             "FROM sessions s "
         )
         _params = ()
@@ -2257,7 +2181,7 @@ def get_comments(game_id):
     try:
         conn = _get_db()
         rows = conn.execute(
-            "SELECT * FROM comments WHERE game_id=? ORDER BY created_at DESC LIMIT 200",
+            "SELECT * FROM comments WHERE location=? ORDER BY created_at DESC LIMIT 200",
             (game_id,),
         ).fetchall()
         # Get voter's votes for these comments
@@ -2295,7 +2219,7 @@ def post_comment():
     try:
         conn = _get_db()
         cur = conn.execute(
-            "INSERT INTO comments (game_id, author_id, author_name, body, created_at) VALUES (?,?,?,?,?)",
+            "INSERT INTO comments (location, user_id, author_name, body, created_at) VALUES (?,?,?,?,?)",
             (game_id, author_id, author_name, body, time.time()),
         )
         cid = cur.lastrowid
@@ -2358,9 +2282,9 @@ def contributors():
         conn = _get_db()
         # Top commenters
         commenters = conn.execute("""
-            SELECT author_id, author_name, COUNT(*) as comment_count,
+            SELECT user_id, author_name, COUNT(*) as comment_count,
                    SUM(upvotes) as total_upvotes
-            FROM comments GROUP BY author_id
+            FROM comments GROUP BY user_id
             ORDER BY comment_count DESC LIMIT 20
         """).fetchall()
         # Top human players (by number of sessions with >5 steps)
@@ -2422,22 +2346,28 @@ def game_results():
         return jsonify({"results": [], "error": str(e)})
 
 
-def _format_step_row(d: dict) -> dict:
-    """Decompress grid and parse JSON fields in a step row dict."""
-    if d.get("grid_snapshot"):
+def _format_action_row(d: dict) -> dict:
+    """Decompress grid from states_json and format an action row dict for API responses."""
+    if d.get("states_json"):
         try:
-            d["grid"] = _decompress_grid(d["grid_snapshot"])
+            states = json.loads(d["states_json"])
+            if states and isinstance(states, list) and states[0].get("grid"):
+                d["grid"] = _decompress_grid(states[0]["grid"])
+            else:
+                d["grid"] = None
         except Exception:
             d["grid"] = None
-        del d["grid_snapshot"]
-    for jf in ("data_json", "change_map_json", "llm_response_json"):
-        if d.get(jf):
-            try:
-                d[jf.replace("_json", "")] = json.loads(d[jf])
-            except Exception:
-                d[jf.replace("_json", "")] = None
-            del d[jf]
+        del d["states_json"]
+    # Reconstruct data dict from row/col for backward compat
+    if d.get("row") is not None and d.get("col") is not None:
+        d["data"] = {"x": d["col"], "y": d["row"]}
+    else:
+        d["data"] = {}
     return d
+
+
+# Keep old name as alias for any remaining callers
+_format_step_row = _format_action_row
 
 
 @app.route("/api/sessions/<session_id>")
@@ -2456,14 +2386,14 @@ def get_session(session_id):
         conn = _get_db()
         sess = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
         if sess:
-            steps = conn.execute(
-                "SELECT * FROM session_steps WHERE session_id = ? ORDER BY step_num",
+            action_rows = conn.execute(
+                "SELECT * FROM session_actions WHERE session_id = ? ORDER BY step_num",
                 (session_id,),
             ).fetchall()
             conn.close()
             sess_dict = dict(sess)
-            for s in steps:
-                step_list.append(_format_step_row(dict(s)))
+            for s in action_rows:
+                step_list.append(_format_action_row(dict(s)))
         else:
             conn.close()
 
@@ -2472,8 +2402,8 @@ def get_session(session_id):
             file_data = _read_session_from_file(session_id)
             if file_data:
                 sess_dict = file_data["session"]
-                for s in file_data["steps"]:
-                    step_list.append(_format_step_row(s))
+                for s in file_data.get("actions", file_data.get("steps", [])):
+                    step_list.append(_format_action_row(s))
 
         if not sess_dict:
             return jsonify({"error": "Session not found"}), 404
@@ -2487,19 +2417,19 @@ def get_session(session_id):
 @bot_protection
 @turnstile_required
 def get_session_step(session_id, step_num):
-    """Get a single step from a session."""
+    """Get a single action from a session."""
     if not feature_enabled("session_db"):
         return jsonify({"error": "Session DB not enabled"}), 404
     try:
         conn = _get_db()
         row = conn.execute(
-            "SELECT * FROM session_steps WHERE session_id = ? AND step_num = ?",
+            "SELECT * FROM session_actions WHERE session_id = ? AND step_num = ?",
             (session_id, step_num),
         ).fetchone()
         conn.close()
         if not row:
             return jsonify({"error": "Step not found"}), 404
-        d = _format_step_row(dict(row))
+        d = _format_action_row(dict(row))
         return jsonify(d)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -2513,11 +2443,11 @@ def get_session_step(session_id, step_num):
 def session_calls(session_id):
     """Return all LLM calls for a session, ordered by timestamp."""
     calls = _get_session_calls(session_id)
-    # Parse response_json back from string
+    # Parse output_json back from string
     for c in calls:
-        if c.get("response_json"):
+        if c.get("output_json"):
             try:
-                c["response_json"] = json.loads(c["response_json"])
+                c["output_json"] = json.loads(c["output_json"])
             except (json.JSONDecodeError, TypeError):
                 pass
     return jsonify(calls)
@@ -2558,20 +2488,20 @@ a{color:#58a6ff;text-decoration:none;}a:hover{text-decoration:underline;}</style
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SCENE EDITOR — fd01 pixel editor
+# SCENE EDITOR — fd pixel editor
 # ═══════════════════════════════════════════════════════════════════════════
 
 import importlib.util as _importlib_util
 import numpy as _np
 
-_FD01_PATH = Path(__file__).parent / "environment_files" / "fd01" / "00000001" / "fd01.py"
-_CUSTOM_SCENES_FILE = Path(__file__).parent / "environment_files" / "fd01" / "00000001" / "custom_scenes.json"
-_CUSTOM_DIFFS_FILE  = Path(__file__).parent / "environment_files" / "fd01" / "00000001" / "custom_diffs.json"
+_FD_PATH = Path(__file__).parent / "environment_files" / "fd" / "00000001" / "fd.py"
+_CUSTOM_SCENES_FILE = Path(__file__).parent / "environment_files" / "fd" / "00000001" / "custom_scenes.json"
+_CUSTOM_DIFFS_FILE  = Path(__file__).parent / "environment_files" / "fd" / "00000001" / "custom_diffs.json"
 
 
-def _load_fd01_module():
-    """Import fd01.py as a module to access its draw functions and constants."""
-    spec = _importlib_util.spec_from_file_location("fd01_editor", str(_FD01_PATH))
+def _load_fd_module():
+    """Import fd.py as a module to access its draw functions and constants."""
+    spec = _importlib_util.spec_from_file_location("fd_editor", str(_FD_PATH))
     mod = _importlib_util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -2620,7 +2550,7 @@ def _builtin_diffs_to_rects(raw_diffs):
 def get_draw_scene(level):
     if level < 0 or level >= 5:
         return jsonify({"error": "Invalid level"}), 400
-    fd01 = _load_fd01_module()
+    fd_mod = _load_fd_module()
     custom_scenes = _read_custom_scenes()
     custom_diffs  = _read_custom_diffs()
 
@@ -2628,8 +2558,8 @@ def get_draw_scene(level):
         pixels = custom_scenes[str(level)]
         is_custom_scene = True
     else:
-        img = _np.zeros((fd01.IMG_H, fd01.IMG_W), dtype=_np.int16)
-        fd01.SCENES[level](img)
+        img = _np.zeros((fd_mod.IMG_H, fd_mod.IMG_W), dtype=_np.int16)
+        fd_mod.SCENES[level](img)
         pixels = img.tolist()
         is_custom_scene = False
 
@@ -2637,10 +2567,10 @@ def get_draw_scene(level):
         diffs = custom_diffs[str(level)]
         is_custom_diffs = True
     else:
-        diffs = _builtin_diffs_to_rects(fd01.DIFFS[level])
+        diffs = _builtin_diffs_to_rects(fd_mod.DIFFS[level])
         is_custom_diffs = False
 
-    return jsonify({"pixels": pixels, "width": fd01.IMG_W, "height": fd01.IMG_H,
+    return jsonify({"pixels": pixels, "width": fd_mod.IMG_W, "height": fd_mod.IMG_H,
                     "custom": is_custom_scene, "custom_diffs": is_custom_diffs,
                     "diffs": diffs})
 
@@ -2820,6 +2750,12 @@ if __name__ == "__main__":
     # Initialize SQLite DB
     _init_db()
     print("  SQLite sessions DB initialized at:", DB_PATH)
+
+    # Log game versions
+    arc = get_arcade()
+    for e in arc.get_environments():
+        v = get_game_version(e.game_id)
+        print(f"  Game {e.game_id}: v{v}")
 
     if args.mode == "dual":
         print(f"\n  ARC-AGI-3 Web Player (dual mode)")
