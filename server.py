@@ -1117,9 +1117,11 @@ def start_game():
     state["session_id"] = session_id
     state["change_map"] = {"changes": [], "change_count": 0, "change_map_text": "(initial)"}
 
-    # Persist to SQLite
+    # Persist to SQLite (tag with user_id if authenticated)
     if feature_enabled("session_db"):
-        _db_insert_session(session_id, game_id, get_mode())
+        user = get_current_user()
+        _db_insert_session(session_id, game_id, get_mode(),
+                           user_id=user["id"] if user else None)
 
     return jsonify(state)
 
