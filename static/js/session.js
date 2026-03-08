@@ -1686,6 +1686,8 @@ function showMenuView() {
   sessionHost.style.display = 'none';
   emptyApp.style.display = 'none';
   browseView.style.display = 'none';
+  const sidebar = document.getElementById('gameSidebar');
+  if (sidebar) sidebar.style.display = 'none';
   // Highlight Play nav link
   document.querySelectorAll('.top-nav .nav-link').forEach(l => l.classList.remove('active'));
   document.querySelectorAll('.top-nav .nav-link')[0]?.classList.add('active');
@@ -2351,90 +2353,10 @@ function showLoginModal() {
   document.getElementById('loginError').style.display = 'none';
   const emailEl = document.getElementById('loginEmail');
   if (emailEl) { emailEl.value = ''; emailEl.focus(); }
-  // Render Google button after modal is visible (GSI needs visible container)
-  if (typeof GOOGLE_CLIENT_ID !== 'undefined' && GOOGLE_CLIENT_ID) {
-    requestAnimationFrame(() => _initGoogleSignIn());
-  }
 }
 
 function hideLoginModal() {
   document.getElementById('loginModal').style.display = 'none';
-  if (_gsiRetryTimer) { clearInterval(_gsiRetryTimer); _gsiRetryTimer = null; }
-}
-
-// ── Google Sign-In (GSI) ────────────────────────────────────────────────
-
-let _gsiIdInitialized = false;
-let _gsiRetryTimer = null;
-
-function _initGoogleSignIn() {
-  const container = document.getElementById('googleSignInBtn');
-  if (!container) return;
-  // GSI script may still be loading (async defer) — retry until ready
-  if (!window.google?.accounts?.id) {
-    container.innerHTML = '<div style="text-align:center;padding:8px;font-size:12px;color:var(--text-dim);">Loading Google Sign-In...</div>';
-    clearInterval(_gsiRetryTimer);
-    let retries = 0;
-    _gsiRetryTimer = setInterval(() => {
-      retries++;
-      if (window.google?.accounts?.id) {
-        clearInterval(_gsiRetryTimer);
-        _gsiRetryTimer = null;
-        _renderGoogleButton(container);
-      } else if (retries > 25) { // 5 seconds
-        clearInterval(_gsiRetryTimer);
-        _gsiRetryTimer = null;
-        container.innerHTML = '<div style="text-align:center;padding:8px;font-size:12px;color:var(--text-dim);">Google Sign-In unavailable. Use email below.</div>';
-        console.warn('GSI script failed to load after 5s');
-      }
-    }, 200);
-    return;
-  }
-  _renderGoogleButton(container);
-}
-
-function _renderGoogleButton(container) {
-  try {
-    if (!_gsiIdInitialized) {
-      google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: _handleGoogleCredential,
-      });
-      _gsiIdInitialized = true;
-    }
-    container.innerHTML = '';
-    google.accounts.id.renderButton(container, {
-      theme: 'outline',
-      size: 'large',
-      width: 312,
-      text: 'signin_with',
-    });
-  } catch (e) {
-    console.error('GSI renderButton failed:', e);
-    container.innerHTML = '<div style="text-align:center;padding:8px;font-size:12px;color:var(--text-dim);">Google Sign-In error. Use email below.</div>';
-  }
-}
-
-async function _handleGoogleCredential(response) {
-  const errEl = document.getElementById('loginError');
-  try {
-    const resp = await fetch('/api/auth/google', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ credential: response.credential }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      if (errEl) { errEl.textContent = data.error || 'Google login failed'; errEl.style.display = ''; }
-      return;
-    }
-    currentUser = data.user;
-    updateAuthUI();
-    hideLoginModal();
-    claimLocalSessions();
-  } catch (e) {
-    if (errEl) { errEl.textContent = 'Network error. Please try again.'; errEl.style.display = ''; }
-  }
 }
 
 // Close modal on backdrop click
