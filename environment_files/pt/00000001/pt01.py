@@ -195,7 +195,7 @@ def _draw_hpbar(frame: np.ndarray, x: int, y: int,
 # ── Display ───────────────────────────────────────────────────────────────────
 
 class PirateDisplay(RenderableUserDisplay):
-    def __init__(self, game: 'Pt') -> None:
+    def __init__(self, game: 'Pt01') -> None:
         self.game = game
 
     def render_interface(self, frame: np.ndarray) -> np.ndarray:
@@ -259,7 +259,7 @@ class PirateDisplay(RenderableUserDisplay):
 
 # ── Game ──────────────────────────────────────────────────────────────────────
 
-class Pt(ARCBaseGame):
+class Pt01(ARCBaseGame):
 
     SPEED       = 2      # pixels per move action
     FIRE_RANGE  = 22     # auto-aim cannon range (pixels)

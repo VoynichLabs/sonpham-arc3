@@ -411,7 +411,8 @@ def get_arcade():
 
 def get_game_version(game_id: str) -> int:
     """Return the git commit count touching this game's directory (follows renames)."""
-    bare_id = game_id.split("-")[0]
+    # Observatory games: dir is two-letter prefix (lb03 → lb/), Foundation: full ID (ls20 → ls20/)
+    bare_id = game_id if Path(f"environment_files/{game_id}").is_dir() else game_id[:2]
     try:
         out = subprocess.check_output(
             ["git", "log", "--oneline", "--follow", "--", f"environment_files/{bare_id}/"],
@@ -1062,7 +1063,7 @@ def list_games():
     ]
     # In prod mode, hide non-foundation games unless ?show_all=1
     if get_mode() == "prod" and request.args.get("show_all") != "1":
-        games = [g for g in games if g["game_id"].split("-")[0] not in HIDDEN_GAMES]
+        games = [g for g in games if g["game_id"][:2] not in HIDDEN_GAMES]
     return jsonify(games)
 
 
@@ -1071,14 +1072,15 @@ def list_games():
 @turnstile_required
 def game_source(game_id):
     """Return the Python source code for a game (for Pyodide client-side execution)."""
-    bare_id = game_id.split("-")[0]
     arc = get_arcade()
     envs = arc.get_environments()
-    env_info = next((e for e in envs if e.game_id == game_id or e.game_id.split("-")[0] == bare_id), None)
+    bare_id = game_id.split("-")[0]
+    env_info = next((e for e in envs if e.game_id == game_id or e.game_id == bare_id), None)
     if env_info is None:
         return jsonify({"error": f"Game {game_id} not found"}), 404
     local_dir = Path(env_info.local_dir)
-    py_file = local_dir / f"{bare_id}.py"
+    # .py file is named after the game_id (e.g. lb03.py, ls20.py)
+    py_file = local_dir / f"{env_info.game_id}.py"
     if not py_file.exists():
         return jsonify({"error": f"Source file not found for {game_id}"}), 404
     source = py_file.read_text(encoding="utf-8")

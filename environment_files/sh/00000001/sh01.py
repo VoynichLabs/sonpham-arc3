@@ -444,7 +444,7 @@ LEVELS = [
 # ============================================================================
 
 class Sh02Display(RenderableUserDisplay):
-    def __init__(self, game: "Sh"):
+    def __init__(self, game: "Sh01"):
         self.game = game
 
     def _draw_person(self, frame, px, py, facing, body_color, head_color):
@@ -632,7 +632,7 @@ class Sh02Display(RenderableUserDisplay):
 # Game
 # ============================================================================
 
-class Sh(ARCBaseGame):
+class Sh01(ARCBaseGame):
     def __init__(self):
         self.display = Sh02Display(self)
 

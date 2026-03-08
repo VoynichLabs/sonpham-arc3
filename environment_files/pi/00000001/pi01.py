@@ -417,7 +417,7 @@ def _los_clear(m, x0, y0, x1, y1):
 # ---------------------------------------------------------------------------
 
 class PiDisplay(RenderableUserDisplay):
-    def __init__(self, game: "Pi"):
+    def __init__(self, game: "Pi01"):
         self.game = game
 
     def render_interface(self, frame: np.ndarray) -> np.ndarray:
@@ -554,7 +554,7 @@ class PiDisplay(RenderableUserDisplay):
 # Game
 # ---------------------------------------------------------------------------
 
-class Pi(ARCBaseGame):
+class Pi01(ARCBaseGame):
     def __init__(self):
         self.display = PiDisplay(self)
 

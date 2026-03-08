@@ -320,7 +320,7 @@ def _build_level(level_idx):
 levels = [_build_level(i) for i in range(10)]
 
 
-class Ac(ARCBaseGame):
+class Ac01(ARCBaseGame):
     def __init__(self) -> None:
         self.selected_color = 0
         self.current_train_idx = 0

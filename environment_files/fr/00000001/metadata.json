@@ -1,5 +1,5 @@
 {
-    "game_id": "fr",
+    "game_id": "fr01",
     "title": "Feeding Frenzy",
     "default_fps": 30,
     "baseline_actions": [1, 2, 3, 4],

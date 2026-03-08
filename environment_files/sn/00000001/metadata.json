@@ -1,5 +1,5 @@
 {
-  "game_id": "sn",
+  "game_id": "sn01",
   "title": "Sneeze",
   "default_fps": 8,
   "baseline_actions": [15, 20, 25, 30, 35, 40, 50],

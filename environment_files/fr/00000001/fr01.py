@@ -221,7 +221,7 @@ class OceanDisplay(RenderableUserDisplay):
 # Game
 # ---------------------------------------------------------------------------
 
-class Fr(ARCBaseGame):
+class Fr01(ARCBaseGame):
     def __init__(self):
         self.display = OceanDisplay(self)
 
