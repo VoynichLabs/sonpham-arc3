@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 import httpx as _httpx
 from dotenv import load_dotenv
-from flask import Flask, Response, abort, jsonify, make_response, render_template, request
+from flask import Flask, Response, abort, jsonify, make_response, render_template, request, session as flask_session
 
 import arc_agi
 from arcengine import GameAction, GameState
@@ -45,6 +45,7 @@ import llm_providers
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", secrets.token_hex(32))
 _STATIC_VERSION = str(int(time.time()))  # cache-bust static files on each deploy
 app.logger.setLevel(logging.INFO)
 
@@ -117,8 +118,9 @@ UMAMI_WEBSITE_ID = os.environ.get("UMAMI_WEBSITE_ID", "")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 RESEND_FROM = os.environ.get("RESEND_FROM", "noreply@arc3.sonpham.net")
 
-# Google OAuth — Sign In With Google (GSI)
+# Google OAuth
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
 BOT_UA_PATTERNS = [
     "bot", "crawler", "spider", "scraper", "wget", "curl", "python-requests",
@@ -984,49 +986,99 @@ def auth_logout():
     return resp
 
 
-@app.route("/api/auth/google", methods=["POST"])
-@bot_protection
-def auth_google():
-    """Verify a Google ID token and log the user in."""
-    if not GOOGLE_CLIENT_ID:
-        return jsonify({"error": "Google login not configured"}), 503
-    payload = request.get_json(force=True)
-    credential = payload.get("credential", "")
-    if not credential:
-        return jsonify({"error": "Missing credential"}), 400
-    # Verify the ID token with Google
+@app.route("/api/auth/google")
+def auth_google_redirect():
+    """Redirect to Google OAuth consent screen."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        return "Google login not configured", 503
+    base_url = request.host_url.rstrip("/")
+    redirect_uri = f"{base_url}/api/auth/google/callback"
+    # Generate state token to prevent CSRF
+    state = secrets.token_urlsafe(32)
+
+    flask_session["google_oauth_state"] = state
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "access_type": "online",
+        "state": state,
+        "prompt": "select_account",
+    }
+    from urllib.parse import urlencode
+    qs = urlencode(params)
+    return make_response("", 302, {"Location": f"https://accounts.google.com/o/oauth2/v2/auth?{qs}"})
+
+
+@app.route("/api/auth/google/callback")
+def auth_google_callback():
+    """Handle Google OAuth callback — exchange code for tokens and log in."""
+    error = request.args.get("error")
+    if error:
+        app.logger.warning(f"Google OAuth error: {error}")
+        return f"Google login failed: {error}", 400
+    code = request.args.get("code", "")
+    state = request.args.get("state", "")
+    if not code:
+        return "Missing authorization code", 400
+    # Verify state token
+
+    expected_state = flask_session.pop("google_oauth_state", None)
+    if not expected_state or state != expected_state:
+        return "Invalid state token — please try again", 400
+    base_url = request.host_url.rstrip("/")
+    redirect_uri = f"{base_url}/api/auth/google/callback"
+    # Exchange authorization code for tokens
     try:
-        resp = _httpx.get(
-            "https://oauth2.googleapis.com/tokeninfo",
-            params={"id_token": credential},
+        token_resp = _httpx.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
             timeout=10,
         )
-        if resp.status_code != 200:
-            return jsonify({"error": "Invalid Google token"}), 401
-        token_info = resp.json()
+        if token_resp.status_code != 200:
+            app.logger.warning(f"Google token exchange failed: {token_resp.text}")
+            return "Google login failed — token exchange error", 500
+        tokens = token_resp.json()
     except Exception as e:
-        app.logger.warning(f"Google token verification failed: {e}")
-        return jsonify({"error": "Token verification failed"}), 500
-    # Validate audience matches our client ID
+        app.logger.warning(f"Google token exchange error: {e}")
+        return "Google login failed — network error", 500
+    # Verify the ID token
+    id_token = tokens.get("id_token", "")
+    try:
+        info_resp = _httpx.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": id_token},
+            timeout=10,
+        )
+        if info_resp.status_code != 200:
+            return "Google login failed — invalid token", 401
+        token_info = info_resp.json()
+    except Exception as e:
+        app.logger.warning(f"Google tokeninfo failed: {e}")
+        return "Google login failed — verification error", 500
     if token_info.get("aud") != GOOGLE_CLIENT_ID:
-        return jsonify({"error": "Token audience mismatch"}), 401
+        return "Google login failed — audience mismatch", 401
     email = token_info.get("email", "").lower().strip()
-    if not email or not token_info.get("email_verified", "false") == "true":
-        return jsonify({"error": "Email not verified"}), 401
-    # Find or create user by email
+    email_verified = token_info.get("email_verified")
+    if not email or email_verified not in ("true", True):
+        return "Google login failed — email not verified", 401
+    # Create/find user and issue auth token
     google_name = token_info.get("name", "")
     google_sub = token_info.get("sub", "")
     user = find_or_create_user(email, display_name=google_name, google_id=google_sub)
     if not user:
-        return jsonify({"error": "Service unavailable"}), 503
+        return "Service unavailable", 503
     token = create_auth_token(user["id"])
     if not token:
-        return jsonify({"error": "Service unavailable"}), 503
-    resp = make_response(jsonify({
-        "status": "ok",
-        "user": {"id": user["id"], "email": user["email"],
-                 "display_name": user.get("display_name")},
-    }))
+        return "Service unavailable", 503
+    resp = make_response("", 302, {"Location": "/?logged_in=1"})
     resp.set_cookie("arc_auth", token,
                      max_age=AUTH_TOKEN_TTL, httponly=True,
                      samesite="Lax", secure=request.is_secure)
