@@ -197,7 +197,7 @@ def _draw_range_circle(frame, lx, ly, radius_cells, color):
 # ── Display ───────────────────────────────────────────────────────────────────
 
 class Td01Display(RenderableUserDisplay):
-    def __init__(self, game: "Td"):
+    def __init__(self, game: "Td01"):
         self.game = game
 
     def render_interface(self, frame: np.ndarray) -> np.ndarray:
@@ -313,7 +313,7 @@ class Td01Display(RenderableUserDisplay):
 
 # ── Game ──────────────────────────────────────────────────────────────────────
 
-class Td(ARCBaseGame):
+class Td01(ARCBaseGame):
     def __init__(self):
         self.display = Td01Display(self)
 

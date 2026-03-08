@@ -200,7 +200,7 @@ def _pset(frame, x, y, color):
 # --- Display -----------------------------------------------------------------
 
 class Ab01Display(RenderableUserDisplay):
-    def __init__(self, game: "Ab"):
+    def __init__(self, game: "Ab01"):
         self.game = game
 
     def render_interface(self, frame: np.ndarray) -> np.ndarray:
@@ -424,7 +424,7 @@ class Ab01Display(RenderableUserDisplay):
 
 # --- Game --------------------------------------------------------------------
 
-class Ab(ARCBaseGame):
+class Ab01(ARCBaseGame):
     def __init__(self):
         self.display = Ab01Display(self)
 

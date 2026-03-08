@@ -159,14 +159,23 @@ The `metadata.json` must also be updated with the current `date_downloaded` (use
 
 **Never edit a game file in-place without bumping the version.** If the change is purely cosmetic (comments, whitespace), a version bump is not required.
 
+### Game ID Convention
+
+There are two types of games with different ID formats:
+
+- **Observatory games** (our custom games): Use `{two-letter prefix}{two-digit version}` format. The version number in the ID matches the version directory. Examples: `lb03` (Light Bender v3), `ab01` (Antibody v1), `sn01` (Snake v1). When a major version bump occurs, the game ID itself changes (e.g., `lb01` → `lb03`).
+- **ARC Prize Foundation games** (imported from ARC Prize): Use just their short ID with no suffix. Examples: `ls20`, `vc33`, `ft09`, `lp85`. These come from the ARC Prize Foundation and don't follow our versioning convention in their ID.
+
+The `game_id` field in `metadata.json` must match this convention. The `HIDDEN_GAMES` list in `server.py` filters by the two-letter prefix (e.g., `"ab"` hides `ab01`, `ab02`, etc.).
+
 ### File Structure
-- Directory: `environment_files/<game_id>/<version>/` (version = zero-padded 8-digit number, e.g., `00000001`)
-- Game file: `<game_id>.py` with class named in PascalCase from the ID (e.g., `mk01` → `Mk01`)
+- Directory: `environment_files/<game_dir>/<version>/` (game_dir = two-letter code for Observatory or full ID for Foundation, version = zero-padded 8-digit number)
+- Game file: `<game_id>.py` with class named in PascalCase from the game_id (e.g., `lb03` → `Lb03`, `ls20` → `Ls20`)
 - Metadata: `metadata.json` with `game_id`, `title`, `default_fps`, `baseline_actions`, `tags`, `local_dir`, `date_downloaded` (date of this version)
 
 ### Game Class Requirements
 - Extend `ARCBaseGame` from `arcengine`
-- Class name MUST match the game ID in PascalCase (e.g., `Mk01`, `Ls20`) — Pyodide loads it by this name
+- Class name MUST match the game_id in PascalCase (e.g., `Ab01`, `Lb03`, `Ls20`) — Pyodide loads it by this name
 - Override `step()` and call `self.complete_action()` at the end of every code path
 - Override `on_set_level()` for level-specific setup
 - Use `self.next_level()` for win, `self.lose()` for game over

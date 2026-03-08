@@ -91,7 +91,7 @@ levels = [
 # ---------------------------------------------------------------------------
 
 class FlyDisplay(RenderableUserDisplay):
-    def __init__(self, game: "Fy"):
+    def __init__(self, game: "Fy01"):
         self.game = game
 
     def render_interface(self, frame: np.ndarray) -> np.ndarray:
@@ -168,7 +168,7 @@ class FlyDisplay(RenderableUserDisplay):
 # Game
 # ---------------------------------------------------------------------------
 
-class Fy(ARCBaseGame):
+class Fy01(ARCBaseGame):
     def __init__(self):
         self.display = FlyDisplay(self)
 

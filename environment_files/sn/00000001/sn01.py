@@ -244,7 +244,7 @@ class SnDisplay(RenderableUserDisplay):
         self.game = game
 
     def render_interface(self, frame: np.ndarray) -> np.ndarray:
-        g: "Sn" = self.game
+        g: "Sn01" = self.game
         frame[:, :] = C_BG
 
         ox = 2 - g._cam_x
@@ -361,7 +361,7 @@ class SnDisplay(RenderableUserDisplay):
 # Game
 # ============================================================================
 
-class Sn(ARCBaseGame):
+class Sn01(ARCBaseGame):
     def __init__(self):
         self.display = SnDisplay(self)
 

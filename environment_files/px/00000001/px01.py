@@ -739,7 +739,7 @@ levels = [
 
 # ── Game class ──────────────────────────────────────────────────────────
 
-class Px(ARCBaseGame):
+class Px01(ARCBaseGame):
     def __init__(self):
         self.display = PxDisplay(self)
         self.cauldron_state = E

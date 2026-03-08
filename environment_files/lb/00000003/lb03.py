@@ -1,7 +1,10 @@
-# Light Bender v2 - A beam-reflection puzzle game
+# Light Bender v3 - A beam-reflection puzzle game
 #
-# D-pad (1-4) moves cursor. ACTION5 cycles mirror orientation on placeable cells:
+# D-pad (1-4) moves cursor. ACTION5 cycles mirror orientation on any empty cell:
 # empty -> M0 (---) -> M1 -> M2 (\) -> M3 -> M4 (|) -> M5 -> M6 (/) -> M7 -> empty
+#
+# Free placement: mirrors can go anywhere on the grid (not walls/sources/targets/etc.)
+# but each level limits the number of mirrors you can place.
 #
 # Features: 8 mirror orientations, 8 beam directions (cardinal+diagonal),
 # prisms (split white->RGB), mist (attenuates beam), doors+switches.
@@ -107,7 +110,6 @@ TARGET_COLORS = {
 # ============================================================================
 LEVELS = [
     # L1: "First Bend" - Tutorial. One mirror to redirect beam.
-    # Source left going right, target at bottom. Place \ at (3,3).
     {
         "name": "First Bend",
         "grid_w": 7, "grid_h": 7,
@@ -115,8 +117,7 @@ LEVELS = [
         "sources": [(0, 3, 1, 0)],
         "targets": [{"pos": (3, 6), "color": "white"}],
         "fixed_mirrors": {},
-        "placeable": {(3, 3)},
-        "cursor_start": (3, 3),
+        "max_mirrors": 1,
         "prisms": set(), "mist": set(),
         "switch": None, "door": None,
     },
@@ -129,8 +130,7 @@ LEVELS = [
         "sources": [(1, 0, 0, 1)],
         "targets": [{"pos": (6, 4), "color": "white"}],
         "fixed_mirrors": {},
-        "placeable": {(1, 3), (6, 3)},
-        "cursor_start": (1, 3),
+        "max_mirrors": 2,
         "prisms": set(), "mist": set(),
         "switch": None, "door": None,
     },
@@ -143,8 +143,7 @@ LEVELS = [
         "sources": [(0, 6, 1, 0)],
         "targets": [{"pos": (7, 2), "color": "white"}],
         "fixed_mirrors": {},
-        "placeable": {(3, 6), (3, 2)},
-        "cursor_start": (3, 6),
+        "max_mirrors": 2,
         "prisms": set(), "mist": set(),
         "switch": None, "door": None,
     },
@@ -157,8 +156,7 @@ LEVELS = [
         "sources": [(0, 2, 1, 0)],
         "targets": [{"pos": (7, 6), "color": "white"}],
         "fixed_mirrors": {(4, 2): 2},  # M2 backslash
-        "placeable": {(4, 6)},
-        "cursor_start": (4, 6),
+        "max_mirrors": 1,
         "prisms": set(), "mist": set(),
         "switch": None, "door": None,
     },
@@ -171,8 +169,7 @@ LEVELS = [
         "sources": [(0, 5, 1, 0)],
         "targets": [{"pos": (7, 3), "color": "white"}],
         "fixed_mirrors": {},
-        "placeable": {(4, 5), (4, 1), (7, 1)},
-        "cursor_start": (4, 5),
+        "max_mirrors": 3,
         "prisms": set(), "mist": set(),
         "switch": None, "door": None,
     },
@@ -185,8 +182,7 @@ LEVELS = [
         "sources": [(0, 2, 1, 0)],
         "targets": [{"pos": (7, 8), "color": "white"}],
         "fixed_mirrors": {},
-        "placeable": {(2, 2), (4, 4), (4, 7), (7, 7)},
-        "cursor_start": (2, 2),
+        "max_mirrors": 4,
         "prisms": set(), "mist": set(),
         "switch": None, "door": None,
     },
@@ -199,8 +195,7 @@ LEVELS = [
         "sources": [(0, 5, 1, 0)],
         "targets": [{"pos": (10, 9), "color": "white"}],
         "fixed_mirrors": {(4, 5): 1},  # M1: R -> DR
-        "placeable": {(7, 8), (7, 9)},
-        "cursor_start": (7, 8),
+        "max_mirrors": 2,
         "prisms": set(), "mist": set(),
         "switch": None, "door": None,
     },
@@ -217,8 +212,7 @@ LEVELS = [
             {"pos": (1, 8), "color": "blue"},
         ],
         "fixed_mirrors": {},
-        "placeable": {(6, 5)},
-        "cursor_start": (6, 5),
+        "max_mirrors": 1,
         "prisms": {(5, 4)},
         "mist": set(),
         "switch": None, "door": None,
@@ -236,8 +230,7 @@ LEVELS = [
             {"pos": (6, 10), "color": "blue"},
         ],
         "fixed_mirrors": {},
-        "placeable": {(6, 4), (6, 8)},
-        "cursor_start": (6, 4),
+        "max_mirrors": 2,
         "prisms": {(4, 6)},
         "mist": set(),
         "switch": None, "door": None,
@@ -251,8 +244,7 @@ LEVELS = [
         "sources": [(0, 4, 1, 0)],
         "targets": [{"pos": (8, 4), "color": "white"}],
         "fixed_mirrors": {},
-        "placeable": {(2, 4), (2, 2), (7, 2), (7, 4)},
-        "cursor_start": (2, 4),
+        "max_mirrors": 4,
         "prisms": set(),
         "mist": {(3, 4), (4, 4), (5, 4), (6, 4)},
         "switch": None, "door": None,
@@ -266,8 +258,7 @@ LEVELS = [
         "sources": [(0, 3, 1, 0), (0, 8, 1, 0)],
         "targets": [{"pos": (10, 8), "color": "white"}],
         "fixed_mirrors": {},
-        "placeable": {(4, 3), (4, 1), (7, 1), (7, 3)},
-        "cursor_start": (4, 3),
+        "max_mirrors": 4,
         "prisms": set(), "mist": set(),
         "switch": (8, 3),
         "door": (6, 8),
@@ -285,8 +276,7 @@ LEVELS = [
             {"pos": (9, 12), "color": "blue"},
         ],
         "fixed_mirrors": {},
-        "placeable": {(4, 2), (4, 1), (9, 1), (9, 2), (7, 8)},
-        "cursor_start": (4, 2),
+        "max_mirrors": 5,
         "prisms": {(6, 9)},
         "mist": {(10, 8)},
         "switch": (10, 2),
@@ -299,7 +289,7 @@ LEVELS = [
 # Display
 # ============================================================================
 
-class Lb01Display(RenderableUserDisplay):
+class LbDisplay(RenderableUserDisplay):
     def __init__(self, game):
         self.game = game
 
@@ -332,7 +322,6 @@ class Lb01Display(RenderableUserDisplay):
             dpx, dpy = ox + dx * CELL, oy + dy * CELL
             if g.door_open:
                 frame[dpy:dpy + CELL, dpx:dpx + CELL] = C_FLOOR
-                # Draw thin border to show door frame
                 frame[dpy, dpx:dpx + CELL] = C_MAROON
                 frame[dpy + CELL - 1, dpx:dpx + CELL] = C_MAROON
             else:
@@ -348,7 +337,6 @@ class Lb01Display(RenderableUserDisplay):
         for (prx, pry) in g.prism_cells:
             ppx, ppy = ox + prx * CELL, oy + pry * CELL
             frame[ppy:ppy + CELL, ppx:ppx + CELL] = C_FLOOR
-            # Triangle: pointed top
             frame[ppy, ppx + 1:ppx + 3] = C_PURPLE
             frame[ppy + 1, ppx:ppx + CELL] = C_PURPLE
             frame[ppy + 2, ppx:ppx + CELL] = C_PURPLE
@@ -367,20 +355,11 @@ class Lb01Display(RenderableUserDisplay):
             tpx, tpy = ox + tx * CELL, oy + ty * CELL
             tc = TARGET_COLORS.get(tgt["color"], C_YELLOW)
             frame[tpy:tpy + CELL, tpx:tpx + CELL] = tc
-            # Draw yellow corner dots for colored targets
             if tgt["color"] != "white":
                 frame[tpy, tpx] = C_YELLOW
                 frame[tpy, tpx + CELL - 1] = C_YELLOW
                 frame[tpy + CELL - 1, tpx] = C_YELLOW
                 frame[tpy + CELL - 1, tpx + CELL - 1] = C_YELLOW
-
-        # Draw placeable cell markers (subtle dot)
-        for (plx, ply) in g.placeable:
-            if (plx, ply) not in g.mirrors:
-                ppx, ppy = ox + plx * CELL, oy + ply * CELL
-                cx, cy = ppx + CELL // 2, ppy + CELL // 2
-                if 0 <= cy < 64 and 0 <= cx < 64:
-                    frame[cy, cx] = C_DGRAY
 
         # Draw mirrors
         for (mx, my), mid in g.mirrors.items():
@@ -394,7 +373,6 @@ class Lb01Display(RenderableUserDisplay):
         # Draw beam segments as lines
         for seg in g.beam_segments:
             bx, by, bcolor, bdir, bstr = seg
-            # Skip drawing on source, mirror, prism cells
             if any(bx == s[0] and by == s[1] for s in g.sources):
                 continue
             if (bx, by) in g.mirrors:
@@ -411,14 +389,13 @@ class Lb01Display(RenderableUserDisplay):
                 if 0 <= rr < 64 and 0 <= cc < 64:
                     frame[rr, cc] = palette
 
-        # Draw beam hitting targets (target color with beam center)
+        # Draw beam hitting targets
         for i, tgt in enumerate(g.targets):
             if i in g.targets_hit:
                 tx, ty = tgt["pos"]
                 tpx, tpy = ox + tx * CELL, oy + ty * CELL
                 tc = TARGET_COLORS.get(tgt["color"], C_YELLOW)
                 frame[tpy:tpy + CELL, tpx:tpx + CELL] = tc
-                # Bright center dot to show beam hit
                 frame[tpy + 1:tpy + 3, tpx + 1:tpx + 3] = C_WHITE
 
         # Draw cursor border (green outline)
@@ -439,6 +416,20 @@ class Lb01Display(RenderableUserDisplay):
             c1 = min(64, c0 + bar_w - 1)
             frame[0:2, c0:c1] = color
 
+        # Mirrors remaining indicator (bottom row): green dots = remaining, red = used
+        remaining = g.max_mirrors - g.player_mirror_count
+        total = g.max_mirrors
+        ind_x = (64 - total * 3) // 2  # center the dots
+        for i in range(total):
+            dx = ind_x + i * 3
+            if dx < 0 or dx + 1 >= 64:
+                continue
+            c = C_GREEN if i < remaining else C_RED
+            frame[62, dx] = c
+            frame[62, dx + 1] = c
+            frame[63, dx] = c
+            frame[63, dx + 1] = c
+
         return frame
 
 
@@ -446,9 +437,9 @@ class Lb01Display(RenderableUserDisplay):
 # Game
 # ============================================================================
 
-class Lb(ARCBaseGame):
+class Lb03(ARCBaseGame):
     def __init__(self):
-        self.display = Lb01Display(self)
+        self.display = LbDisplay(self)
         levels = []
         for d in LEVELS:
             levels.append(Level(
@@ -467,6 +458,7 @@ class Lb(ARCBaseGame):
         d = LEVELS[self.level_index]
         self.grid_w = d["grid_w"]
         self.grid_h = d["grid_h"]
+        self.max_mirrors = d.get("max_mirrors", 3)
 
         # Build border walls
         self.border_walls = set()
@@ -489,24 +481,44 @@ class Lb(ARCBaseGame):
         self.sources = list(d["sources"])
         self.targets = list(d["targets"])
         self.fixed_mirrors = dict(d.get("fixed_mirrors", {}))
-        self.placeable = set(d.get("placeable", set()))
         self.prism_cells = set(d.get("prisms", set()))
         self.mist_cells = set(d.get("mist", set()))
         self.switch_pos = d.get("switch")
         self.door_pos = d.get("door")
 
+        # Occupied cells where player cannot place mirrors
+        self._occupied = set()
+        self._occupied |= self.border_walls
+        self._occupied |= self.interior_walls
+        self._occupied |= self.prism_cells
+        self._occupied |= self.mist_cells
+        self._occupied |= set(self.fixed_mirrors.keys())
+        for src in self.sources:
+            self._occupied.add((src[0], src[1]))
+        for tgt in self.targets:
+            self._occupied.add(tgt["pos"])
+        if self.switch_pos:
+            self._occupied.add(self.switch_pos)
+        if self.door_pos:
+            self._occupied.add(self.door_pos)
+
         # Active mirrors = fixed + player-placed
         self.mirrors = dict(self.fixed_mirrors)
+        self.player_mirror_count = 0
 
-        # Cursor
-        cs = d.get("cursor_start", (1, 1))
-        self.cursor_x, self.cursor_y = cs
+        # Cursor starts at grid center
+        self.cursor_x = self.grid_w // 2
+        self.cursor_y = self.grid_h // 2
 
         # Beam state
         self.beam_segments = []
         self.targets_hit = set()
         self.door_open = False
         self._trace_all_beams()
+
+    def _is_placeable(self, pos):
+        """Check if a position is valid for placing a new mirror."""
+        return pos not in self._occupied
 
     def _trace_all_beams(self):
         """Trace all beams from all sources, handling prisms, mist, doors."""
@@ -520,7 +532,6 @@ class Lb(ARCBaseGame):
         if len(self.sources) > 0:
             segs = self._trace_single(self.sources[0], "white", 3, all_walls)
             self.beam_segments.extend(segs)
-            # Check switch hit
             if self.switch_pos:
                 for seg in segs:
                     if (seg[0], seg[1]) == self.switch_pos:
@@ -547,9 +558,8 @@ class Lb(ARCBaseGame):
         sx, sy, dx, dy = source
         dir_idx = DIR_INDEX[(dx, dy)]
         segments = []
-        # BFS queue: (x, y, dir_index, color, strength)
         queue = [(sx + dx, sy + dy, dir_idx, color, strength)]
-        visited = set()  # (x, y, dir_index, color) to prevent loops
+        visited = set()
 
         while queue:
             x, y, d, col, stren = queue.pop(0)
@@ -560,7 +570,6 @@ class Lb(ARCBaseGame):
                 continue
             if (x, y) in all_walls:
                 continue
-            # Door check
             if (x, y) == self.door_pos and not self.door_open:
                 continue
             visited.add(visit_key)
@@ -570,7 +579,6 @@ class Lb(ARCBaseGame):
             if (x, y) in self.mist_cells:
                 cur_str -= 1
                 if cur_str <= 0:
-                    # Beam dies here - record dying segment but don't continue
                     segments.append((x, y, col, d, 0))
                     continue
 
@@ -585,24 +593,19 @@ class Lb(ARCBaseGame):
             if is_target:
                 continue
 
-            # Check switch - beam continues through switch
-            # (switch is recorded but beam keeps going)
-
             # Prism check
             if (x, y) in self.prism_cells and col == "white":
-                # Split into 3 colored beams
                 for new_col, delta in [("red", -1), ("green", 0), ("blue", 1)]:
                     new_d = (d + delta) % 8
                     ndx, ndy = BEAM_DIRS[new_d]
                     queue.append((x + ndx, y + ndy, new_d, new_col, 2))
-                continue  # White beam consumed by prism
+                continue
 
             # Mirror check
             if (x, y) in self.mirrors:
                 mid = self.mirrors[(x, y)]
                 new_d = REFLECT[mid][d]
                 if new_d is None:
-                    # Beam passes through (parallel to mirror surface)
                     ndx, ndy = BEAM_DIRS[d]
                     queue.append((x + ndx, y + ndy, d, col, cur_str))
                 else:
@@ -629,15 +632,22 @@ class Lb(ARCBaseGame):
             if 1 <= nx <= self.grid_w - 2 and 1 <= ny <= self.grid_h - 2:
                 self.cursor_x, self.cursor_y = nx, ny
         elif aid == 5:
-            # Cycle mirror orientation on placeable cell
+            # Cycle mirror orientation on any valid cell
             pos = (self.cursor_x, self.cursor_y)
-            if pos in self.placeable and pos not in self.fixed_mirrors:
-                if pos not in self.mirrors:
-                    self.mirrors[pos] = 0  # empty -> M0
-                elif self.mirrors[pos] < 7:
-                    self.mirrors[pos] += 1  # M0->M1->...->M7
+            if pos in self.mirrors and pos not in self.fixed_mirrors:
+                # Already has a player mirror: cycle or remove
+                if self.mirrors[pos] < 7:
+                    self.mirrors[pos] += 1
                 else:
-                    del self.mirrors[pos]   # M7 -> empty
+                    del self.mirrors[pos]
+                    self.player_mirror_count -= 1
+                self._trace_all_beams()
+                if self._check_win():
+                    self.next_level()
+            elif self._is_placeable(pos) and self.player_mirror_count < self.max_mirrors:
+                # Empty valid cell and we have mirrors left: place M0
+                self.mirrors[pos] = 0
+                self.player_mirror_count += 1
                 self._trace_all_beams()
                 if self._check_win():
                     self.next_level()

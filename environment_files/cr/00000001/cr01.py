@@ -236,7 +236,7 @@ LEVELS = [
 # ============================================================================
 
 class Cr01Display(RenderableUserDisplay):
-    def __init__(self, game: "Cr"):
+    def __init__(self, game: "Cr01"):
         self.game = game
 
     def _draw_tile(self, frame, px, py, ttype):
@@ -323,7 +323,7 @@ class Cr01Display(RenderableUserDisplay):
 # Game
 # ============================================================================
 
-class Cr(ARCBaseGame):
+class Cr01(ARCBaseGame):
     def __init__(self):
         self.display = Cr01Display(self)
 

@@ -32,12 +32,26 @@
 - Pay attention to color changes — they often signal progress or state transitions
 
 ## ls20
+- Player is a 3x3 blue (9) block. Change map in rows 61-62 is not player movement, likely a status bar or other game element.
+- The change map might not always reflect player movement directly, or there might be multiple moving entities. Player is a blue (9) object, likely 3x3 in shape, navigating a DarkGray (3) maze with Black (5) and VeryDarkGray (4) walls.
 
 ## ft09
 
 ## vc33
 
 ## ls20-cb3b57cc
+- There are at least four distinct actions (ACTION1, ACTION2, ACTION3, ACTION4) available, suggesting a variety of possible grid manipulations or agent movements.
+- Repeatedly applying ACTION3 (or any single action) does not lead to level completion, indicating that a more complex interaction or specific sequence of actions is likely required.
+- The game requires progression through 7 levels, none of which were completed in this run.
+- Executing ACTION1, ACTION2, ACTION3, or ACTION4 individually or in the observed sequence does not complete any levels, as the level count remains at 0/7.
+- The game environment is a maze-like structure.
+- Traversable paths within the maze are dark gray (3).
+- The player is represented by a white pixel (0).
+- Actions ACTION2 and ACTION4 do not cause the player to change position.
+- Player movement might involve teleportation or resets, not just simple directional steps. Dynamic blocks (blue, orange, yellow, red) are interactive.
+- The game has 7 levels, indicating a progressive challenge where winning strategies may need to adapt.
+- ACTION4 was executed 3 times without completing any levels, suggesting it is not an immediate level-completion action and may be a movement or manipulation action.
+- The game features a grid with a "maze-like structure" and specific color elements like "dark gray (3) paths".
 - Walls, identified by colors 4 (VeryDarkBlue) and 5 (Black), act as impassable obstacles, preventing player movement.
 - The player (color 0) can be blocked from moving right, causing them to remain in the same position (e.g., 21,31) despite attempting 'RIGHT' actions.
 - ACTION4 and ACTION2 are likely the 'RIGHT' movement action, as indicated by the phrase 'Despite multiple RIGHT actions'.

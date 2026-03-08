@@ -148,7 +148,7 @@ levels = [
 
 
 class FdDisplay(RenderableUserDisplay):
-    def __init__(self, game: "Fd"):
+    def __init__(self, game: "Fd01"):
         self.game = game
 
     def render_interface(self, frame: np.ndarray) -> np.ndarray:
@@ -204,7 +204,7 @@ class FdDisplay(RenderableUserDisplay):
         return frame
 
 
-class Fd(ARCBaseGame):
+class Fd01(ARCBaseGame):
     def __init__(self):
         self.display = FdDisplay(self)
         self.base_img = np.zeros((IMG_H, IMG_W), dtype=np.int16)

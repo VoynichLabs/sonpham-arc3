@@ -338,7 +338,7 @@ class Ar01Display(RenderableUserDisplay):
         return frame
 
 
-class Ar(ARCBaseGame):
+class Ar01(ARCBaseGame):
     def __init__(self):
         self.display = Ar01Display(self)
         levels = []

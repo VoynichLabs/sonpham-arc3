@@ -1,5 +1,5 @@
 {
-  "game_id": "ar",
+  "game_id": "ar01",
   "title": "Arbitrage Runner",
   "default_fps": 5,
   "baseline_actions": [10, 15, 20, 28, 35, 42, 50, 60, 70, 85],

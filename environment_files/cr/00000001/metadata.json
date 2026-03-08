@@ -1,5 +1,5 @@
 {
-  "game_id": "cr",
+  "game_id": "cr01",
   "title": "Crumbling Route",
   "default_fps": 5,
   "baseline_actions": [5, 10, 15, 22, 14, 21, 17, 25, 33, 39],
