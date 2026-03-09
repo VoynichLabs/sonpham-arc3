@@ -241,6 +241,12 @@ def _migrate_schema(conn):
         except Exception:
             pass
 
+    if "player_type" not in sess_cols and sess_cols:
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN player_type TEXT DEFAULT 'agent'")
+            log.info("Migrated sessions: added player_type")
+        except Exception:
+            pass
     if "live_mode" not in sess_cols and sess_cols:
         try:
             conn.execute("ALTER TABLE sessions ADD COLUMN live_mode INTEGER DEFAULT 0")
