@@ -5,9 +5,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ARC Observatory</title>
-{% if umami_url and umami_website_id %}
-<script defer src="{{ umami_url }}/script.js" data-website-id="{{ umami_website_id }}"></script>
-{% endif %}
+<script defer src="https://cloud.umami.is/script.js" data-website-id="7c697241-f54c-47cf-98cc-b5e87ac3b303"></script>
 {% if turnstile_site_key %}
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {% endif %}
@@ -323,8 +321,8 @@
                 <div class="empty-state" style="height:auto;font-size:12px;">Play a game to see results here.</div>
               </div>
             </div>
-            <!-- Buy Me a Coffee -->
-            <div class="bmc-bottom">
+            <!-- Buy Me a Coffee (always interactive, even when panel is disabled) -->
+            <div class="bmc-bottom" style="pointer-events:auto;opacity:1;">
               <div class="bmc-text">If you find this project fun and useful, consider buying me a coffee to support the development.</div>
               <a href="https://buymeacoffee.com/sonphamnet" target="_blank" rel="noopener" class="bmc-link">
                 <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" class="bmc-img">
