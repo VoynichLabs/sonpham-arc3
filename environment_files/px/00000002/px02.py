@@ -177,344 +177,304 @@ S_SULF_CRYST= (YELLOW,  'crystal',  'normal')
 
 # Multi-stage intermediates
 S_SALINE    = (LBLUE,   'liquid',   'normal')  # salt water
-S_GREEN_DYE = (GREEN,   'liquid',   'normal')  # blue+yellow
 S_DILUTE_ACID=(GREEN,   'liquid',   'normal')  # water+acid
 S_COPPER_SOL= (BLUE,    'liquid',   'normal')  # water+copper
+S_ACID_SULF = (GREEN,   'bubbling', 'normal')  # acidified sulfur extract
+S_GREEN_CRYST=(GREEN,   'crystal',  'normal')  # crystallized green indicator
 
 
 # ── Level definitions ──────────────────────────────────────────────────
-# Multi-stage levels use 'stages': list of stage dicts.
-# Each stage has its own ingredients, transitions, target.
-# Completing a stage unlocks the next stage's ingredients (added to the vial shelf).
+# Multi-stage levels: completing a stage yields a crafted ingredient
+# that appears as a vial in the next stage.
 #
-# Single-stage levels use the same format with stages=[{...}].
-#
-# correct_sequence: indices into the stage's ingredient list (the solution).
-# These indices refer to the ORIGINAL (unshuffled) order. The game shuffles
-# positions but tracks which original ingredient each vial holds.
+# correct_sequence: indices into the stage's ingredient list (unshuffled).
 
 _LEVELS = [
+    # ══════════════════════════════════════════════════════════════════════
+    # SINGLE-STAGE LEVELS (tutorial)
+    # ══════════════════════════════════════════════════════════════════════
+
     # ── Level 1: Dissolving ────────────────────────────────────────────
-    # Real: NaCl dissolves in H2O. Sulfur doesn't dissolve in water.
+    # NaCl dissolves in H2O; sulfur/charcoal don't.
     {
         'name': 'Salt Water',
-        'stages': [
-            {
-                'ingredients': ['water', 'salt', 'sulfur', 'charcoal'],
-                'correct_sequence': [0, 1],   # water, salt
-                'target': S_SALINE,
-                'transitions': {
-                    (E, 'water'):           S_WATER,
-                    (E, 'salt'):            S_SALT_DRY,
-                    (E, 'sulfur'):          S_SULFUR_DRY,
-                    (E, 'charcoal'):        S_CHAR_DRY,
-                    (S_WATER, 'salt'):      S_SALINE,         # dissolves!
-                    (S_WATER, 'sulfur'):    S_SULF_SUSP,      # floats, wrong
-                    (S_WATER, 'charcoal'):  S_CHAR_LAYER,     # floats, wrong
-                    (S_SALT_DRY, 'water'):  (WHITE, 'layered', 'normal'),  # wrong order
-                    (S_SALT_DRY, 'sulfur'): S_SULFUR_DRY,
-                    (S_SALT_DRY, 'charcoal'):S_CHAR_DRY,
-                    (S_SULFUR_DRY, 'water'):S_SULF_SUSP,
-                    (S_SULFUR_DRY, 'salt'): S_SALT_DRY,
-                    (S_CHAR_DRY, 'water'):  S_CHAR_LAYER,
-                    (S_CHAR_DRY, 'salt'):   S_SALT_DRY,
-                },
+        'stages': [{
+            'ingredients': ['water', 'salt', 'sulfur', 'charcoal'],
+            'correct_sequence': [0, 1],   # water + salt
+            'target': S_SALINE,
+            'transitions': {
+                (E, 'water'):           S_WATER,
+                (E, 'salt'):            S_SALT_DRY,
+                (E, 'sulfur'):          S_SULFUR_DRY,
+                (E, 'charcoal'):        S_CHAR_DRY,
+                (S_WATER, 'salt'):      S_SALINE,
+                (S_WATER, 'sulfur'):    S_SULF_SUSP,
+                (S_WATER, 'charcoal'):  S_CHAR_LAYER,
+                (S_SALT_DRY, 'water'):  (WHITE, 'layered', 'normal'),
+                (S_SALT_DRY, 'sulfur'): S_SULFUR_DRY,
+                (S_SALT_DRY, 'charcoal'):S_CHAR_DRY,
+                (S_SULFUR_DRY, 'water'):S_SULF_SUSP,
+                (S_SULFUR_DRY, 'salt'): S_SALT_DRY,
+                (S_CHAR_DRY, 'water'):  S_CHAR_LAYER,
+                (S_CHAR_DRY, 'salt'):   S_SALT_DRY,
             },
-        ],
+        }],
     },
-    # ── Level 2: Subtractive Color Mixing ──────────────────────────────
-    # Real: pigment mixing (blue+yellow=green, red+blue=purple, etc.)
+    # ── Level 2: Color Mixing ──────────────────────────────────────────
+    # Pigment mixing: blue + yellow = green.
     {
         'name': 'Color Mixing',
-        'stages': [
-            {
-                'ingredients': ['blue_dye', 'yellow_dye', 'red_dye', 'chalk'],
-                'correct_sequence': [0, 1],   # blue, yellow → green
-                'target': S_GREEN_LIQ,
-                'transitions': {
-                    (E, 'blue_dye'):              S_BLUE_LIQ,
-                    (E, 'yellow_dye'):            S_YELLOW_LIQ,
-                    (E, 'red_dye'):               S_RED_LIQ,
-                    (E, 'chalk'):                 (WHITE, 'powder', 'normal'),
-                    (S_BLUE_LIQ, 'yellow_dye'):   S_GREEN_LIQ,
-                    (S_BLUE_LIQ, 'red_dye'):      S_PURPLE_LIQ,
-                    (S_BLUE_LIQ, 'chalk'):        (LBLUE, 'layered', 'normal'),
-                    (S_YELLOW_LIQ, 'blue_dye'):   S_GREEN_LIQ,
-                    (S_YELLOW_LIQ, 'red_dye'):    S_ORANGE_LIQ,
-                    (S_YELLOW_LIQ, 'chalk'):      (YELLOW, 'layered', 'normal'),
-                    (S_RED_LIQ, 'blue_dye'):      S_PURPLE_LIQ,
-                    (S_RED_LIQ, 'yellow_dye'):    S_ORANGE_LIQ,
-                    (S_RED_LIQ, 'chalk'):         (RED, 'layered', 'normal'),
-                    ((WHITE, 'powder', 'normal'), 'blue_dye'):  (LBLUE, 'layered', 'normal'),
-                    ((WHITE, 'powder', 'normal'), 'yellow_dye'):(YELLOW, 'layered', 'normal'),
-                    ((WHITE, 'powder', 'normal'), 'red_dye'):   (RED, 'layered', 'normal'),
-                },
+        'stages': [{
+            'ingredients': ['blue_dye', 'yellow_dye', 'red_dye', 'chalk'],
+            'correct_sequence': [0, 1],   # blue + yellow → green
+            'target': S_GREEN_LIQ,
+            'transitions': {
+                (E, 'blue_dye'):              S_BLUE_LIQ,
+                (E, 'yellow_dye'):            S_YELLOW_LIQ,
+                (E, 'red_dye'):               S_RED_LIQ,
+                (E, 'chalk'):                 (WHITE, 'powder', 'normal'),
+                (S_BLUE_LIQ, 'yellow_dye'):   S_GREEN_LIQ,
+                (S_BLUE_LIQ, 'red_dye'):      S_PURPLE_LIQ,
+                (S_BLUE_LIQ, 'chalk'):        (LBLUE, 'layered', 'normal'),
+                (S_YELLOW_LIQ, 'blue_dye'):   S_GREEN_LIQ,
+                (S_YELLOW_LIQ, 'red_dye'):    S_ORANGE_LIQ,
+                (S_YELLOW_LIQ, 'chalk'):      (YELLOW, 'layered', 'normal'),
+                (S_RED_LIQ, 'blue_dye'):      S_PURPLE_LIQ,
+                (S_RED_LIQ, 'yellow_dye'):    S_ORANGE_LIQ,
+                (S_RED_LIQ, 'chalk'):         (RED, 'layered', 'normal'),
+                ((WHITE, 'powder', 'normal'), 'blue_dye'):  (LBLUE, 'layered', 'normal'),
+                ((WHITE, 'powder', 'normal'), 'yellow_dye'):(YELLOW, 'layered', 'normal'),
+                ((WHITE, 'powder', 'normal'), 'red_dye'):   (RED, 'layered', 'normal'),
             },
-        ],
+        }],
     },
-    # ── Level 3: Order Matters — Copper Sulfate ────────────────────────
-    # Real: CuSO4 dissolves in water (order matters — add solid to solvent)
+    # ── Level 3: Phase Change ──────────────────────────────────────────
+    # Heating water → boiling. Ice/charcoal/sulfur are distractors.
     {
-        'name': 'Copper Sulfate',
+        'name': 'Phase Change',
+        'stages': [{
+            'ingredients': ['water', 'flame', 'ice', 'charcoal', 'sulfur'],
+            'correct_sequence': [0, 1],  # water + flame = boiling
+            'target': S_BOIL_W,
+            'transitions': {
+                (E, 'water'):             S_WATER,
+                (E, 'flame'):             S_DRY_SMOKE,
+                (E, 'ice'):               S_FREEZE_W,
+                (E, 'charcoal'):          S_CHAR_DRY,
+                (E, 'sulfur'):            S_SULFUR_DRY,
+                (S_WATER, 'flame'):       S_BOIL_W,
+                (S_WATER, 'ice'):         S_FREEZE_W,
+                (S_WATER, 'charcoal'):    S_CHAR_LAYER,
+                (S_WATER, 'sulfur'):      S_SULF_SUSP,
+                (S_FREEZE_W, 'flame'):    S_WATER,
+                (S_FREEZE_W, 'charcoal'): S_FREEZE_W,
+                (S_BOIL_W, 'ice'):        S_WATER,
+                (S_BOIL_W, 'charcoal'):   S_CHAR_BOIL,
+                (S_BOIL_W, 'sulfur'):     S_SULF_BOIL,
+                (S_DRY_SMOKE, 'water'):   S_BOIL_W,
+                (S_DRY_SMOKE, 'ice'):     S_DRY_SMOKE,
+                (S_CHAR_DRY, 'water'):    S_CHAR_LAYER,
+                (S_CHAR_DRY, 'flame'):    S_CHAR_SMOKE,
+                (S_SULFUR_DRY, 'water'):  S_SULF_SUSP,
+                (S_SULFUR_DRY, 'flame'):  S_DRY_SMOKE,
+                (S_CHAR_LAYER, 'flame'):  S_CHAR_BOIL,
+                (S_SULF_SUSP, 'flame'):   S_SULF_BOIL,
+            },
+        }],
+    },
+
+    # ══════════════════════════════════════════════════════════════════════
+    # TWO-STAGE LEVELS
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ── Level 4: Crystal Growth ────────────────────────────────────────
+    # Stage 1: Dissolve copper in water → blue solution
+    # Stage 2: Heat solution, slow cool → blue crystals
+    {
+        'name': 'Crystal Growth',
         'stages': [
             {
-                'ingredients': ['water', 'copper', 'acid', 'salt'],
-                'correct_sequence': [0, 1],   # water first, then copper
+                'ingredients': ['water', 'copper', 'salt', 'sulfur'],
+                'correct_sequence': [0, 1],  # water + copper
                 'target': S_COPPER_SOL,
                 'transitions': {
                     (E, 'water'):               S_WATER,
                     (E, 'copper'):              S_COPPER_DRY,
-                    (E, 'acid'):                S_ACID_LIQ,
                     (E, 'salt'):                S_SALT_DRY,
-                    (S_WATER, 'copper'):        S_COPPER_SOL,   # correct! blue solution
-                    (S_WATER, 'acid'):          S_GREEN_LIQ,    # dilute acid (wrong)
-                    (S_WATER, 'salt'):          S_SALINE,       # salt water (wrong)
-                    (S_COPPER_DRY, 'water'):    S_ORANGE_LAY,   # wrong order!
-                    (S_COPPER_DRY, 'acid'):     S_GREEN_LAY,
+                    (E, 'sulfur'):              S_SULFUR_DRY,
+                    (S_WATER, 'copper'):        S_COPPER_SOL,
+                    (S_WATER, 'salt'):          S_SALINE,
+                    (S_WATER, 'sulfur'):        S_SULF_SUSP,
+                    (S_COPPER_DRY, 'water'):    S_ORANGE_LAY,
                     (S_COPPER_DRY, 'salt'):     S_SALT_DRY,
-                    (S_ACID_LIQ, 'copper'):     S_GREEN_BOIL,   # vigorous (wrong)
-                    (S_ACID_LIQ, 'water'):      S_GREEN_LIQ,
-                    (S_ACID_LIQ, 'salt'):       S_GREEN_LIQ,
+                    (S_COPPER_DRY, 'sulfur'):   S_SULFUR_DRY,
                     (S_SALT_DRY, 'water'):      (WHITE, 'layered', 'normal'),
-                    (S_SALT_DRY, 'copper'):     S_COPPER_DRY,
-                    (S_SALT_DRY, 'acid'):       S_GREEN_LAY,
+                    (S_SULFUR_DRY, 'water'):    S_SULF_SUSP,
                 },
             },
-        ],
-    },
-    # ── Level 4: Temperature — Boil & Freeze ──────────────────────────
-    # Real: heating water → boiling; adding ice → freezing/cooling
-    {
-        'name': 'Phase Change',
-        'stages': [
             {
-                'ingredients': ['water', 'flame', 'ice', 'charcoal', 'sulfur'],
-                'correct_sequence': [0, 1],  # water + flame = boiling water
-                'target': S_BOIL_W,
-                'transitions': {
-                    (E, 'water'):             S_WATER,
-                    (E, 'flame'):             S_DRY_SMOKE,      # dry heat = smoke
-                    (E, 'ice'):               S_FREEZE_W,       # ice alone = frozen
-                    (E, 'charcoal'):          S_CHAR_DRY,
-                    (E, 'sulfur'):            S_SULFUR_DRY,
-                    (S_WATER, 'flame'):       S_BOIL_W,         # boiling!
-                    (S_WATER, 'ice'):         S_FREEZE_W,       # freezes
-                    (S_WATER, 'charcoal'):    S_CHAR_LAYER,
-                    (S_WATER, 'sulfur'):      S_SULF_SUSP,
-                    (S_FREEZE_W, 'flame'):    S_WATER,          # thaw only
-                    (S_FREEZE_W, 'charcoal'): S_FREEZE_W,
-                    (S_FREEZE_W, 'ice'):      S_FREEZE_W,
-                    (S_BOIL_W, 'ice'):        S_WATER,          # cool down
-                    (S_BOIL_W, 'charcoal'):   S_CHAR_BOIL,
-                    (S_BOIL_W, 'sulfur'):     S_SULF_BOIL,
-                    (S_DRY_SMOKE, 'water'):   S_BOIL_W,
-                    (S_DRY_SMOKE, 'ice'):     S_DRY_SMOKE,
-                    (S_CHAR_DRY, 'water'):    S_CHAR_LAYER,
-                    (S_CHAR_DRY, 'flame'):    S_CHAR_SMOKE,
-                    (S_SULFUR_DRY, 'water'):  S_SULF_SUSP,
-                    (S_SULFUR_DRY, 'flame'):  S_DRY_SMOKE,
-                    (S_CHAR_LAYER, 'flame'):  S_CHAR_BOIL,
-                    (S_SULF_SUSP, 'flame'):   S_SULF_BOIL,
-                },
-            },
-        ],
-    },
-    # ── Level 5: Crystallization (4-step) ──────────────────────────────
-    # Real: dissolve CuSO4 in hot water, slow cool → crystals
-    {
-        'name': 'Crystallization',
-        'stages': [
-            {
-                'ingredients': ['water', 'copper', 'flame', 'ice', 'sulfur', 'salt'],
-                'correct_sequence': [0, 1, 2, 3],  # water+copper+flame+ice
+                'ingredients': ['copper_sol', 'flame', 'ice', 'charcoal', 'iron'],
+                'correct_sequence': [0, 1, 2],  # copper_sol + flame + ice
                 'target': S_BLUE_CRYST,
                 'transitions': {
-                    (E, 'water'):               S_WATER,
-                    (E, 'copper'):              S_COPPER_DRY,
-                    (E, 'flame'):               S_DRY_SMOKE,
-                    (E, 'ice'):                 S_FREEZE_W,
-                    (E, 'sulfur'):              S_SULFUR_DRY,
-                    (E, 'salt'):                S_SALT_DRY,
-                    (S_WATER, 'copper'):        S_BLUE_LIQ,
-                    (S_WATER, 'flame'):         S_BOIL_W,
-                    (S_WATER, 'ice'):           S_FREEZE_W,
-                    (S_WATER, 'sulfur'):        S_SULF_SUSP,
-                    (S_WATER, 'salt'):          S_SALINE,
-                    (S_BLUE_LIQ, 'flame'):      S_BLUE_BOIL,     # heat
-                    (S_BLUE_LIQ, 'ice'):        S_BLUE_CRYST_C,  # too fast → cold crystals (wrong)
-                    (S_BLUE_LIQ, 'copper'):     S_BLUE_LAYER,    # supersaturated (wrong)
-                    (S_BLUE_LIQ, 'sulfur'):     (BLUE, 'layered', 'normal'),
-                    (S_BLUE_LIQ, 'salt'):       S_BLUE_LIQ,
-                    (S_BLUE_BOIL, 'ice'):       S_BLUE_CRYST,    # slow cool = CRYSTALS!
-                    (S_BLUE_BOIL, 'copper'):    S_BLUE_BOIL,
-                    (S_BLUE_BOIL, 'water'):     S_BOIL_W,        # dilute (wrong)
-                    (S_BLUE_BOIL, 'sulfur'):    S_BLUE_BOIL,
-                    (S_BLUE_BOIL, 'salt'):      S_BLUE_BOIL,
-                    (S_COPPER_DRY, 'water'):    S_ORANGE_LAY,
-                    (S_COPPER_DRY, 'flame'):    S_DRY_SMOKE,
-                    (S_COPPER_DRY, 'acid'):     S_GREEN_LAY,
-                    (S_BOIL_W, 'copper'):       S_BLUE_BOIL,
-                    (S_BOIL_W, 'ice'):          S_WATER,
-                    (S_BOIL_W, 'sulfur'):       S_SULF_BOIL,
-                    (S_FREEZE_W, 'flame'):      S_WATER,
-                    (S_FREEZE_W, 'copper'):     S_FREEZE_W,
-                    (S_SULFUR_DRY, 'water'):    S_SULF_SUSP,
-                    (S_SULFUR_DRY, 'flame'):    S_DRY_SMOKE,
-                    (S_SALT_DRY, 'water'):      (WHITE, 'layered', 'normal'),
-                },
-            },
-        ],
-    },
-    # ── Level 6: Acid-Base Neutralization ──────────────────────────────
-    # Real: HCl + NaOH → NaCl + H2O; indicator shows pH
-    {
-        'name': 'Neutralization',
-        'stages': [
-            {
-                'ingredients': ['acid', 'base', 'indicator', 'red_dye', 'chalk'],
-                'correct_sequence': [0, 1, 2],  # acid + base + indicator
-                'target': S_NEUT_IND,
-                'transitions': {
-                    (E, 'acid'):                S_ACID_LIQ,
-                    (E, 'base'):               S_PURPLE_LIQ,
-                    (E, 'indicator'):          S_IND_PURE,
-                    (E, 'red_dye'):            S_RED_LIQ,
-                    (E, 'chalk'):              (WHITE, 'powder', 'normal'),
-                    (S_ACID_LIQ, 'base'):      S_NEUTRAL,        # neutralized
-                    (S_ACID_LIQ, 'indicator'): S_ACID_IND,       # acid = red
-                    (S_ACID_LIQ, 'red_dye'):   S_RED_LIQ,
-                    (S_ACID_LIQ, 'chalk'):     S_GREEN_LIQ,      # chalk neutralizes too but no indicator
-                    (S_NEUTRAL, 'indicator'):  S_NEUT_IND,       # neutral = GREEN!
-                    (S_NEUTRAL, 'red_dye'):    S_LMAG_LIQ,
-                    (S_NEUTRAL, 'acid'):       S_ACID_LIQ,       # re-acidify
-                    (S_NEUTRAL, 'base'):       S_PURPLE_LIQ,     # over-base
-                    (S_NEUTRAL, 'chalk'):      S_NEUTRAL,
-                    (S_PURPLE_LIQ, 'acid'):    S_NEUTRAL,
-                    (S_PURPLE_LIQ, 'indicator'):S_BASE_IND,      # base = purple
-                    (S_PURPLE_LIQ, 'red_dye'): S_PURPLE_LIQ,
-                    (S_PURPLE_LIQ, 'chalk'):   S_PURPLE_LIQ,
-                    (S_IND_PURE, 'acid'):      S_RED_LIQ,
-                    (S_IND_PURE, 'base'):      S_PURPLE_LIQ,
-                    (S_RED_LIQ, 'base'):       S_PURPLE_LIQ,
-                    (S_RED_LIQ, 'acid'):       S_RED_LIQ,
-                    (S_RED_LIQ, 'indicator'):  S_RED_LIQ,
-                    (S_RED_LIQ, 'chalk'):      S_RED_LIQ,
-                    ((WHITE, 'powder', 'normal'), 'acid'): S_GREEN_LIQ,
-                    ((WHITE, 'powder', 'normal'), 'base'): S_PURPLE_LIQ,
-                    ((WHITE, 'powder', 'normal'), 'indicator'): (WHITE, 'layered', 'normal'),
-                },
-            },
-        ],
-    },
-    # ── Level 7: Filtration & Extraction (4-step) ──────────────────────
-    # Real: dissolve iron in water → rust suspension → filter → heat extract
-    {
-        'name': 'Rust Extract',
-        'stages': [
-            {
-                'ingredients': ['water', 'iron', 'filter', 'flame', 'salt', 'sulfur'],
-                'correct_sequence': [0, 1, 2, 3],  # water+iron+filter+flame
-                'target': S_RUST_BOIL,
-                'transitions': {
-                    (E, 'water'):               S_WATER,
-                    (E, 'iron'):                S_IRON_DRY,
-                    (E, 'filter'):              (LGRAY, 'powder', 'normal'),
-                    (E, 'flame'):               S_DRY_SMOKE,
-                    (E, 'salt'):                S_SALT_DRY,
-                    (E, 'sulfur'):              S_SULFUR_DRY,
-                    (S_WATER, 'iron'):          S_RUST_SUSP,      # rust suspension
-                    (S_WATER, 'filter'):        S_WATER,          # nothing to filter
-                    (S_WATER, 'flame'):         S_BOIL_W,
-                    (S_WATER, 'salt'):          S_SALINE,
-                    (S_WATER, 'sulfur'):        S_SULF_SUSP,
-                    (S_RUST_SUSP, 'filter'):    S_RUST_FILT,      # filtered!
-                    (S_RUST_SUSP, 'flame'):     (ORANGE, 'smoke', 'hot'),  # burns off (wrong)
-                    (S_RUST_SUSP, 'water'):     S_RUST_SUSP,
-                    (S_RUST_SUSP, 'salt'):      S_RUST_SUSP,
-                    (S_RUST_FILT, 'flame'):     S_RUST_BOIL,      # heated extract!
-                    (S_RUST_FILT, 'water'):     S_RUST_FILT,
-                    (S_RUST_FILT, 'iron'):      S_RUST_SUSP,      # re-contaminate
-                    (S_RUST_FILT, 'salt'):      S_RUST_FILT,
-                    (S_IRON_DRY, 'water'):      S_RUST_SUSP,
-                    (S_IRON_DRY, 'flame'):      S_DRY_SMOKE,
-                    (S_IRON_DRY, 'filter'):     S_IRON_DRY,
-                    (S_IRON_DRY, 'salt'):       S_IRON_DRY,
-                    (S_BOIL_W, 'iron'):         S_RUST_BOIL,
-                    (S_BOIL_W, 'filter'):       S_BOIL_W,
-                    (S_BOIL_W, 'salt'):         S_BOIL_W,
-                    (S_SALT_DRY, 'water'):      (WHITE, 'layered', 'normal'),
-                    (S_SULFUR_DRY, 'water'):    S_SULF_SUSP,
-                },
-            },
-        ],
-    },
-    # ── Level 8: Two-Stage — Acid Bath then Crystal ────────────────────
-    # Stage 1: water + acid = dilute acid (yields "acid_bath")
-    # Stage 2: acid_bath + copper + flame + ice = purple crystals
-    # Real: dissolve copper in dilute sulfuric acid, heat, slow cool → CuSO4 crystals
-    {
-        'name': 'Purple Crystals',
-        'stages': [
-            {
-                'ingredients': ['water', 'acid', 'iron', 'salt'],
-                'correct_sequence': [0, 1],   # water + acid
-                'target': S_DILUTE_ACID,
-                'transitions': {
-                    (E, 'water'):               S_WATER,
-                    (E, 'acid'):                S_ACID_LIQ,
-                    (E, 'iron'):                S_IRON_DRY,
-                    (E, 'salt'):                S_SALT_DRY,
-                    (S_WATER, 'acid'):          S_DILUTE_ACID,    # dilute acid!
-                    (S_WATER, 'iron'):          S_RUST_SUSP,
-                    (S_WATER, 'salt'):          S_SALINE,
-                    (S_ACID_LIQ, 'water'):      S_DILUTE_ACID,    # either order works
-                    (S_ACID_LIQ, 'iron'):       S_GREEN_BOIL,     # vigorous reaction
-                    (S_ACID_LIQ, 'salt'):       S_GREEN_LIQ,
-                    (S_IRON_DRY, 'water'):      S_RUST_SUSP,
-                    (S_IRON_DRY, 'acid'):       S_GREEN_LAY,
-                    (S_SALT_DRY, 'water'):      (WHITE, 'layered', 'normal'),
-                    (S_SALT_DRY, 'acid'):       S_GREEN_LAY,
-                },
-            },
-            {
-                'ingredients': ['acid_bath', 'copper', 'flame', 'ice', 'charcoal'],
-                'correct_sequence': [0, 1, 2, 3],  # acid_bath + copper + flame + ice
-                'target': S_PURP_CRYST,
-                'transitions': {
-                    (E, 'acid_bath'):           S_DILUTE_ACID,
-                    (E, 'copper'):              S_COPPER_DRY,
+                    (E, 'copper_sol'):          S_BLUE_LIQ,
                     (E, 'flame'):               S_DRY_SMOKE,
                     (E, 'ice'):                 S_FREEZE_W,
                     (E, 'charcoal'):            S_CHAR_DRY,
-                    (S_DILUTE_ACID, 'copper'):  S_ACID_CU,        # copper reacts
-                    (S_DILUTE_ACID, 'flame'):   S_GREEN_BOIL,
-                    (S_DILUTE_ACID, 'ice'):     S_GREEN_FROZ,
-                    (S_DILUTE_ACID, 'charcoal'):S_GREEN_LAY,
-                    (S_ACID_CU, 'flame'):       S_ACID_CU_H,      # heat reaction
-                    (S_ACID_CU, 'ice'):         S_BLUE_CRYST_C,   # too fast (wrong)
-                    (S_ACID_CU, 'charcoal'):    (BLUE, 'layered', 'normal'),
-                    (S_ACID_CU_H, 'ice'):       S_PURP_CRYST,     # slow cool → CRYSTALS
-                    (S_ACID_CU_H, 'copper'):    S_ACID_CU_H,
-                    (S_ACID_CU_H, 'charcoal'):  S_ACID_CU_H,
-                    (S_COPPER_DRY, 'acid_bath'):S_GREEN_LAY,
-                    (S_COPPER_DRY, 'flame'):    S_DRY_SMOKE,
-                    (S_CHAR_DRY, 'acid_bath'):  S_GREEN_LAY,
+                    (E, 'iron'):                S_IRON_DRY,
+                    (S_BLUE_LIQ, 'flame'):      S_BLUE_BOIL,
+                    (S_BLUE_LIQ, 'ice'):        S_BLUE_CRYST_C,   # too fast (wrong)
+                    (S_BLUE_LIQ, 'charcoal'):   (BLUE, 'layered', 'normal'),
+                    (S_BLUE_LIQ, 'iron'):       (BLUE, 'layered', 'normal'),
+                    (S_BLUE_BOIL, 'ice'):       S_BLUE_CRYST,     # CRYSTALS!
+                    (S_BLUE_BOIL, 'charcoal'):  S_BLUE_BOIL,
+                    (S_BLUE_BOIL, 'iron'):      S_BLUE_BOIL,
+                    (S_CHAR_DRY, 'copper_sol'): S_CHAR_LAYER,
                     (S_CHAR_DRY, 'flame'):      S_CHAR_SMOKE,
-                    (S_FREEZE_W, 'copper'):     S_FREEZE_W,
+                    (S_IRON_DRY, 'copper_sol'): S_RUST_SUSP,
+                    (S_IRON_DRY, 'flame'):      S_DRY_SMOKE,
                     (S_FREEZE_W, 'flame'):      S_WATER,
-                    (S_DRY_SMOKE, 'copper'):    S_DRY_SMOKE,
                     (S_DRY_SMOKE, 'ice'):       S_DRY_SMOKE,
                 },
             },
         ],
     },
-    # ── Level 9: Three-Stage — Sulfur Elixir ──────────────────────────
-    # Stage 1: water + sulfur + flame = sulfur boil → yields "sulfur_extract"
-    # Stage 2: sulfur_extract + filter + ice = cooled filtered sulfur → yields "pure_sulfur"
-    # Stage 3: pure_sulfur + red_dye = magenta crystals
-    # Real: sulfur purification by hot filtration + recrystallization
+    # ── Level 5: Rust Extraction ───────────────────────────────────────
+    # Stage 1: Iron in water → rust suspension
+    # Stage 2: Filter the suspension, heat the extract
     {
-        'name': 'Magenta Elixir',
+        'name': 'Rust Extract',
+        'stages': [
+            {
+                'ingredients': ['water', 'iron', 'copper', 'salt'],
+                'correct_sequence': [0, 1],  # water + iron
+                'target': S_RUST_SUSP,
+                'transitions': {
+                    (E, 'water'):               S_WATER,
+                    (E, 'iron'):                S_IRON_DRY,
+                    (E, 'copper'):              S_COPPER_DRY,
+                    (E, 'salt'):                S_SALT_DRY,
+                    (S_WATER, 'iron'):          S_RUST_SUSP,
+                    (S_WATER, 'copper'):        S_BLUE_LIQ,
+                    (S_WATER, 'salt'):          S_SALINE,
+                    (S_IRON_DRY, 'water'):      S_RUST_SUSP,
+                    (S_IRON_DRY, 'copper'):     S_COPPER_DRY,
+                    (S_IRON_DRY, 'salt'):       S_IRON_DRY,
+                    (S_COPPER_DRY, 'water'):    S_ORANGE_LAY,
+                    (S_COPPER_DRY, 'iron'):     S_IRON_DRY,
+                    (S_SALT_DRY, 'water'):      (WHITE, 'layered', 'normal'),
+                },
+            },
+            {
+                'ingredients': ['rust_water', 'filter', 'flame', 'ice', 'sulfur'],
+                'correct_sequence': [0, 1, 2],  # rust_water + filter + flame
+                'target': S_RUST_BOIL,
+                'transitions': {
+                    (E, 'rust_water'):          S_RUST_SUSP,
+                    (E, 'filter'):              (LGRAY, 'powder', 'normal'),
+                    (E, 'flame'):               S_DRY_SMOKE,
+                    (E, 'ice'):                 S_FREEZE_W,
+                    (E, 'sulfur'):              S_SULFUR_DRY,
+                    (S_RUST_SUSP, 'filter'):    S_RUST_FILT,
+                    (S_RUST_SUSP, 'flame'):     (ORANGE, 'smoke', 'hot'),  # burns off (wrong)
+                    (S_RUST_SUSP, 'ice'):       (ORANGE, 'frozen', 'cold'),
+                    (S_RUST_FILT, 'flame'):     S_RUST_BOIL,     # heated extract!
+                    (S_RUST_FILT, 'ice'):       (ORANGE, 'frozen', 'cold'),
+                    (S_RUST_FILT, 'sulfur'):    S_RUST_FILT,
+                    (S_DRY_SMOKE, 'rust_water'):S_RUST_BOIL,
+                    (S_DRY_SMOKE, 'ice'):       S_DRY_SMOKE,
+                    (S_FREEZE_W, 'flame'):      S_WATER,
+                    (S_SULFUR_DRY, 'rust_water'):S_SULF_SUSP,
+                },
+            },
+        ],
+    },
+
+    # ══════════════════════════════════════════════════════════════════════
+    # THREE-STAGE LEVELS
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ── Level 6: Purple Crystals ───────────────────────────────────────
+    # Stage 1: Dilute acid (water + acid)
+    # Stage 2: React with copper, heat (dilute_acid + copper + flame)
+    # Stage 3: Slow cool → purple crystals (hot_reaction + ice)
+    {
+        'name': 'Purple Crystals',
+        'stages': [
+            {
+                'ingredients': ['water', 'acid', 'salt', 'iron'],
+                'correct_sequence': [0, 1],  # water + acid
+                'target': S_DILUTE_ACID,
+                'transitions': {
+                    (E, 'water'):               S_WATER,
+                    (E, 'acid'):                S_ACID_LIQ,
+                    (E, 'salt'):                S_SALT_DRY,
+                    (E, 'iron'):                S_IRON_DRY,
+                    (S_WATER, 'acid'):          S_DILUTE_ACID,
+                    (S_WATER, 'salt'):          S_SALINE,
+                    (S_WATER, 'iron'):          S_RUST_SUSP,
+                    (S_ACID_LIQ, 'water'):      S_DILUTE_ACID,
+                    (S_ACID_LIQ, 'salt'):       S_GREEN_LIQ,
+                    (S_ACID_LIQ, 'iron'):       S_GREEN_BOIL,
+                    (S_SALT_DRY, 'water'):      (WHITE, 'layered', 'normal'),
+                    (S_SALT_DRY, 'acid'):       S_GREEN_LAY,
+                    (S_IRON_DRY, 'water'):      S_RUST_SUSP,
+                    (S_IRON_DRY, 'acid'):       S_GREEN_LAY,
+                },
+            },
+            {
+                'ingredients': ['dilute_acid', 'copper', 'flame', 'charcoal', 'ice'],
+                'correct_sequence': [0, 1, 2],  # dilute_acid + copper + flame
+                'target': S_ACID_CU_H,
+                'transitions': {
+                    (E, 'dilute_acid'):         S_DILUTE_ACID,
+                    (E, 'copper'):              S_COPPER_DRY,
+                    (E, 'flame'):               S_DRY_SMOKE,
+                    (E, 'charcoal'):            S_CHAR_DRY,
+                    (E, 'ice'):                 S_FREEZE_W,
+                    (S_DILUTE_ACID, 'copper'):  S_ACID_CU,
+                    (S_DILUTE_ACID, 'flame'):   S_GREEN_BOIL,
+                    (S_DILUTE_ACID, 'charcoal'):S_GREEN_LAY,
+                    (S_DILUTE_ACID, 'ice'):     S_GREEN_FROZ,
+                    (S_ACID_CU, 'flame'):       S_ACID_CU_H,     # heated!
+                    (S_ACID_CU, 'ice'):         S_BLUE_CRYST_C,  # too fast
+                    (S_ACID_CU, 'charcoal'):    (BLUE, 'layered', 'normal'),
+                    (S_COPPER_DRY, 'dilute_acid'):S_GREEN_LAY,
+                    (S_COPPER_DRY, 'flame'):    S_DRY_SMOKE,
+                    (S_CHAR_DRY, 'dilute_acid'):S_GREEN_LAY,
+                    (S_CHAR_DRY, 'flame'):      S_CHAR_SMOKE,
+                    (S_FREEZE_W, 'flame'):      S_WATER,
+                    (S_DRY_SMOKE, 'copper'):    S_DRY_SMOKE,
+                },
+            },
+            {
+                'ingredients': ['hot_acid_copper', 'ice', 'sulfur', 'base', 'red_dye'],
+                'correct_sequence': [0, 1],  # hot_acid_copper + ice
+                'target': S_PURP_CRYST,
+                'transitions': {
+                    (E, 'hot_acid_copper'):     S_ACID_CU_H,
+                    (E, 'ice'):                 S_FREEZE_W,
+                    (E, 'sulfur'):              S_SULFUR_DRY,
+                    (E, 'base'):               S_PURPLE_LIQ,
+                    (E, 'red_dye'):             S_RED_LIQ,
+                    (S_ACID_CU_H, 'ice'):       S_PURP_CRYST,    # slow cool!
+                    (S_ACID_CU_H, 'sulfur'):    S_ACID_CU_H,
+                    (S_ACID_CU_H, 'base'):      S_PURPLE_LIQ,
+                    (S_ACID_CU_H, 'red_dye'):   S_ACID_CU_H,
+                    (S_FREEZE_W, 'hot_acid_copper'):S_PURP_CRYST,
+                    (S_SULFUR_DRY, 'hot_acid_copper'):(YELLOW, 'layered', 'hot'),
+                    (S_PURPLE_LIQ, 'ice'):      (PURPLE, 'frozen', 'cold'),
+                    (S_RED_LIQ, 'ice'):         (RED, 'frozen', 'cold'),
+                },
+            },
+        ],
+    },
+    # ── Level 7: Sulfur Purification ───────────────────────────────────
+    # Stage 1: Dissolve sulfur, heat (water + sulfur + flame)
+    # Stage 2: Hot-filter, cool (sulfur_extract + filter + ice)
+    # Stage 3: Color reaction (pure_sulfur + red_dye)
+    {
+        'name': 'Sulfur Purification',
         'stages': [
             {
                 'ingredients': ['water', 'sulfur', 'flame', 'charcoal', 'salt'],
@@ -530,18 +490,16 @@ _LEVELS = [
                     (S_WATER, 'flame'):         S_BOIL_W,
                     (S_WATER, 'charcoal'):      S_CHAR_LAYER,
                     (S_WATER, 'salt'):          S_SALINE,
-                    (S_SULF_SUSP, 'flame'):     S_SULF_BOIL,     # sulfur extract!
+                    (S_SULF_SUSP, 'flame'):     S_SULF_BOIL,
                     (S_SULF_SUSP, 'charcoal'):  S_CHAR_LAYER,
                     (S_SULF_SUSP, 'salt'):      S_SULF_SUSP,
-                    (S_SULF_SUSP, 'water'):     S_SULF_SUSP,
                     (S_SULFUR_DRY, 'water'):    S_SULF_SUSP,
-                    (S_SULFUR_DRY, 'flame'):    S_DRY_SMOKE,     # burns without water
+                    (S_SULFUR_DRY, 'flame'):    S_DRY_SMOKE,
                     (S_SULFUR_DRY, 'charcoal'): S_CHAR_DRY,
                     (S_BOIL_W, 'sulfur'):       S_SULF_BOIL,
                     (S_BOIL_W, 'charcoal'):     S_CHAR_BOIL,
                     (S_CHAR_DRY, 'water'):      S_CHAR_LAYER,
                     (S_CHAR_DRY, 'flame'):      S_CHAR_SMOKE,
-                    (S_CHAR_DRY, 'sulfur'):     S_SULFUR_DRY,
                     (S_SALT_DRY, 'water'):      (WHITE, 'layered', 'normal'),
                     (S_CHAR_LAYER, 'flame'):    S_CHAR_BOIL,
                 },
@@ -556,14 +514,13 @@ _LEVELS = [
                     (E, 'ice'):                 S_FREEZE_W,
                     (E, 'flame'):               S_DRY_SMOKE,
                     (E, 'iron'):                S_IRON_DRY,
-                    (S_SULF_BOIL, 'filter'):    S_SULF_FILT,      # filter hot!
-                    (S_SULF_BOIL, 'ice'):       S_SULF_CRYST,     # too fast (wrong)
+                    (S_SULF_BOIL, 'filter'):    S_SULF_FILT,
+                    (S_SULF_BOIL, 'ice'):       S_SULF_CRYST,     # too fast
                     (S_SULF_BOIL, 'flame'):     S_SULF_BOIL,
                     (S_SULF_BOIL, 'iron'):      (YELLOW, 'layered', 'hot'),
-                    (S_SULF_FILT, 'ice'):       S_SULF_COOL,      # cooled filtered!
+                    (S_SULF_FILT, 'ice'):       S_SULF_COOL,
                     (S_SULF_FILT, 'flame'):     S_SULF_FILT,
                     (S_SULF_FILT, 'iron'):      S_RUST_SUSP,
-                    (S_SULF_FILT, 'filter'):    S_SULF_FILT,
                     (S_FREEZE_W, 'sulfur_extract'):S_YELL_FROZ,
                     (S_FREEZE_W, 'flame'):      S_WATER,
                     (S_IRON_DRY, 'sulfur_extract'):(GRAY, 'layered', 'hot'),
@@ -573,25 +530,265 @@ _LEVELS = [
             },
             {
                 'ingredients': ['pure_sulfur', 'red_dye', 'blue_dye', 'acid'],
-                'correct_sequence': [0, 1],   # pure_sulfur + red_dye
+                'correct_sequence': [0, 1],  # pure_sulfur + red_dye
                 'target': S_MAG_CRYST,
                 'transitions': {
                     (E, 'pure_sulfur'):         S_SULF_COOL,
                     (E, 'red_dye'):             S_RED_LIQ,
                     (E, 'blue_dye'):            S_BLUE_LIQ,
                     (E, 'acid'):                S_ACID_LIQ,
-                    (S_SULF_COOL, 'red_dye'):   S_MAG_CRYST,     # MAGENTA CRYSTALS!
-                    (S_SULF_COOL, 'blue_dye'):  S_GREEN_LIQ,     # wrong color
-                    (S_SULF_COOL, 'acid'):      S_SULF_BOIL,     # reactivates (wrong)
-                    (S_RED_LIQ, 'pure_sulfur'): S_ORANGE_LAY,    # wrong order
+                    (S_SULF_COOL, 'red_dye'):   S_MAG_CRYST,
+                    (S_SULF_COOL, 'blue_dye'):  S_GREEN_LIQ,
+                    (S_SULF_COOL, 'acid'):      S_SULF_BOIL,
+                    (S_RED_LIQ, 'pure_sulfur'): S_ORANGE_LAY,
                     (S_RED_LIQ, 'blue_dye'):    S_PURPLE_LIQ,
                     (S_RED_LIQ, 'acid'):        S_RED_LIQ,
                     (S_BLUE_LIQ, 'pure_sulfur'):(BLUE, 'layered', 'normal'),
                     (S_BLUE_LIQ, 'red_dye'):    S_PURPLE_LIQ,
-                    (S_BLUE_LIQ, 'acid'):       S_BLUE_LIQ,
                     (S_ACID_LIQ, 'pure_sulfur'):S_GREEN_BOIL,
                     (S_ACID_LIQ, 'red_dye'):    S_RED_LIQ,
-                    (S_ACID_LIQ, 'blue_dye'):   S_BLUE_LIQ,
+                },
+            },
+        ],
+    },
+    # ── Level 8: Neutralization Proof ──────────────────────────────────
+    # Stage 1: Neutralize acid with base (acid + base)
+    # Stage 2: Verify with indicator (neutral + indicator → green)
+    # Stage 3: Crystallize proof (green_proof + flame + ice → green crystals)
+    {
+        'name': 'Indicator Crystal',
+        'stages': [
+            {
+                'ingredients': ['acid', 'base', 'chalk', 'red_dye', 'sulfur'],
+                'correct_sequence': [0, 1],  # acid + base
+                'target': S_NEUTRAL,
+                'transitions': {
+                    (E, 'acid'):                S_ACID_LIQ,
+                    (E, 'base'):               S_PURPLE_LIQ,
+                    (E, 'chalk'):              (WHITE, 'powder', 'normal'),
+                    (E, 'red_dye'):            S_RED_LIQ,
+                    (E, 'sulfur'):              S_SULFUR_DRY,
+                    (S_ACID_LIQ, 'base'):      S_NEUTRAL,
+                    (S_ACID_LIQ, 'chalk'):     S_GREEN_LIQ,
+                    (S_ACID_LIQ, 'red_dye'):   S_RED_LIQ,
+                    (S_ACID_LIQ, 'sulfur'):    S_GREEN_LAY,
+                    (S_PURPLE_LIQ, 'acid'):    S_NEUTRAL,
+                    (S_PURPLE_LIQ, 'chalk'):   S_PURPLE_LIQ,
+                    (S_PURPLE_LIQ, 'red_dye'): S_PURPLE_LIQ,
+                    ((WHITE, 'powder', 'normal'), 'acid'): S_GREEN_LIQ,
+                    ((WHITE, 'powder', 'normal'), 'base'): S_PURPLE_LIQ,
+                    (S_RED_LIQ, 'base'):       S_PURPLE_LIQ,
+                    (S_RED_LIQ, 'acid'):       S_RED_LIQ,
+                    (S_SULFUR_DRY, 'acid'):    S_GREEN_LAY,
+                },
+            },
+            {
+                'ingredients': ['neutral_sol', 'indicator', 'salt', 'iron', 'flame'],
+                'correct_sequence': [0, 1],  # neutral + indicator
+                'target': S_NEUT_IND,
+                'transitions': {
+                    (E, 'neutral_sol'):         S_NEUTRAL,
+                    (E, 'indicator'):          S_IND_PURE,
+                    (E, 'salt'):                S_SALT_DRY,
+                    (E, 'iron'):                S_IRON_DRY,
+                    (E, 'flame'):               S_DRY_SMOKE,
+                    (S_NEUTRAL, 'indicator'):  S_NEUT_IND,
+                    (S_NEUTRAL, 'salt'):       S_NEUTRAL,
+                    (S_NEUTRAL, 'iron'):       (LBLUE, 'layered', 'normal'),
+                    (S_NEUTRAL, 'flame'):      S_BOIL_W,
+                    (S_IND_PURE, 'neutral_sol'):S_NEUT_IND,
+                    (S_IND_PURE, 'salt'):      S_IND_PURE,
+                    (S_IND_PURE, 'iron'):      (LMAGENTA, 'layered', 'normal'),
+                    (S_SALT_DRY, 'neutral_sol'):(WHITE, 'layered', 'normal'),
+                    (S_IRON_DRY, 'neutral_sol'):S_RUST_SUSP,
+                    (S_IRON_DRY, 'flame'):      S_DRY_SMOKE,
+                    (S_DRY_SMOKE, 'neutral_sol'):S_BOIL_W,
+                },
+            },
+            {
+                'ingredients': ['green_proof', 'flame', 'ice', 'charcoal', 'copper'],
+                'correct_sequence': [0, 1, 2],  # green_proof + flame + ice
+                'target': S_GREEN_CRYST,
+                'transitions': {
+                    (E, 'green_proof'):         S_NEUT_IND,
+                    (E, 'flame'):               S_DRY_SMOKE,
+                    (E, 'ice'):                 S_FREEZE_W,
+                    (E, 'charcoal'):            S_CHAR_DRY,
+                    (E, 'copper'):              S_COPPER_DRY,
+                    (S_NEUT_IND, 'flame'):      S_GREEN_BOIL,
+                    (S_NEUT_IND, 'ice'):        S_GREEN_FROZ,    # too fast
+                    (S_NEUT_IND, 'charcoal'):   (GREEN, 'layered', 'normal'),
+                    (S_NEUT_IND, 'copper'):     (GREEN, 'layered', 'normal'),
+                    (S_GREEN_BOIL, 'ice'):      S_GREEN_CRYST,   # CRYSTALS!
+                    (S_GREEN_BOIL, 'charcoal'): S_GREEN_BOIL,
+                    (S_GREEN_BOIL, 'copper'):   S_BLUE_BOIL,
+                    (S_CHAR_DRY, 'green_proof'):S_CHAR_LAYER,
+                    (S_CHAR_DRY, 'flame'):      S_CHAR_SMOKE,
+                    (S_COPPER_DRY, 'green_proof'):S_GREEN_LAY,
+                    (S_COPPER_DRY, 'flame'):    S_DRY_SMOKE,
+                    (S_FREEZE_W, 'flame'):      S_WATER,
+                    (S_DRY_SMOKE, 'ice'):       S_DRY_SMOKE,
+                },
+            },
+        ],
+    },
+
+    # ══════════════════════════════════════════════════════════════════════
+    # SIX-STAGE FINALE
+    # ══════════════════════════════════════════════════════════════════════
+
+    # ── Level 9: Grand Synthesis ───────────────────────────────────────
+    # A 6-step sulfur-to-magenta pipeline:
+    # 1. Dissolve sulfur in water
+    # 2. Heat the suspension
+    # 3. Hot-filter and cool
+    # 4. Acidify the extract
+    # 5. React with copper, heat
+    # 6. Slow cool with dye → magenta crystals
+    {
+        'name': 'Grand Synthesis',
+        'stages': [
+            # Stage 1: water + sulfur → sulfur suspension
+            {
+                'ingredients': ['water', 'sulfur', 'salt', 'charcoal'],
+                'correct_sequence': [0, 1],
+                'target': S_SULF_SUSP,
+                'transitions': {
+                    (E, 'water'):               S_WATER,
+                    (E, 'sulfur'):              S_SULFUR_DRY,
+                    (E, 'salt'):                S_SALT_DRY,
+                    (E, 'charcoal'):            S_CHAR_DRY,
+                    (S_WATER, 'sulfur'):        S_SULF_SUSP,
+                    (S_WATER, 'salt'):          S_SALINE,
+                    (S_WATER, 'charcoal'):      S_CHAR_LAYER,
+                    (S_SULFUR_DRY, 'water'):    S_SULF_SUSP,
+                    (S_SULFUR_DRY, 'salt'):     S_SULFUR_DRY,
+                    (S_SULFUR_DRY, 'charcoal'): S_CHAR_DRY,
+                    (S_SALT_DRY, 'water'):      (WHITE, 'layered', 'normal'),
+                    (S_CHAR_DRY, 'water'):      S_CHAR_LAYER,
+                },
+            },
+            # Stage 2: sulfur_water + flame → hot sulfur
+            {
+                'ingredients': ['sulfur_water', 'flame', 'ice', 'iron'],
+                'correct_sequence': [0, 1],
+                'target': S_SULF_BOIL,
+                'transitions': {
+                    (E, 'sulfur_water'):        S_SULF_SUSP,
+                    (E, 'flame'):               S_DRY_SMOKE,
+                    (E, 'ice'):                 S_FREEZE_W,
+                    (E, 'iron'):                S_IRON_DRY,
+                    (S_SULF_SUSP, 'flame'):     S_SULF_BOIL,
+                    (S_SULF_SUSP, 'ice'):       S_YELL_FROZ,
+                    (S_SULF_SUSP, 'iron'):      S_SULF_SUSP,
+                    (S_DRY_SMOKE, 'sulfur_water'):S_SULF_BOIL,
+                    (S_DRY_SMOKE, 'ice'):       S_DRY_SMOKE,
+                    (S_FREEZE_W, 'sulfur_water'):S_YELL_FROZ,
+                    (S_FREEZE_W, 'flame'):      S_WATER,
+                    (S_IRON_DRY, 'sulfur_water'):(GRAY, 'layered', 'normal'),
+                    (S_IRON_DRY, 'flame'):      S_DRY_SMOKE,
+                },
+            },
+            # Stage 3: hot_sulfur + filter + ice → cooled filtered sulfur
+            {
+                'ingredients': ['hot_sulfur', 'filter', 'ice', 'charcoal', 'salt'],
+                'correct_sequence': [0, 1, 2],
+                'target': S_SULF_COOL,
+                'transitions': {
+                    (E, 'hot_sulfur'):          S_SULF_BOIL,
+                    (E, 'filter'):              (LGRAY, 'powder', 'normal'),
+                    (E, 'ice'):                 S_FREEZE_W,
+                    (E, 'charcoal'):            S_CHAR_DRY,
+                    (E, 'salt'):                S_SALT_DRY,
+                    (S_SULF_BOIL, 'filter'):    S_SULF_FILT,
+                    (S_SULF_BOIL, 'ice'):       S_SULF_CRYST,     # too fast
+                    (S_SULF_BOIL, 'charcoal'):  (YELLOW, 'layered', 'hot'),
+                    (S_SULF_BOIL, 'salt'):      S_SULF_BOIL,
+                    (S_SULF_FILT, 'ice'):       S_SULF_COOL,
+                    (S_SULF_FILT, 'charcoal'):  S_SULF_FILT,
+                    (S_SULF_FILT, 'salt'):      S_SULF_FILT,
+                    (S_CHAR_DRY, 'hot_sulfur'): S_CHAR_BOIL,
+                    (S_CHAR_DRY, 'ice'):        S_CHAR_DRY,
+                    (S_FREEZE_W, 'hot_sulfur'): S_YELL_FROZ,
+                    (S_FREEZE_W, 'filter'):     S_FREEZE_W,
+                    (S_SALT_DRY, 'hot_sulfur'): (WHITE, 'layered', 'hot'),
+                },
+            },
+            # Stage 4: cooled_extract + acid → acidified sulfur
+            {
+                'ingredients': ['cooled_extract', 'acid', 'base', 'chalk'],
+                'correct_sequence': [0, 1],
+                'target': S_ACID_SULF,
+                'transitions': {
+                    (E, 'cooled_extract'):      S_SULF_COOL,
+                    (E, 'acid'):                S_ACID_LIQ,
+                    (E, 'base'):               S_PURPLE_LIQ,
+                    (E, 'chalk'):              (WHITE, 'powder', 'normal'),
+                    (S_SULF_COOL, 'acid'):      S_ACID_SULF,      # acidified!
+                    (S_SULF_COOL, 'base'):      S_PURPLE_LIQ,
+                    (S_SULF_COOL, 'chalk'):     S_SULF_COOL,
+                    (S_ACID_LIQ, 'cooled_extract'):S_ACID_SULF,
+                    (S_ACID_LIQ, 'base'):       S_NEUTRAL,
+                    (S_ACID_LIQ, 'chalk'):      S_GREEN_LIQ,
+                    (S_PURPLE_LIQ, 'cooled_extract'):(PURPLE, 'layered', 'normal'),
+                    (S_PURPLE_LIQ, 'acid'):     S_NEUTRAL,
+                    ((WHITE, 'powder', 'normal'), 'acid'):S_GREEN_LIQ,
+                    ((WHITE, 'powder', 'normal'), 'cooled_extract'):(YELLOW, 'layered', 'normal'),
+                },
+            },
+            # Stage 5: acid_extract + copper + flame → hot copper-acid
+            {
+                'ingredients': ['acid_extract', 'copper', 'flame', 'iron', 'salt'],
+                'correct_sequence': [0, 1, 2],
+                'target': S_ACID_CU_H,
+                'transitions': {
+                    (E, 'acid_extract'):        S_ACID_SULF,
+                    (E, 'copper'):              S_COPPER_DRY,
+                    (E, 'flame'):               S_DRY_SMOKE,
+                    (E, 'iron'):                S_IRON_DRY,
+                    (E, 'salt'):                S_SALT_DRY,
+                    (S_ACID_SULF, 'copper'):    S_ACID_CU,
+                    (S_ACID_SULF, 'flame'):     S_GREEN_BOIL,
+                    (S_ACID_SULF, 'iron'):      (GREEN, 'layered', 'normal'),
+                    (S_ACID_SULF, 'salt'):      S_ACID_SULF,
+                    (S_ACID_CU, 'flame'):       S_ACID_CU_H,
+                    (S_ACID_CU, 'iron'):        (BLUE, 'layered', 'normal'),
+                    (S_ACID_CU, 'salt'):        S_ACID_CU,
+                    (S_COPPER_DRY, 'acid_extract'):S_GREEN_LAY,
+                    (S_COPPER_DRY, 'flame'):    S_DRY_SMOKE,
+                    (S_IRON_DRY, 'acid_extract'):(GRAY, 'layered', 'normal'),
+                    (S_IRON_DRY, 'flame'):      S_DRY_SMOKE,
+                    (S_DRY_SMOKE, 'copper'):    S_DRY_SMOKE,
+                    (S_DRY_SMOKE, 'acid_extract'):S_GREEN_BOIL,
+                    (S_SALT_DRY, 'acid_extract'):S_GREEN_LAY,
+                },
+            },
+            # Stage 6: hot_mixture + ice + red_dye → magenta crystals
+            {
+                'ingredients': ['hot_mixture', 'ice', 'red_dye', 'blue_dye', 'base'],
+                'correct_sequence': [0, 1, 2],
+                'target': S_MAG_CRYST,
+                'transitions': {
+                    (E, 'hot_mixture'):         S_ACID_CU_H,
+                    (E, 'ice'):                 S_FREEZE_W,
+                    (E, 'red_dye'):             S_RED_LIQ,
+                    (E, 'blue_dye'):            S_BLUE_LIQ,
+                    (E, 'base'):               S_PURPLE_LIQ,
+                    (S_ACID_CU_H, 'ice'):       S_PURP_CRYST,    # cool → purple crystals
+                    (S_ACID_CU_H, 'red_dye'):   S_ACID_CU_H,
+                    (S_ACID_CU_H, 'blue_dye'):  S_ACID_CU_H,
+                    (S_ACID_CU_H, 'base'):      S_PURPLE_LIQ,
+                    (S_PURP_CRYST, 'red_dye'):  S_MAG_CRYST,     # dye → MAGENTA!
+                    (S_PURP_CRYST, 'blue_dye'): (PURPLE, 'crystal', 'cold'),
+                    (S_PURP_CRYST, 'base'):     S_PURPLE_LIQ,
+                    (S_FREEZE_W, 'hot_mixture'):S_PURP_CRYST,
+                    (S_FREEZE_W, 'red_dye'):    (RED, 'frozen', 'cold'),
+                    (S_RED_LIQ, 'hot_mixture'): S_ACID_CU_H,
+                    (S_RED_LIQ, 'ice'):         (RED, 'frozen', 'cold'),
+                    (S_RED_LIQ, 'blue_dye'):    S_PURPLE_LIQ,
+                    (S_BLUE_LIQ, 'hot_mixture'):S_ACID_CU_H,
+                    (S_BLUE_LIQ, 'red_dye'):    S_PURPLE_LIQ,
+                    (S_PURPLE_LIQ, 'ice'):      (PURPLE, 'frozen', 'cold'),
                 },
             },
         ],
@@ -600,9 +797,19 @@ _LEVELS = [
 
 # Crafted ingredient metadata (for multi-stage items that appear as vials)
 CRAFTED_INGREDIENTS = {
-    'acid_bath':       {'name': 'Acid Bath',     'color': GREEN,   'icon': 'liquid'},
-    'sulfur_extract':  {'name': 'S.Extract',     'color': YELLOW,  'icon': 'liquid'},
-    'pure_sulfur':     {'name': 'Pure S.',       'color': YELLOW,  'icon': 'liquid'},
+    'copper_sol':      {'name': 'Cu Sol.',     'color': BLUE,    'icon': 'liquid'},
+    'rust_water':      {'name': 'Rust Mix',    'color': ORANGE,  'icon': 'liquid'},
+    'dilute_acid':     {'name': 'Dil.Acid',    'color': GREEN,   'icon': 'liquid'},
+    'hot_acid_copper': {'name': 'Hot CuAc',    'color': PURPLE,  'icon': 'liquid'},
+    'sulfur_extract':  {'name': 'S.Extract',   'color': YELLOW,  'icon': 'liquid'},
+    'pure_sulfur':     {'name': 'Pure S.',     'color': YELLOW,  'icon': 'liquid'},
+    'neutral_sol':     {'name': 'Neutral',     'color': LBLUE,   'icon': 'liquid'},
+    'green_proof':     {'name': 'Proof',       'color': GREEN,   'icon': 'liquid'},
+    'sulfur_water':    {'name': 'S.Water',     'color': YELLOW,  'icon': 'liquid'},
+    'hot_sulfur':      {'name': 'Hot S.',      'color': YELLOW,  'icon': 'liquid'},
+    'cooled_extract':  {'name': 'Cool Ext.',   'color': YELLOW,  'icon': 'liquid'},
+    'acid_extract':    {'name': 'Acid Ext.',   'color': GREEN,   'icon': 'liquid'},
+    'hot_mixture':     {'name': 'Hot Mix',     'color': PURPLE,  'icon': 'liquid'},
 }
 
 
