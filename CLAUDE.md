@@ -235,6 +235,7 @@ After completing any fix or feature, **always**:
 1. Push to `staging`
 2. Run all non-LLM tests (import check + any unit/integration tests that don't require API keys)
 3. After any refactor, clean up dead code: remove old functions, aliases, unused HTML IDs, and dangling references that are no longer called
+4. Restart the local server: `pkill -f "python server.py"; python server.py &`
 
 ## Pre-Push QC
 
