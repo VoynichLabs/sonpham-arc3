@@ -1,11 +1,11 @@
 # Changelog
 
 All notable changes to this project will be documented here.
-Format: [SemVer](https://semver.org/) — what / why / how. Author and model noted per entry.
+Format: [SemVer](https://semver.org/) — what / why / how. Author and model noted per entry. New entries at the top. 
 
 ---
 
-## [Unreleased] — feature/lmstudio-support
+## [1.0.1] — feature/lmstudio-support
 *Author: Mark Barney + Claude Sonnet 4.6 | 2026-03-10*
 
 ### Added

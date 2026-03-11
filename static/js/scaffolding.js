@@ -64,9 +64,40 @@ function _populateSubModelSelect(sel, groups, providerOrder, providerLabels, byo
   if (savedVal && [...sel.options].some(o => o.value === savedVal)) sel.value = savedVal;
 }
 
+// Known LM Studio capability overrides keyed on api_model ID.
+// Mirrors LMSTUDIO_CAPABILITIES in models.py — update both together.
+const LMSTUDIO_CAPABILITIES = {
+  'zai-org/glm-4.7-flash':  { reasoning: true,  image: false },
+  'zai-org/glm-4.6v-flash': { reasoning: true,  image: true  },
+  'qwen/qwen3.5-35b-a3b':   { reasoning: true,  image: true  },
+  'qwen/qwen3.5-9b':        { reasoning: true,  image: false },
+};
+
 async function loadModels() {
   const data = await fetchJSON('/api/llm/models');
   modelsData = data.models || [];
+
+  // Discover LM Studio models client-side — browser calls localhost directly.
+  // This is the only correct approach: the server runs on Railway and cannot
+  // reach the user's localhost:1234. CORS is on by default in LM Studio 0.3+.
+  try {
+    const baseUrl = (localStorage.getItem('byok_lmstudio_base_url') || 'http://localhost:1234').replace(/\/$/, '');
+    const resp = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(1500) });
+    if (resp.ok) {
+      const lmsData = await resp.json();
+      const existingApiModels = new Set(modelsData.filter(m => m.provider === 'lmstudio').map(m => m.api_model));
+      for (const m of (lmsData.data || [])) {
+        const mid = m.id || '';
+        if (!mid || mid.toLowerCase().includes('embedding') || existingApiModels.has(mid)) continue;
+        const caps = LMSTUDIO_CAPABILITIES[mid] || { reasoning: false, image: false };
+        modelsData.push({
+          name: mid, api_model: mid, provider: 'lmstudio',
+          price: 'Free (local)', context_window: 8192,
+          capabilities: { ...caps, tools: false }, available: true,
+        });
+      }
+    }
+  } catch (_) { /* LM Studio not running — silently skip */ }
 
   // Add Puter.js models to modelsData (before grouping)
   if (FEATURES.puter_js) {
