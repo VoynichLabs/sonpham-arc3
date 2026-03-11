@@ -613,7 +613,7 @@
         <div class="obs-canvas-wrap" id="obsCanvasHost"></div>
         <div class="obs-scrubber-bar" id="obsScrubBar">
           <div class="obs-scrub-row">
-            <span class="obs-scrub-lbl" id="obsScrubLbl">Step 0 / 0</span>
+            <span class="obs-scrub-lbl" id="obsScrubLabel">Step 0 / 0</span>
             <input type="range" class="obs-scrub-slider" id="obsScrubSlider" min="0" max="0" value="0">
             <span class="obs-scrub-dot is-live" id="obsScrubDot">&#9679; LIVE</span>
           </div>
@@ -670,6 +670,10 @@ window.PROMPTS = {{ prompts | tojson }};
 <script src="/static/js/llm.js?v={{ static_v }}"></script>
 <script src="/static/js/scaffolding.js?v={{ static_v }}"></script>
 <script src="/static/js/session.js?v={{ static_v }}"></script>
+<script src="/static/js/observatory/obs-log-renderer.js?v={{ static_v }}"></script>
+<script src="/static/js/observatory/obs-scrubber.js?v={{ static_v }}"></script>
+<script src="/static/js/observatory/obs-swimlane-renderer.js?v={{ static_v }}"></script>
+<script src="/static/js/observatory/obs-lifecycle.js?v={{ static_v }}"></script>
 <script src="/static/js/observatory.js?v={{ static_v }}"></script>
 <script src="/static/js/human.js?v={{ static_v }}"></script>
 <script src="/static/js/leaderboard.js?v={{ static_v }}"></script>
