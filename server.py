@@ -1446,14 +1446,30 @@ def llm_models():
                         mid = m.get("id", "")
                         if not mid:
                             continue
+                        # Determine provider and capabilities based on port/model
+                        is_lmstudio = (port == 1234)
+                        provider_name = "lmstudio" if is_lmstudio else "local"
+                        
+                        # Known LM Studio model capability overrides (from PlanExe benchmarks)
+                        LMSTUDIO_REASONING_MODELS = {
+                            "zai-org/glm-4.7-flash",
+                            "zai-org/glm-4.6v-flash",
+                            "qwen/qwen3.5-35b-a3b",
+                            "qwen/qwen3.5-9b",
+                        }
+                        has_reasoning = is_lmstudio and mid in LMSTUDIO_REASONING_MODELS
+                        
                         entry = {
                             "name": mid,
                             "api_model": mid,
-                            "provider": "local",
+                            "provider": provider_name,
                             "local_port": port,
                             "local_label": label,
                             "price": f"Free ({label}:{port})",
-                            "capabilities": {"image": False, "reasoning": False, "tools": False},
+                            # LM Studio requires explicit context window — default 3900 silently truncates.
+                            # Tested on Mac Mini M4 Pro 64GB: set 8192+ for reliable structured output.
+                            "context_window": 8192 if is_lmstudio else None,
+                            "capabilities": {"image": False, "reasoning": has_reasoning, "tools": False},
                             "available": True,
                         }
                         models.append(entry)

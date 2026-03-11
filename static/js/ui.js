@@ -93,16 +93,17 @@ function getSelectedModel() {
 const PROVIDER_LABELS = {
   gemini: 'Google Gemini', anthropic: 'Anthropic', openai: 'OpenAI',
   cloudflare: 'Cloudflare', groq: 'Groq', mistral: 'Mistral', huggingface: 'Huggingface',
-  local: 'Local Model', ollama: 'Ollama',
+  local: 'Local Model', ollama: 'Ollama', lmstudio: 'LM Studio',
 };
 
 // ── Centralized BYOK Key Management ──
 // Scans ALL model selects, collects unique providers, renders key inputs dynamically.
 // Called on any model select change. Future-proof: no per-scaffold wiring needed.
 
-const _BYOK_FREE_PROVIDERS = new Set(['puter', 'copilot', 'ollama', 'local']);
+const _BYOK_FREE_PROVIDERS = new Set(['puter', 'copilot', 'ollama', 'local', 'lmstudio']);
 const _BYOK_PROVIDER_EXTRA_FIELDS = {
   cloudflare: [{ key: 'byok_cf_account_id', label: 'Cloudflare Account ID', placeholder: 'Paste Account ID here...', hint: 'Found in Cloudflare dashboard → Workers & Pages.', type: 'password' }],
+  lmstudio: [{ key: 'byok_lmstudio_base_url', label: 'LM Studio Base URL', placeholder: 'http://localhost:1234', hint: 'LM Studio local server. Enable CORS in LM Studio → Settings. Use a tunnel URL (e.g. Cloudflare Tunnel) for remote access.', type: 'text' }],
 };
 
 function updateAllByokKeys() {

@@ -526,6 +526,32 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
     return data.content?.map(c => c.text).filter(Boolean).join('') || '';
   }
 
+  // ── LM Studio (local OpenAI-compatible, client-side) ──
+  if (provider === 'lmstudio') {
+    const baseUrl = localStorage.getItem('byok_lmstudio_base_url') || 'http://localhost:1234';
+    const url = baseUrl.replace(/\/$/, '') + '/v1/chat/completions';
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: apiModel,
+        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        temperature: 0.3,
+        max_tokens: maxTokens,
+        stream: false,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(`LM Studio error ${resp.status}: ${err.error?.message || resp.statusText}. Is LM Studio running with CORS enabled?`);
+    }
+    const data = await resp.json();
+    callLLM._lastUsage = data.usage ? { input_tokens: data.usage.prompt_tokens || 0, output_tokens: data.usage.completion_tokens || 0 } : null;
+    const text = data.choices?.[0]?.message?.content || '';
+    if (data.choices?.[0]?.finish_reason === 'length') return { text, truncated: true };
+    return text;
+  }
+
   // ── Cloudflare Workers AI (via server proxy — no browser CORS) ──
   if (provider === 'cloudflare') {
     const accountId = localStorage.getItem('byok_cf_account_id') || '';
