@@ -49,6 +49,13 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 ### Fixed
 - LM Studio 400 Bad Request when only system messages present (promoted to user role)
 - LM Studio proxy swallowing error body (now forwards actual response body and status)
+- LM Studio provider block missing from `_callLLMInner` after Phase 5 extraction (calls fell through to "Unsupported provider")
+- LM Studio discovery + dummy key logic missing from `loadModels()` after Phase 5 extraction
+- `LMSTUDIO_CAPABILITIES` constant missing from `scaffolding.js` after Phase 5 extraction
+- `providerOrder` missing `'Lmstudio'` entry — LM Studio models not grouped in dropdown
+- Server-side discovery returning `provider: "local"` instead of `provider: "lmstudio"` for port 1234
+- Server-side discovery `ImportError` on `LMSTUDIO_CAPABILITIES` silently caught by `except Exception: pass`, killing all local model discovery
+- `esc()` function undefined (`ReferenceError`) — refactor extracted `escapeHtml` to `formatting.js` but deleted the `esc` shorthand used ~26 times in `llm.js` and `share-page.js`
 
 ---
 

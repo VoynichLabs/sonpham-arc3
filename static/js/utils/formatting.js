@@ -22,6 +22,8 @@ function escapeHtml(s) {
   if (s == null) return '';
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+// Short alias — used by llm.js, obs-page.js, and other rendering code
+function esc(s) { return escapeHtml(s); }
 
 /**
  * Escape a string for safe insertion into an HTML attribute value.

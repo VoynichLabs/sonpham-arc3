@@ -953,14 +953,32 @@ def llm_models():
                         mid = m.get("id", "")
                         if not mid:
                             continue
+                        # Skip embedding models — not chat models
+                        if "embedding" in mid.lower():
+                            continue
+                        is_lmstudio = (port == 1234)
+                        provider_name = "lmstudio" if is_lmstudio else "local"
+                        # Capability overrides for known LM Studio models
+                        # Mirrors LMSTUDIO_CAPABILITIES in scaffolding.js — update both together
+                        _LMS_CAPS = {
+                            'zai-org/glm-4.7-flash':  {'reasoning': True,  'image': False},
+                            'zai-org/glm-4.6v-flash': {'reasoning': True,  'image': True},
+                            'qwen/qwen3.5-35b-a3b':   {'reasoning': True,  'image': True},
+                            'qwen/qwen3.5-9b':        {'reasoning': True,  'image': False},
+                        }
+                        caps = _LMS_CAPS.get(mid, {}) if is_lmstudio else {}
+                        has_reasoning = caps.get("reasoning", False)
+                        has_image = caps.get("image", False)
                         entry = {
                             "name": mid,
                             "api_model": mid,
-                            "provider": "local",
+                            "provider": provider_name,
                             "local_port": port,
                             "local_label": label,
                             "price": f"Free ({label}:{port})",
-                            "capabilities": {"image": False, "reasoning": False, "tools": False},
+                            # LM Studio context window override — default 3900 silently truncates.
+                            "context_window": 8192 if is_lmstudio else None,
+                            "capabilities": {"image": has_image, "reasoning": has_reasoning, "tools": False},
                             "available": True,
                         }
                         models.append(entry)
