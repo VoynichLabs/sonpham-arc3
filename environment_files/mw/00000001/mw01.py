@@ -390,6 +390,27 @@ def _text(frame, x, y, text, color):
         cx += 4
 
 
+# ── Unit colour (strength-encoded) ────────────────────────────────────────────
+
+def _unit_color(unit):
+    """Return ARC3 colour for a unit, encoding strength as brightness."""
+    side, utype, n = unit['side'], unit['type'], unit['number']
+    if side == 'player':
+        if utype == 'chief':
+            return YEL                          # chief always yellow
+        # regular: LGRAY → WHITE → LBLUE (weak → strong)
+        if n <= 7:   return LGRAY
+        elif n <= 14: return WHITE
+        else:         return LBLUE
+    else:  # enemy
+        if utype == 'chief':
+            return LMAG                         # enemy chief: light magenta
+        # regular: DGRAY → ORG → RED (weak → strong, all visible on red territory)
+        if n <= 7:   return DGRAY
+        elif n <= 14: return ORG
+        else:         return LMAG
+
+
 # ── Display ────────────────────────────────────────────────────────────────────
 
 class Mw01Display(RenderableUserDisplay):
@@ -450,27 +471,20 @@ class Mw01Display(RenderableUserDisplay):
                 _px(frame, px, py, GRN)
                 break
 
-        # Unit: colored 2x2 cell (overrides barrack dot)
+        # Unit: strength-encoded colour (always visible against territory)
         unit = g._unit_at(gx, gy)
         if unit is not None:
-            if unit['side'] == 'player':
-                uc = YEL if unit['type'] == 'chief' else BLUE
-            else:
-                uc = ORG if unit['type'] == 'chief' else RED
-            frame[py:py+CELL, px:px+CELL] = uc
+            frame[py:py+CELL, px:px+CELL] = _unit_color(unit)
 
-        # Selected unit: white border pixels
+        # Selected unit: WHITE top-left pixel as indicator
         if g.selected_unit is not None:
             su = g.selected_unit
             if su['x'] == gx and su['y'] == gy:
-                _px(frame, px,   py,   YEL)
-                _px(frame, px+1, py,   YEL)
-                _px(frame, px,   py+1, YEL)
-                _px(frame, px+1, py+1, YEL)
+                _px(frame, px, py, WHITE)
 
-        # Valid move: bright corner pixel
+        # Valid move: WHITE top-left corner pixel
         if (gx, gy) in g.valid_moves:
-            _px(frame, px, py, YEL)
+            _px(frame, px, py, WHITE)
 
         # Selected cell: white dot
         if g.selected_cell is not None and g.selected_cell == (gx, gy):
@@ -479,43 +493,63 @@ class Mw01Display(RenderableUserDisplay):
     def _draw_panel(self, frame, g):
         px = PANEL_X + 1
 
-        # Gold
-        _text(frame, px, 7, "G", YEL)
-        _text(frame, px + 4, 7, str(g.gold), YEL)
+        # ── Stats ─────────────────────────────────────────────────────────────
+        _text(frame, px, 1, "G", YEL)
+        _text(frame, px + 4, 1, str(g.gold), YEL)
 
-        # Player units / max
         p_reg = sum(1 for u in g.units if u['side'] == 'player' and u['type'] == 'regular')
-        p_max = g._player_max_units()
-        _text(frame, px, 13, "U", BLUE)
-        _text(frame, px + 4, 13, str(p_reg), BLUE)
+        _text(frame, px, 7, "U", BLUE)
+        _text(frame, px + 4, 7, str(p_reg), BLUE)
 
-        # Barracks
         p_bars = sum(1 for b in g.barracks if b['side'] == 'player')
-        _text(frame, px, 19, "B", GRN)
-        _text(frame, px + 4, 19, str(p_bars), GRN)
+        _text(frame, px, 13, "B", GRN)
+        _text(frame, px + 4, 13, str(p_bars), GRN)
 
-        # END button: y=26..31
+        # ── Selected unit number (prominent display) ───────────────────────────
+        sel = g.selected_unit
+        if sel is not None:
+            uc = _unit_color(sel)
+            _rect(frame, PANEL_X, 19, 3, 5, uc)       # colour swatch
+            _text(frame, px + 3, 19, str(sel['number']), WHITE)
+        else:
+            # Show player chief number when nothing selected
+            chief = next((u for u in g.units
+                          if u['side'] == 'player' and u['type'] == 'chief'), None)
+            if chief is not None:
+                _rect(frame, PANEL_X, 19, 3, 5, YEL)
+                _text(frame, px + 3, 19, str(chief['number']), WHITE)
+
+        # ── Buttons ───────────────────────────────────────────────────────────
         end_c = GRN if g.phase == 'player' else DGRAY
         _rect(frame, PANEL_X, 26, 20, 6, end_c)
         _text(frame, px, 27, "END", BLACK)
 
-        # BLD button: y=33..38
         if g._can_show_bld():
             _rect(frame, PANEL_X, 33, 20, 6, BLUE)
             _text(frame, px, 34, "BLD", BLACK)
 
-        # SPN button: y=40..45
         if g._can_show_spn():
             _rect(frame, PANEL_X, 40, 20, 6, ORG)
             _text(frame, px, 41, "SPN", BLACK)
 
-        # SEL button: y=47..52
         if g._can_show_sel():
             _rect(frame, PANEL_X, 47, 20, 6, RED)
             _text(frame, px, 48, "SEL", BLACK)
 
-        # Progress at bottom
+        # ── Progress ──────────────────────────────────────────────────────────
         self._draw_progress(frame, g, px)
+
+        # ── Mini unit roster (bottom strip y=55..63) ───────────────────────────
+        # Show first 4 player units (chief first) as colour block + number
+        player_units = sorted(
+            (u for u in g.units if u['side'] == 'player'),
+            key=lambda u: (0 if u['type'] == 'chief' else 1, -u['number'])
+        )
+        for i, u in enumerate(player_units[:4]):
+            ry = 55 + (i // 2) * 5
+            rx = PANEL_X + (i % 2) * 10
+            _rect(frame, rx, ry, 2, 2, _unit_color(u))
+            _text(frame, rx + 2, ry, str(u['number']), LGRAY)
 
     def _draw_progress(self, frame, g, px):
         y = 55
