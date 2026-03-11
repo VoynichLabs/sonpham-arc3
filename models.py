@@ -256,32 +256,16 @@ MODEL_REGISTRY: dict[str, dict] = {
         "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": True, "tools": True},
     },
-    # ── LM Studio (local inference via OpenAI-compatible API) ─────────────────
-    # Models discovered dynamically at runtime via /api/llm/models.
-    # Static entries here document known-good models with correct capabilities.
-    # IMPORTANT: context_window must be set explicitly — LM Studio's default (3900)
-    # causes silent prompt truncation. Verified on Mac Mini M4 Pro 64GB (Mar 2026).
-    "lmstudio-glm-4.7-flash": {
-        "provider": "lmstudio", "api_model": "zai-org/glm-4.7-flash",
-        "env_key": "",
-        "price": "Free (local)",
-        "context_window": 8192,
-        "capabilities": {"image": False, "reasoning": True, "tools": False},
-    },
-    "lmstudio-qwen3.5-35b": {
-        "provider": "lmstudio", "api_model": "qwen/qwen3.5-35b-a3b",
-        "env_key": "",
-        "price": "Free (local)",
-        "context_window": 8192,
-        "capabilities": {"image": True, "reasoning": True, "tools": False},
-    },
-    "lmstudio-glm-4.6v-flash": {
-        "provider": "lmstudio", "api_model": "zai-org/glm-4.6v-flash",
-        "env_key": "",
-        "price": "Free (local)",
-        "context_window": 8192,
-        "capabilities": {"image": True, "reasoning": True, "tools": False},
-    },
+}
+
+# LM Studio capability overrides — keyed on api_model ID as returned by /v1/models.
+# Used by server.py dynamic discovery to annotate whatever models the user has loaded.
+# Add entries here when a model's reasoning/image capabilities are confirmed.
+LMSTUDIO_CAPABILITIES: dict[str, dict] = {
+    "zai-org/glm-4.7-flash":   {"reasoning": True,  "image": False},
+    "zai-org/glm-4.6v-flash":  {"reasoning": True,  "image": True},
+    "qwen/qwen3.5-35b-a3b":    {"reasoning": True,  "image": True},
+    "qwen/qwen3.5-9b":         {"reasoning": True,  "image": False},
 }
 
 # Ollama models discovered at runtime; all support text only by default.

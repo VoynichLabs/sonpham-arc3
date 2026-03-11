@@ -35,6 +35,7 @@ load_dotenv(Path(__file__).parent / ".env")
 from models import (
     MODEL_REGISTRY, SYSTEM_MSG, THINKING_BUDGETS,
     OLLAMA_VRAM, OLLAMA_VISION_MODELS, _discovered_local_models,
+    LMSTUDIO_CAPABILITIES,
 )
 from llm_providers import (
     _route_model_call, _get_or_create_gemini_cache,
@@ -1431,12 +1432,6 @@ def llm_models():
     # Discover local OpenAI-compatible servers (LM Studio, llama.cpp, vLLM, etc.)
     if mode == "staging":
         import httpx
-        # api_models already covered by static registry entries — skip dynamic duplicates
-        _static_lmstudio_api_models = {
-            info.get("api_model", key)
-            for key, info in MODEL_REGISTRY.items()
-            if info.get("provider") == "lmstudio"
-        }
         LOCAL_PORTS = [
             (1234, "LM Studio"),
             (8080, "Local Server"),
@@ -1458,23 +1453,9 @@ def llm_models():
                         # Determine provider and capabilities based on port/model
                         is_lmstudio = (port == 1234)
                         provider_name = "lmstudio" if is_lmstudio else "local"
-                        # Skip if a static registry entry already covers this api_model
-                        if is_lmstudio and mid in _static_lmstudio_api_models:
-                            continue
-                        
-                        # Known LM Studio model capability overrides (from PlanExe benchmarks)
-                        LMSTUDIO_REASONING_MODELS = {
-                            "zai-org/glm-4.7-flash",
-                            "zai-org/glm-4.6v-flash",
-                            "qwen/qwen3.5-35b-a3b",
-                            "qwen/qwen3.5-9b",
-                        }
-                        LMSTUDIO_IMAGE_MODELS = {
-                            "zai-org/glm-4.6v-flash",   # vision encoder confirmed
-                            "qwen/qwen3.5-35b-a3b",     # mmproj vision encoder confirmed
-                        }
-                        has_reasoning = is_lmstudio and mid in LMSTUDIO_REASONING_MODELS
-                        has_image = is_lmstudio and mid in LMSTUDIO_IMAGE_MODELS
+                        caps = LMSTUDIO_CAPABILITIES.get(mid, {}) if is_lmstudio else {}
+                        has_reasoning = caps.get("reasoning", False)
+                        has_image = caps.get("image", False)
 
                         entry = {
                             "name": mid,
