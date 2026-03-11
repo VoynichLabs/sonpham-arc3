@@ -1,9 +1,8 @@
 # Mark's Coding Standards
-
-This document summarizes the generally applicable engineering expectations for this repo, distilled from `AGENTS.md` and `CLAUDE.md`. When in doubt, those files are the source of truth.
+These should be present in the CLAUDE.md file and the agents.md file. 
 
 ## Non-negotiables
-- Windows and UTF-8: do not use the "X" and "checkmark" glyphs (including emoji variants). Keep files UTF-8 clean.
+
 - No guessing: for unfamiliar or recently changed libraries/frameworks, locate and read docs (or ask for docs) before coding.
 - Quality over speed: slow down, think, and get a plan approved before implementation.
 - Production-only: no mocks, stubs, placeholders, fake data, or simulated logic shipped in final code.
