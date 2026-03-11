@@ -86,8 +86,8 @@ async function loadModels() {
     const key = m.provider.charAt(0).toUpperCase() + m.provider.slice(1);
     (groups[key] ??= []).push(m);
   }
-  const providerOrder = ['Local', 'Copilot', 'Gemini', 'Anthropic', 'Cloudflare', 'Groq', 'Mistral', 'Huggingface', 'Ollama'];
-  const providerLabels = { Local: 'Local Models (free)', Puter: 'Puter.js (free)' };
+  const providerOrder = ['Local', 'Lmstudio', 'Ollama', 'Copilot', 'Gemini', 'Anthropic', 'Cloudflare', 'Groq', 'Mistral', 'Huggingface'];
+  const providerLabels = { Local: 'Local Models (free)', Lmstudio: 'LM Studio (free, local)', Puter: 'Puter.js (free)' };
 
   const unavail = modelsData.filter(m => !m.available);
   const byokGroups = {};
