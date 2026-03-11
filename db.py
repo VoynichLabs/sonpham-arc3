@@ -12,6 +12,7 @@ import sqlite3
 import time
 import uuid
 import zlib
+from contextlib import contextmanager
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -398,6 +399,27 @@ def _get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextmanager
+def _db():
+    """Context manager for SQLite connections.
+
+    Usage:
+        with _db() as conn:
+            conn.execute(...)
+            # commit happens automatically on clean exit
+            # connection closes on exit (clean or exception)
+    """
+    conn = _get_db()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

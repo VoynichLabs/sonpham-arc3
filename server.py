@@ -43,6 +43,33 @@ from llm_providers import (
 )
 import llm_providers
 from constants import COLOR_MAP, COLOR_NAMES, ACTION_NAMES, ARC_AGI3_DESCRIPTION
+from grid_analysis import (
+    compress_row,
+    compute_change_map,
+    compute_color_histogram,
+    compute_region_map,
+)
+from prompt_builder import (
+    _build_prompt_parts,
+    _build_prompt,
+    _parse_llm_response,
+    _extract_json,
+)
+from bot_protection import (
+    TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY,
+    TURNSTILE_TOKEN_TTL,
+    _rate_buckets, _rate_lock, RATE_LIMIT, RATE_WINDOW,
+    _verified_tokens, _token_lock,
+    _get_client_ip, _is_bot_ua, _check_rate_limit,
+    _verify_turnstile_token, _is_turnstile_verified,
+    bot_protection, turnstile_required,
+)
+from session_manager import (
+    game_sessions, session_grids, session_snapshots,
+    session_api_mode, session_api_keys,
+    session_lock, session_step_counts, session_last_llm,
+    _reconstruct_session, _try_recover_session,
+)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
@@ -108,11 +135,8 @@ def get_enabled_features() -> dict[str, bool]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# BOT PROTECTION — Turnstile + Rate Limiting + UA Filtering
+# BOT PROTECTION — imported from bot_protection.py
 # ═══════════════════════════════════════════════════════════════════════════
-
-TURNSTILE_SITE_KEY = os.environ.get("TURNSTILE_SITE_KEY", "")
-TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "")
 
 # Analytics — Umami (set both env vars to enable)
 UMAMI_URL = os.environ.get("UMAMI_URL", "")          # e.g. https://umami.example.com
@@ -125,108 +149,6 @@ RESEND_FROM = os.environ.get("RESEND_FROM", "noreply@arc3.sonpham.net")
 # Google OAuth
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-
-BOT_UA_PATTERNS = [
-    "bot", "crawler", "spider", "scraper", "wget", "curl", "python-requests",
-    "httpx", "aiohttp", "go-http-client", "java/", "libwww", "headlesschrome",
-    "phantomjs", "selenium", "puppeteer", "playwright", "mechanize", "scrapy",
-    "chatgpt", "gptbot", "claude-web", "anthropic-ai", "bingbot", "googlebot",
-    "baiduspider", "yandexbot", "duckduckbot", "facebookexternalhit",
-    "twitterbot", "applebot", "semrushbot", "ahrefsbot", "mj12bot",
-    "dotbot", "petalbot", "bytespider", "ccbot",
-]
-
-_rate_buckets: dict[str, dict] = {}
-_rate_lock = threading.Lock()
-RATE_LIMIT = 60       # max requests per window
-RATE_WINDOW = 60      # window in seconds
-
-_verified_tokens: dict[str, float] = {}
-_token_lock = threading.Lock()
-TURNSTILE_TOKEN_TTL = 3600  # verified session lasts 1 hour
-
-
-def _get_client_ip() -> str:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote_addr or "unknown"
-
-
-def _is_bot_ua(ua: str) -> bool:
-    ua_lower = ua.lower()
-    return any(pat in ua_lower for pat in BOT_UA_PATTERNS)
-
-
-def _check_rate_limit(ip: str) -> bool:
-    now = time.time()
-    with _rate_lock:
-        bucket = _rate_buckets.get(ip)
-        if bucket is None or now - bucket["window_start"] > RATE_WINDOW:
-            _rate_buckets[ip] = {"count": 1, "window_start": now}
-            return True
-        bucket["count"] += 1
-        return bucket["count"] <= RATE_LIMIT
-
-
-def _verify_turnstile_token(token: str, ip: str) -> bool:
-    if not TURNSTILE_SECRET_KEY:
-        return True
-    try:
-        resp = _httpx.post(
-            "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-            data={"secret": TURNSTILE_SECRET_KEY, "response": token, "remoteip": ip},
-            timeout=10.0,
-        )
-        return resp.json().get("success", False)
-    except Exception as e:
-        app.logger.warning(f"Turnstile verification failed: {e}")
-        return False
-
-
-def _is_turnstile_verified() -> bool:
-    if get_mode() == "staging":
-        return True  # skip Turnstile in staging mode
-    if not TURNSTILE_SITE_KEY or not TURNSTILE_SECRET_KEY:
-        return True  # skip if not configured
-    token_hash = request.cookies.get("ts_verified", "")
-    if not token_hash:
-        return False
-    now = time.time()
-    with _token_lock:
-        expiry = _verified_tokens.get(token_hash)
-        if expiry and now < expiry:
-            return True
-        _verified_tokens.pop(token_hash, None)
-    return False
-
-
-def bot_protection(f):
-    """UA filtering + rate limiting on API routes (prod mode only)."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if get_mode() == "staging":
-            return f(*args, **kwargs)
-        ip = _get_client_ip()
-        ua = request.headers.get("User-Agent", "")
-        if _is_bot_ua(ua):
-            app.logger.info(f"Blocked bot UA from {ip}: {ua[:80]}")
-            abort(403)
-        if not _check_rate_limit(ip):
-            app.logger.info(f"Rate limited {ip}")
-            return jsonify({"error": "Rate limit exceeded. Try again later."}), 429
-        return f(*args, **kwargs)
-    return decorated
-
-
-def turnstile_required(f):
-    """Require Turnstile verification for protected routes."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not _is_turnstile_verified():
-            return jsonify({"error": "Human verification required", "need_turnstile": True}), 403
-        return f(*args, **kwargs)
-    return decorated
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────
@@ -255,14 +177,9 @@ def get_current_user() -> dict | None:
 # ── Global state ───────────────────────────────────────────────────────────
 
 arcade_instance: Optional[arc_agi.Arcade] = None
-game_sessions: dict[str, Any] = {}
-session_grids: dict[str, list[list[int]]] = {}
-session_snapshots: dict[str, list[dict]] = {}  # session_id → list of snapshots for undo
-session_api_mode: dict[str, str] = {}  # session-scoped api mode: "local" or "official"
-session_api_keys: dict[str, str] = {}  # session-scoped ARC API keys
-session_lock = threading.Lock()
-session_step_counts: dict[str, int] = {}  # session_id → server-side step counter
-session_last_llm: dict[str, dict] = {}  # session_id → last LLM response (for DB storage)
+# game_sessions, session_grids, session_snapshots, session_api_mode,
+# session_api_keys, session_lock, session_step_counts, session_last_llm
+# are imported from session_manager above.
 
 
 
@@ -283,78 +200,7 @@ from db import (
     _list_file_sessions, _log_tool_execution, _get_session_tool_executions,
 )
 
-def _reconstruct_session(game_id: str, actions: list[dict], capture_per_step: bool = False):
-    """Replay a list of {action, data} dicts on a fresh env. Returns (env, state_dict).
-    If capture_per_step=True, also returns list of per-step state dicts."""
-    bare_id = game_id.split("-")[0]
-    arc = get_arcade()
-    env = arc.make(bare_id)
-    state = env_state_dict(env)
-    per_step_states = [] if capture_per_step else None
-    for act in actions:
-        action = GameAction.from_id(int(act["action"]))
-        data = act.get("data") or None
-        if isinstance(data, str):
-            data = json.loads(data)
-        frame_data = env.step(action, data=data if data else None)
-        if frame_data is not None:
-            state = env_state_dict(env, frame_data)
-        if capture_per_step:
-            per_step_states.append({
-                "state": state.get("state", "NOT_FINISHED"),
-                "levels_completed": state.get("levels_completed", 0),
-            })
-    if capture_per_step:
-        return env, state, per_step_states
-    return env, state
-
-
-def _try_recover_session(session_id: str):
-    """Try to recover a session from DB by replaying its actions. Returns (env, state) or (None, None)."""
-    try:
-        conn = _get_db()
-        sess = conn.execute("SELECT game_id FROM sessions WHERE id = ?", (session_id,)).fetchone()
-        if not sess:
-            conn.close()
-            return None, None
-        rows = conn.execute(
-            "SELECT action, row, col FROM session_actions WHERE session_id = ? ORDER BY step_num",
-            (session_id,),
-        ).fetchall()
-        conn.close()
-        if not rows:
-            # Session exists but no actions — just recreate env at initial state
-            bare_id = sess["game_id"].split("-")[0]
-            arc = get_arcade()
-            env = arc.make(bare_id)
-            state = env_state_dict(env)
-            with session_lock:
-                game_sessions[session_id] = env
-                session_grids[session_id] = state.get("grid", [])
-                session_snapshots[session_id] = []
-                session_step_counts[session_id] = 0
-            app.logger.info(f"Recovered session {session_id} (0 actions)")
-            return env, state
-
-        actions = []
-        for r in rows:
-            act = {"action": r["action"]}
-            if r["row"] is not None and r["col"] is not None:
-                act["data"] = json.dumps({"x": r["col"], "y": r["row"]})
-            else:
-                act["data"] = None
-            actions.append(act)
-        env, state = _reconstruct_session(sess["game_id"], actions)
-        with session_lock:
-            game_sessions[session_id] = env
-            session_grids[session_id] = state.get("grid", [])
-            session_snapshots[session_id] = []
-            session_step_counts[session_id] = len(actions)
-        app.logger.info(f"Recovered session {session_id} ({len(actions)} actions replayed)")
-        return env, state
-    except Exception as e:
-        app.logger.warning(f"Session recovery failed for {session_id}: {e}")
-        return None, None
+# _reconstruct_session and _try_recover_session are imported from session_manager above.
 
 
 # DB initialized at import time via db.py
@@ -411,110 +257,8 @@ def frame_to_grid(frame) -> list[list[int]]:
     return frame.tolist()
 
 
-def compress_row(row: list[int]) -> str:
-    if not row:
-        return ""
-    parts = []
-    cur, count = row[0], 1
-    for v in row[1:]:
-        if v == cur:
-            count += 1
-        else:
-            parts.append(f"{cur}x{count}" if count > 1 else str(cur))
-            cur, count = v, 1
-    parts.append(f"{cur}x{count}" if count > 1 else str(cur))
-    return " ".join(parts)
-
-
-def compute_change_map(prev_grid, curr_grid):
-    if not prev_grid or not curr_grid:
-        return {"changes": [], "change_count": 0, "change_map_text": ""}
-    h = min(len(prev_grid), len(curr_grid))
-    w = min(len(prev_grid[0]), len(curr_grid[0])) if h > 0 else 0
-    changes, rows = [], []
-    for y in range(h):
-        row_chars = []
-        for x in range(w):
-            if prev_grid[y][x] != curr_grid[y][x]:
-                changes.append({"x": x, "y": y, "from": prev_grid[y][x], "to": curr_grid[y][x]})
-                row_chars.append("X")
-            else:
-                row_chars.append(".")
-        row_str = "".join(row_chars)
-        if "X" in row_str:
-            rows.append(f"Row {y}: {_compress_change_row(row_str)}")
-    return {
-        "changes": changes,
-        "change_count": len(changes),
-        "change_map_text": "\n".join(rows) if rows else "(no changes)",
-    }
-
-
-def _compress_change_row(row: str) -> str:
-    if not row:
-        return ""
-    parts = []
-    cur, count = row[0], 1
-    for ch in row[1:]:
-        if ch == cur:
-            count += 1
-        else:
-            parts.append(f"{cur}x{count}" if count > 3 else cur * count)
-            cur, count = ch, 1
-    parts.append(f"{cur}x{count}" if count > 3 else cur * count)
-    return "".join(parts)
-
-
-def compute_color_histogram(grid: list) -> str:
-    if not grid:
-        return ""
-    counts: dict[int, int] = {}
-    for row in grid:
-        for v in row:
-            counts[v] = counts.get(v, 0) + 1
-    return "\n".join(
-        f"  {v} ({COLOR_NAMES.get(v, '?')}): {cnt} cells"
-        for v, cnt in sorted(counts.items())
-    )
-
-
-def compute_region_map(grid: list) -> str:
-    if not grid:
-        return ""
-    h, w = len(grid), len(grid[0])
-    visited = [[False] * w for _ in range(h)]
-    regions: dict[int, list] = {}
-    for sy in range(h):
-        for sx in range(w):
-            if visited[sy][sx]:
-                continue
-            color = grid[sy][sx]
-            queue = deque([(sy, sx)])
-            visited[sy][sx] = True
-            cells = []
-            while queue:
-                y, x = queue.popleft()
-                cells.append((y, x))
-                for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                    ny, nx = y + dy, x + dx
-                    if 0 <= ny < h and 0 <= nx < w and not visited[ny][nx] and grid[ny][nx] == color:
-                        visited[ny][nx] = True
-                        queue.append((ny, nx))
-            ys = [c[0] for c in cells]
-            xs = [c[1] for c in cells]
-            regions.setdefault(color, []).append({
-                "size": len(cells),
-                "bbox": f"rows {min(ys)}-{max(ys)}, cols {min(xs)}-{max(xs)}",
-            })
-    lines = []
-    for color in sorted(regions):
-        name = COLOR_NAMES.get(color, str(color))
-        top = sorted(regions[color], key=lambda r: -r["size"])[:5]
-        for r in top:
-            lines.append(f"  {color}={name}: {r['size']} cells at {r['bbox']}")
-        if len(regions[color]) > 5:
-            lines.append(f"  {color}={name}: ... ({len(regions[color]) - 5} more)")
-    return "\n".join(lines)
+# compress_row, compute_change_map, _compress_change_row, compute_color_histogram,
+# compute_region_map are imported from grid_analysis above.
 
 
 
@@ -530,34 +274,8 @@ from scaffoldings.three_system.handler import (  # noqa: used by agent.py
 
 
 _SCAFFOLDING_PLACEHOLDER = True  # inline code moved to scaffoldings/ package
-
-def _build_prompt_parts(payload: dict, input_settings: dict, tools_mode: str,
-                        planning_mode: str = "off") -> tuple[str, str]:
-    """Split prompt into static (cacheable) and dynamic parts.
-
-    Returns (static_str, dynamic_str).
-    """
-    grid = payload.get("grid", [])
-    history = payload.get("history", [])
-    change_map = payload.get("change_map", {})
-
-    # ── Static parts (system description, palette, memory) ────────────
-    static_parts = []
-    sys_prompt = _custom_system_prompt if _custom_system_prompt else ARC_AGI3_DESCRIPTION
-    static_parts.append(f"""{sys_prompt}
-
-COLOR PALETTE: 0=White 1=LightGray 2=Gray 3=DarkGray 4=VeryDarkGray 5=Black
-               6=Magenta 7=LightMagenta 8=Red 9=Blue 10=LightBlue 11=Yellow
-               12=Orange 13=Maroon 14=Green 15=Purple""")
-
-    if _custom_hard_memory:
-        static_parts.append(f"## AGENT MEMORY\n{_custom_hard_memory}")
-
-    static_str = "\n\n".join(static_parts)
-
-    # ── Dynamic parts (everything else) are built by _build_prompt ────
-    # We return just the static portion; the caller uses the full prompt too
-    return static_str, ""  # dynamic not needed separately
+# _build_prompt_parts, _build_prompt, _parse_llm_response, _extract_json
+# are imported from prompt_builder above.
 
 
 def env_state_dict(env, frame_data=None) -> dict:
@@ -581,212 +299,11 @@ def env_state_dict(env, frame_data=None) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PROMPT BUILDING  (config-driven: input sources, tools mode)
+# PROMPT BUILDING + LLM RESPONSE PARSING — imported from prompt_builder.py
 # ═══════════════════════════════════════════════════════════════════════════
-
-def _build_prompt(payload: dict, input_settings: dict, tools_mode: str, planning_mode: str = "off", interrupt_plan: bool = False) -> str:
-    """Build an LLM prompt controlled by the input settings from the UI."""
-    grid = payload.get("grid", [])
-    state = payload.get("state", "")
-    available = payload.get("available_actions", [])
-    levels_completed = payload.get("levels_completed", 0)
-    win_levels = payload.get("win_levels", 0)
-    history = payload.get("history", [])
-    game_id = payload.get("game_id", "unknown")
-    change_map = payload.get("change_map", {})
-
-    parts: list[str] = []
-
-    sys_prompt = _custom_system_prompt if _custom_system_prompt else ARC_AGI3_DESCRIPTION
-    parts.append(f"""{sys_prompt}
-
-COLOR PALETTE: 0=White 1=LightGray 2=Gray 3=DarkGray 4=VeryDarkGray 5=Black
-               6=Magenta 7=LightMagenta 8=Red 9=Blue 10=LightBlue 11=Yellow
-               12=Orange 13=Maroon 14=Green 15=Purple""")
-
-    # ── Hard memory (agent priors) ───────────────────────────────────────
-    if _custom_hard_memory:
-        parts.append(f"## AGENT MEMORY\n{_custom_hard_memory}")
-
-    # ── State header ──────────────────────────────────────────────────────
-    action_desc = ", ".join(f"{a}={ACTION_NAMES.get(a, f'ACTION{a}')}" for a in available)
-    parts.append(
-        f"## STATE\nGame: {game_id} | State: {state} | "
-        f"Levels: {levels_completed}/{win_levels}\n"
-        f"Available actions: {action_desc}"
-    )
-
-    # ── Compact context (replaces verbose history when provided) ────────
-    compact_context = payload.get("compact_context", "")
-    if compact_context:
-        parts.append(compact_context)
-
-    # ── History (always included) ─────────────────────────────────────────
-    if history:
-        lines = []
-        for h in history:
-            aname = ACTION_NAMES.get(h.get("action", 0), "?")
-            line = f"  Step {h.get('step', '?')}: {aname} -> {h.get('result_state', '?')}"
-            cm = h.get("change_map")
-            if cm and cm.get("change_count", 0) > 0:
-                line += f" ({cm['change_count']} cells changed)"
-                if cm.get("change_map_text"):
-                    line += f"\n    Changes: {cm['change_map_text']}"
-            elif cm and cm.get("change_count") == 0:
-                line += " (no change)"
-            grid_snap = h.get("grid")
-            if grid_snap:
-                rle = "\n".join(f"    Row {i}: {compress_row(r)}" for i, r in enumerate(grid_snap))
-                line += f"\n{rle}"
-            lines.append(line)
-        parts.append(f"## HISTORY ({len(history)} steps)\n" + "\n".join(lines))
-
-    # ── Diff / change map ─────────────────────────────────────────────────
-    if input_settings.get("diff") and change_map and change_map.get("change_count", 0) > 0:
-        parts.append(
-            f"## CHANGES ({change_map['change_count']} cells changed)\n"
-            f"{change_map.get('change_map_text', '')}"
-        )
-
-    # ── Full grid ─────────────────────────────────────────────────────────
-    if input_settings.get("full_grid", True):
-        grid_text = "\n".join(f"Row {i}: {compress_row(r)}" for i, r in enumerate(grid))
-        parts.append(f"## GRID (RLE, colors 0-15)\n{grid_text}")
-
-    # ── Color histogram ───────────────────────────────────────────────────
-    if input_settings.get("color_histogram") or tools_mode == "on":
-        histo = compute_color_histogram(grid)
-        if histo:
-            parts.append(f"## COLOR HISTOGRAM\n{histo}")
-
-    # ── Region map (only with tools=on, or if explicitly requested) ───────
-    if tools_mode == "on":
-        rmap = compute_region_map(grid)
-        if rmap:
-            parts.append(f"## REGION MAP\n{rmap}")
-
-    # ── Image note ────────────────────────────────────────────────────────
-    if input_settings.get("image"):
-        parts.append(
-            "## IMAGE\nA screenshot of the current grid is attached. "
-            "Use it together with the numeric data above."
-        )
-
-    # ── Task block ────────────────────────────────────────────────────────
-    tool_extra = ""
-    if tools_mode == "on":
-        tool_extra = (
-            "\n- You have access to a run_python tool. Call it to analyse the grid programmatically "
-            "(e.g. find objects, count colors, detect patterns, measure distances). "
-            "The grid is available as a numpy array variable `grid`. Use print() to see results."
-            '\n- Include "analysis" in your JSON with a summary of what the tool found.'
-        )
-
-    analysis_field = ', "analysis": "<detailed spatial analysis>"' if tools_mode == "on" else ''
-    is_planning = planning_mode and planning_mode != "off"
-
-    if is_planning:
-        plan_n = int(planning_mode)
-        expected_field = ', "expected": "<what you expect to see after this plan>"' if interrupt_plan else ''
-        expected_rule = '\n- "expected": briefly describe what you expect after the plan completes (e.g. "character at the door", "score increased").' if interrupt_plan else ''
-        parts.append(f"""## YOUR TASK
-1. Identify key objects (character, walls, targets, items).
-2. Determine what must happen next to progress.
-3. Plan a sequence of actions (up to {plan_n} steps).
-
-Respond with EXACTLY this JSON (nothing else):
-{{"observation": "<what you see>", "reasoning": "<your plan>", "plan": [{{"action": <n>, "data": {{}}}}, ...]{analysis_field}{expected_field}}}
-
-Rules:
-- Return a "plan" array of up to {plan_n} steps. Each step has "action" (0-7) and "data" ({{}} or {{"x": <0-63>, "y": <0-63>}}).
-- ACTION6: set "data" to {{"x": <0-63>, "y": <0-63>}}.
-- Other actions: set "data" to {{}}.{expected_rule}{tool_extra}""")
-    else:
-        parts.append(f"""## YOUR TASK
-1. Identify key objects (character, walls, targets, items).
-2. Determine what must happen next to progress.
-3. Choose the best action.
-
-Respond with EXACTLY this JSON (nothing else):
-{{"observation": "<what you see>", "reasoning": "<your plan>", "action": <number>, "data": {{}}{analysis_field}}}
-
-Rules:
-- "action" must be a plain integer (0-7).
-- ACTION6: set "data" to {{"x": <0-63>, "y": <0-63>}}.
-- Other actions: set "data" to {{}}.{tool_extra}""")
-
-    return "\n\n".join(parts)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# LLM CALLS (with multimodal image support)
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _parse_llm_response(content: str, model_name: str) -> dict:
-    if not isinstance(content, str):
-        content = json.dumps(content) if content else ""
-    thinking = ""
-    think_match = re.search(r"<think>(.*?)</think>", content, re.DOTALL)
-    if think_match:
-        thinking = think_match.group(1).strip()
-        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-
-    # Try to extract JSON from the main content
-    parsed = _extract_json(content)
-    if parsed:
-        return {"raw": content, "thinking": thinking[:500] if thinking else None,
-                "parsed": parsed, "model": model_name}
-
-    # If main content had no JSON, try inside the thinking block
-    if thinking:
-        parsed = _extract_json(thinking)
-        if parsed:
-            return {"raw": content or thinking, "thinking": thinking[:500],
-                    "parsed": parsed, "model": model_name}
-
-    return {"raw": content or thinking, "thinking": thinking[:500] if thinking else None,
-            "parsed": None, "model": model_name}
-
-
-def _extract_json(text: str) -> dict | None:
-    """Extract first valid JSON object with 'action' or 'plan' using balanced-brace matching."""
-    import re
-    cleaned = re.sub(r"^\s*//.*$", "", text, flags=re.MULTILINE)
-    i = 0
-    while i < len(cleaned):
-        if cleaned[i] != "{":
-            i += 1
-            continue
-        depth = 0
-        in_str = False
-        esc = False
-        for j in range(i, len(cleaned)):
-            ch = cleaned[j]
-            if esc:
-                esc = False
-                continue
-            if ch == "\\" and in_str:
-                esc = True
-                continue
-            if ch == '"':
-                in_str = not in_str
-                continue
-            if in_str:
-                continue
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        obj = json.loads(cleaned[i : j + 1])
-                        if "action" in obj or "plan" in obj or "type" in obj or "verdict" in obj:
-                            return obj
-                    except json.JSONDecodeError:
-                        pass
-                    break
-        i += 1
-    return None
+# _build_prompt_parts, _build_prompt, _parse_llm_response, _extract_json
+# are imported from prompt_builder above. Call sites pass
+# custom_system_prompt=_custom_system_prompt, custom_hard_memory=_custom_hard_memory.
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1199,7 +716,7 @@ def step_game():
         env = game_sessions.get(session_id)
     if env is None:
         # Try to recover from DB
-        env, recovered_state = _try_recover_session(session_id)
+        env, recovered_state = _try_recover_session(session_id, get_arcade_fn=get_arcade, env_state_dict_fn=env_state_dict)
         if env is None:
             return jsonify({"error": "Session not found"}), 404
 
@@ -1269,7 +786,7 @@ def reset_game():
     with session_lock:
         env = game_sessions.get(session_id)
     if env is None:
-        env, _ = _try_recover_session(session_id)
+        env, _ = _try_recover_session(session_id, get_arcade_fn=get_arcade, env_state_dict_fn=env_state_dict)
         if env is None:
             return jsonify({"error": "Session not found"}), 404
     frame_data = env.reset()
@@ -1462,7 +979,7 @@ def undo_step():
         snapshots = session_snapshots.get(session_id, [])
 
     if env is None:
-        env, _ = _try_recover_session(session_id)
+        env, _ = _try_recover_session(session_id, get_arcade_fn=get_arcade, env_state_dict_fn=env_state_dict)
         if env is None:
             return jsonify({"error": "Session not found"}), 404
         snapshots = session_snapshots.get(session_id, [])
@@ -1905,7 +1422,8 @@ def resume_session():
         actions.append(act)
 
     # Replay all moves to get correct env state + per-step game stats
-    env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True)
+    env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True,
+                                                       get_arcade_fn=get_arcade, env_state_dict_fn=env_state_dict)
 
     # Register the recovered env in global state
     with session_lock:
@@ -2064,7 +1582,8 @@ def branch_session():
             else:
                 act["data"] = None
             actions.append(act)
-        env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True)
+        env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True,
+                                                           get_arcade_fn=get_arcade, env_state_dict_fn=env_state_dict)
 
         # Generate new session ID
         new_session_id = env._guid if hasattr(env, "_guid") else secrets.token_hex(16)
