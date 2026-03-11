@@ -1457,8 +1457,13 @@ def llm_models():
                             "qwen/qwen3.5-35b-a3b",
                             "qwen/qwen3.5-9b",
                         }
+                        LMSTUDIO_IMAGE_MODELS = {
+                            "zai-org/glm-4.6v-flash",   # vision encoder confirmed
+                            "qwen/qwen3.5-35b-a3b",     # mmproj vision encoder confirmed
+                        }
                         has_reasoning = is_lmstudio and mid in LMSTUDIO_REASONING_MODELS
-                        
+                        has_image = is_lmstudio and mid in LMSTUDIO_IMAGE_MODELS
+
                         entry = {
                             "name": mid,
                             "api_model": mid,
@@ -1469,7 +1474,7 @@ def llm_models():
                             # LM Studio requires explicit context window — default 3900 silently truncates.
                             # Tested on Mac Mini M4 Pro 64GB: set 8192+ for reliable structured output.
                             "context_window": 8192 if is_lmstudio else None,
-                            "capabilities": {"image": False, "reasoning": has_reasoning, "tools": False},
+                            "capabilities": {"image": has_image, "reasoning": has_reasoning, "tools": False},
                             "available": True,
                         }
                         models.append(entry)

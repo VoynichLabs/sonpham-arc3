@@ -273,7 +273,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "env_key": "",
         "price": "Free (local)",
         "context_window": 8192,
-        "capabilities": {"image": False, "reasoning": True, "tools": False},
+        "capabilities": {"image": True, "reasoning": True, "tools": False},
     },
     "lmstudio-glm-4.6v-flash": {
         "provider": "lmstudio", "api_model": "zai-org/glm-4.6v-flash",

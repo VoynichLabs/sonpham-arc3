@@ -543,11 +543,13 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(`LM Studio error ${resp.status}: ${err.error?.message || resp.statusText}. Is LM Studio running with CORS enabled?`);
+      throw new Error(`LM Studio error ${resp.status}: ${err.error?.message || resp.statusText}. Check LM Studio is running and the model is loaded. (CORS is on by default in LM Studio 0.3+; for remote access verify your tunnel URL.)`);
     }
     const data = await resp.json();
     callLLM._lastUsage = data.usage ? { input_tokens: data.usage.prompt_tokens || 0, output_tokens: data.usage.completion_tokens || 0 } : null;
-    const text = data.choices?.[0]?.message?.content || '';
+    const msg = data.choices?.[0]?.message || {};
+    // GLM-series models return thinking tokens in reasoning_content; content may be null
+    const text = msg.content || msg.reasoning_content || '';
     if (data.choices?.[0]?.finish_reason === 'length') return { text, truncated: true };
     return text;
   }
