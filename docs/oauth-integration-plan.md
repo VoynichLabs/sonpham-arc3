@@ -159,10 +159,26 @@ def openai_auth_status():
     "api_base": "https://api.anthropic.com/v1",
 },
 
-# OpenAI / Codex models
-"codex-mini": {
+# OpenAI / Codex models (verified via live API 2026-03-11)
+# NOTE: Do NOT add o1-pro or o3-pro — deprecated, not used in this project
+"gpt-5.1-codex": {
     "provider": "openai",
-    "model_id": "codex-mini-latest",
+    "model_id": "gpt-5.1-codex",
+    "api_base": "https://api.openai.com/v1",
+},
+"gpt-5.1-codex-mini": {
+    "provider": "openai",
+    "model_id": "gpt-5.1-codex-mini",
+    "api_base": "https://api.openai.com/v1",
+},
+"o3": {
+    "provider": "openai",
+    "model_id": "o3",
+    "api_base": "https://api.openai.com/v1",
+},
+"o3-mini": {
+    "provider": "openai",
+    "model_id": "o3-mini",
     "api_base": "https://api.openai.com/v1",
 },
 "o4-mini": {
