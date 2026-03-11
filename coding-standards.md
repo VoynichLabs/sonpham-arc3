@@ -64,6 +64,8 @@ These should be present in the CLAUDE.md file and the agents.md file.
 - Mention when a web search could surface important, up-to-date information.
 - Call out when docs/plans are unclear (and what you checked).
 - Pause on errors, think, then request input if truly needed.
+- Do not dump details into chat; keep them in docs/changelog.
+- What you say to the user in your reply, "Will be forgotten almost instantly." If it is important, it needs to be in the documentation and your commit messages. 
 - End completed tasks with "done" (or "next" if awaiting instructions).
 
 ## Platform and command conventions

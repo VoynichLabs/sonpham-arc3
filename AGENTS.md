@@ -90,9 +90,7 @@ If `CHANGELOG.md` does not exist, create it starting at `[1.0.0]` as the baselin
 ---
 
 ## Git and deployment
-
-- **Always push to `staging` branch first.** Never push directly to `master`.
-- **Do not commit unless explicitly asked.** When asked, write a descriptive commit message.
+- **Avoid destructive operations** like `git reset --hard`, `git push --force`, or `git rm` without explicit instruction.
 - **Run the pre-push QC checks** before every push (see `CLAUDE.md` — Pre-Push QC).
 - **Never skip hooks** (`--no-verify`), force-push to master, or amend published commits without explicit instruction.
 

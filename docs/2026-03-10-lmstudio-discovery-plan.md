@@ -63,13 +63,13 @@ The following violations of `coding-standards.md` were made during the initial i
 
 ## TODOs (ordered)
 
-- [ ] **1. Get plan approved**
-- [ ] **2. Add file headers** to all files touched in this branch: `scaffolding.js`, `ui.js`, `server.py`, `models.py`
-- [ ] **3. Remove server-side LM Studio discovery** from `server.py` — delete the `port == 1234` branch from the `LOCAL_PORTS` loop (keep port 8080/8000 for other local servers)
-- [ ] **4. Add browser-side discovery** to `loadModels()` in `scaffolding.js` — fetch `{baseUrl}/v1/models` with 1.5s timeout, merge results (uncommitted edit already drafted, needs header + review)
-- [ ] **5. Add `LMSTUDIO_CAPABILITIES` const** to `scaffolding.js` — mirrors `models.py`, comment must reference the other file
-- [ ] **6. Update `docs/lmstudio-integration.md`** — replace server-side discovery description with client-side architecture; remove outdated pitfall #3 reference to `models.py` static entries (those are gone)
-- [ ] **7. Create `CHANGELOG.md`** — document all changes in this branch under a new version entry
+- [x] **1. Get plan approved** — approved 2026-03-10 21:08
+- [x] **2. Add file headers** to all files touched in this branch: `scaffolding.js`, `ui.js`, `server.py`, `models.py` — done by Cascade (Claude Sonnet 4)
+- [x] **3. Remove server-side LM Studio discovery** from `server.py` — port 1234 removed from `LOCAL_PORTS`; `is_lmstudio` branching cleaned up; ports 8080/8000 retained
+- [x] **4. Add browser-side discovery** to `loadModels()` in `scaffolding.js` — drafted by previous dev, reviewed + cleaned up (dead dedup code removed, comments improved, variable names fixed)
+- [x] **5. Add `LMSTUDIO_CAPABILITIES` const** to `scaffolding.js` — mirrors `models.py`, cross-reference comments in both files
+- [x] **6. Update `docs/lmstudio-integration.md`** — architecture rewritten for client-side; pitfalls #3, #6, #7 fixed; testing section rewritten for browser; client↔server analysis + next-developer notes added
+- [x] **7. Create `CHANGELOG.md`** — existed already; updated with completed items
 - [ ] **8. Commit and push** (after user approval and testing)
 
 ---

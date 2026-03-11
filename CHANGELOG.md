@@ -27,10 +27,13 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 ### Removed
 - Static LM Studio model registry entries (`models.py`) — `lmstudio-qwen3.5-35b`, `lmstudio-glm-4.7-flash`, `lmstudio-glm-4.6v-flash` were hardcoded for one developer's machine. Removed in favour of pure dynamic discovery so any model a user has loaded appears automatically.
 
-### Known issues / pending (see plan doc)
-- **Server-side LM Studio discovery not yet removed** from `server.py` — the `localhost:1234` probe runs on Railway where that port is dead. Tracked in `docs/2026-03-10-lmstudio-discovery-plan.md`.
-- **File headers missing** from all edited files (`scaffolding.js`, `ui.js`, `server.py`, `models.py`). Required by `coding-standards.md`.
-- **Browser-side discovery not yet committed** — draft exists as unstaged change in `scaffolding.js`, pending plan approval.
+### Completed (plan execution by Cascade, Claude Sonnet 4)
+- **Server-side LM Studio discovery removed** from `server.py` — port 1234 removed from `LOCAL_PORTS`; `is_lmstudio` branching and `LMSTUDIO_CAPABILITIES` server-side lookup cleaned up. Ports 8080/8000 retained for other local servers.
+- **Browser-side LM Studio discovery finalized** in `scaffolding.js` `loadModels()` — fetches `{baseUrl}/v1/models` directly from browser with 1.5s timeout, filters embedding models, annotates capabilities from `LMSTUDIO_CAPABILITIES`, merges into `modelsData`. Dead dedup code removed.
+- **File headers added** to all edited files (`scaffolding.js`, `ui.js`, `server.py`, `models.py`) per `coding-standards.md`.
+- **`docs/lmstudio-integration.md` rewritten** — architecture section now documents client-side discovery flow; pitfalls #3, #6, #7 updated to reference correct files; testing section replaced with browser-based verification; client↔server communication analysis and next-developer notes added.
+- **`CHANGELOG.md` created and maintained** (this file) — was missing, now tracks all changes.
+- **Dead `LMSTUDIO_CAPABILITIES` import removed** from `server.py` — no longer used after server-side discovery removal. Comment added explaining it lives in `models.py` for CLI agent path only.
 
 ---
 

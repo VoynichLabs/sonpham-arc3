@@ -1,3 +1,18 @@
+// Author: Cascade (Claude Sonnet 4)
+// Date: 2026-03-10 21:08
+// PURPOSE: Client-side scaffolding logic for ARC-AGI-3 web UI. Handles:
+//   - Model discovery (cloud providers via server API + LM Studio via direct browser fetch)
+//   - LLM call routing (Puter.js, Gemini, Anthropic, OpenAI-compat, LM Studio, Cloudflare)
+//   - RLM (Reflective Language Model) scaffolding with REPL code execution via Pyodide
+//   - Prompt building, context compaction, and multi-turn conversation management
+//   - All scaffolding iteration loops run client-side per CLAUDE.md architecture
+// Integration points: /api/llm/models (server model registry), localStorage (BYOK keys),
+//   Pyodide (in-browser Python REPL), LM Studio localhost:1234, Puter.js SDK
+// Dependencies: ui.js (DOM helpers), index.html (DOM structure), server.py (model registry API)
+// SRP/DRY check: Pass — LLM routing consolidated in callLLM/_callLLMInner; model population
+//   shared via _populateSubModelSelect; LMSTUDIO_CAPABILITIES mirrors models.py (intentional
+//   client/server split documented in CLAUDE.md)
+
 // ═══════════════════════════════════════════════════════════════════════════
 // API MODE (Local vs Official)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -77,27 +92,36 @@ async function loadModels() {
   const data = await fetchJSON('/api/llm/models');
   modelsData = data.models || [];
 
-  // Discover LM Studio models client-side — browser calls localhost directly.
-  // This is the only correct approach: the server runs on Railway and cannot
-  // reach the user's localhost:1234. CORS is on by default in LM Studio 0.3+.
+  // ── LM Studio client-side discovery ──
+  // The browser fetches localhost:1234/v1/models directly. This is the ONLY correct
+  // approach: the server deploys on Railway where localhost:1234 is Railway's own host,
+  // not the user's machine. CORS is enabled by default in LM Studio 0.3+.
+  // Custom base URLs (e.g. Cloudflare Tunnel) are supported via the BYOK settings panel.
+  // If LM Studio isn't running, the fetch fails silently — no error, no dropdown group.
+  // See docs/2026-03-10-lmstudio-discovery-plan.md for full architecture rationale.
   try {
-    const baseUrl = (localStorage.getItem('byok_lmstudio_base_url') || 'http://localhost:1234').replace(/\/$/, '');
-    const resp = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(1500) });
-    if (resp.ok) {
-      const lmsData = await resp.json();
-      const existingApiModels = new Set(modelsData.filter(m => m.provider === 'lmstudio').map(m => m.api_model));
+    const lmsBaseUrl = (localStorage.getItem('byok_lmstudio_base_url') || 'http://localhost:1234').replace(/\/$/, '');
+    const lmsResp = await fetch(`${lmsBaseUrl}/v1/models`, { signal: AbortSignal.timeout(1500) });
+    if (lmsResp.ok) {
+      const lmsData = await lmsResp.json();
       for (const m of (lmsData.data || [])) {
         const mid = m.id || '';
-        if (!mid || mid.toLowerCase().includes('embedding') || existingApiModels.has(mid)) continue;
+        // Skip empty IDs and embedding models (not usable for chat)
+        if (!mid || mid.toLowerCase().includes('embedding')) continue;
+        // Look up known capabilities; unknown models default to text-only
         const caps = LMSTUDIO_CAPABILITIES[mid] || { reasoning: false, image: false };
         modelsData.push({
           name: mid, api_model: mid, provider: 'lmstudio',
-          price: 'Free (local)', context_window: 8192,
-          capabilities: { ...caps, tools: false }, available: true,
+          price: 'Free (local)',
+          // Context window set to 8192 — LM Studio default is 3900 which silently truncates.
+          // See docs/lmstudio-integration.md pitfall #3 for details.
+          context_window: 8192,
+          capabilities: { ...caps, tools: false },
+          available: true,
         });
       }
     }
-  } catch (_) { /* LM Studio not running — silently skip */ }
+  } catch (_) { /* LM Studio not running or unreachable — silently skip */ }
 
   // Add Puter.js models to modelsData (before grouping)
   if (FEATURES.puter_js) {

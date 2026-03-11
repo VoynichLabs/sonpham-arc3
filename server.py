@@ -1,3 +1,20 @@
+# Author: Cascade (Claude Sonnet 4)
+# Date: 2026-03-10 21:08
+# PURPOSE: Flask server for ARC-AGI-3 web player. Responsibilities LIMITED to:
+#   - Static file serving (index.html, game data, JS/CSS assets)
+#   - Session persistence (save/resume/branch via SQLite on Railway Volume)
+#   - Game step proxying (when Pyodide unavailable in browser)
+#   - Model registry API (/api/llm/models) — cloud + Ollama + local servers (NOT LM Studio)
+#   - Cloudflare Workers AI proxy (/api/llm/cf-proxy — no browser CORS)
+#   - Observatory, share/replay, and admin endpoints
+#   NOTE: All LLM orchestration runs CLIENT-SIDE. See CLAUDE.md — Client-Side Architecture.
+#   NOTE: LM Studio discovery moved to browser-side in scaffolding.js (Mar 2026).
+#         Server cannot reach user's localhost:1234 when deployed on Railway.
+# Integration points: models.py (MODEL_REGISTRY, OLLAMA_*),
+#   llm_providers.py (Copilot OAuth), db.py (SQLite), arc_agi/arcengine (game runtime)
+# Dependencies: Flask, httpx, sqlite3, Pyodide (client), Railway (deployment)
+# SRP/DRY check: Pass — model registry in models.py, LLM routing in scaffolding.js,
+#   DB ops in db.py; server is glue layer only
 """ARC-AGI-3 Web Player + LLM Reasoning Server."""
 
 import argparse
@@ -35,7 +52,9 @@ load_dotenv(Path(__file__).parent / ".env")
 from models import (
     MODEL_REGISTRY, SYSTEM_MSG, THINKING_BUDGETS,
     OLLAMA_VRAM, OLLAMA_VISION_MODELS, _discovered_local_models,
-    LMSTUDIO_CAPABILITIES,
+    # NOTE: LMSTUDIO_CAPABILITIES is NOT imported here — server no longer does
+    # LM Studio discovery. It lives in models.py for the CLI agent path only.
+    # Browser-side discovery uses its own copy in scaffolding.js.
 )
 from llm_providers import (
     _route_model_call, _get_or_create_gemini_cache,
@@ -1429,11 +1448,14 @@ def llm_models():
         except Exception:
             pass
 
-    # Discover local OpenAI-compatible servers (LM Studio, llama.cpp, vLLM, etc.)
+    # Discover local OpenAI-compatible servers (llama.cpp, vLLM, etc.) — staging only.
+    # NOTE: LM Studio (port 1234) is NOT discovered here. LM Studio discovery runs
+    # client-side in scaffolding.js loadModels() because the server deploys on Railway
+    # where localhost:1234 resolves to Railway's own host, not the user's machine.
+    # See docs/2026-03-10-lmstudio-discovery-plan.md for full rationale.
     if mode == "staging":
         import httpx
         LOCAL_PORTS = [
-            (1234, "LM Studio"),
             (8080, "Local Server"),
             (8000, "Local Server"),
         ]
@@ -1450,24 +1472,15 @@ def llm_models():
                         # Skip embedding models — not chat models
                         if "embedding" in mid.lower():
                             continue
-                        # Determine provider and capabilities based on port/model
-                        is_lmstudio = (port == 1234)
-                        provider_name = "lmstudio" if is_lmstudio else "local"
-                        caps = LMSTUDIO_CAPABILITIES.get(mid, {}) if is_lmstudio else {}
-                        has_reasoning = caps.get("reasoning", False)
-                        has_image = caps.get("image", False)
-
                         entry = {
                             "name": mid,
                             "api_model": mid,
-                            "provider": provider_name,
+                            "provider": "local",
                             "local_port": port,
                             "local_label": label,
                             "price": f"Free ({label}:{port})",
-                            # LM Studio requires explicit context window — default 3900 silently truncates.
-                            # Tested on Mac Mini M4 Pro 64GB: set 8192+ for reliable structured output.
-                            "context_window": 8192 if is_lmstudio else None,
-                            "capabilities": {"image": has_image, "reasoning": has_reasoning, "tools": False},
+                            "context_window": None,
+                            "capabilities": {"image": False, "reasoning": False, "tools": False},
                             "available": True,
                         }
                         models.append(entry)

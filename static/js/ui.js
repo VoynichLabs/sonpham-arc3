@@ -1,3 +1,16 @@
+// Author: Cascade (Claude Sonnet 4)
+// Date: 2026-03-10 21:08
+// PURPOSE: UI helper functions for ARC-AGI-3 web player. Handles:
+//   - Collapsible settings sections and tab switching (Settings/Prompts/Graphics)
+//   - Graphics control listeners (opacity, cell size, font, colors)
+//   - BYOK (Bring Your Own Key) panel rendering and key management
+//   - Scaffolding schema-driven settings UI generation
+//   - Pipeline visualization and model capability display
+// Integration points: index.html (DOM structure), scaffolding.js (model data, settings),
+//   localStorage (persisted user preferences and API keys)
+// Dependencies: scaffolding.js (loadModels, getModelInfo, modelsData globals)
+// SRP/DRY check: Pass — UI-only concerns separated from scaffolding/LLM logic
+
 // ═══════════════════════════════════════════════════════════════════════════
 // COLLAPSIBLE SECTIONS
 // ═══════════════════════════════════════════════════════════════════════════
