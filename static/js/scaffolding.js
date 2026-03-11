@@ -92,6 +92,13 @@ async function loadModels() {
   const data = await fetchJSON('/api/llm/models');
   modelsData = data.models || [];
 
+  // If the server already returned LM Studio models (staging mode server-side discovery),
+  // set a dummy API key so they pass the key gate in _callLLMInner. LM Studio is a local
+  // program — no real key needed — but the key gate expects something truthy.
+  if (modelsData.some(m => m.provider === 'lmstudio')) {
+    localStorage.setItem('byok_key_lmstudio', 'local-no-key-needed');
+  }
+
   // ── LM Studio client-side discovery (production path) ──
   // In production (Railway), the server can't reach user's localhost:1234, so the browser
   // fetches it directly. In staging, the server already discovered LM Studio models above
@@ -122,6 +129,10 @@ async function loadModels() {
           capabilities: { ...caps, tools: false },
           available: true,
         });
+      }
+      // Client-side discovery found models — set dummy key for the key gate
+      if (modelsData.some(m => m.provider === 'lmstudio')) {
+        localStorage.setItem('byok_key_lmstudio', 'local-no-key-needed');
       }
     }
   } catch (e) {
@@ -500,6 +511,8 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
   }
 
   // ── All other providers need an API key ──
+  // LM Studio passes this gate via a dummy key set during discovery in loadModels().
+  // See loadModels() — localStorage 'byok_key_lmstudio' is set to 'local-no-key-needed'.
   const key = getByokKey(provider);
   if (!key) throw new Error(`No API key for ${PROVIDER_LABELS[provider] || provider}. Select the model and paste your key in Model Keys.`);
 
@@ -596,6 +609,9 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
   }
 
   // ── LM Studio (local OpenAI-compatible, client-side) ──
+  // No API key needed — LM Studio runs on the user's machine. The dummy key
+  // 'local-no-key-needed' was set in loadModels() during discovery so we pass
+  // the key gate above. We don't use `key` here — we use baseUrl from localStorage.
   if (provider === 'lmstudio') {
     const baseUrl = localStorage.getItem('byok_lmstudio_base_url') || 'http://localhost:1234';
     const url = baseUrl.replace(/\/$/, '') + '/v1/chat/completions';
@@ -612,7 +628,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(`LM Studio error ${resp.status}: ${err.error?.message || resp.statusText}. Check LM Studio is running and the model is loaded. (CORS is on by default in LM Studio 0.3+; for remote access verify your tunnel URL.)`);
+      throw new Error(`LM Studio error ${resp.status}: ${err.error?.message || resp.statusText}. Check LM Studio is running and the model is loaded.`);
     }
     const data = await resp.json();
     callLLM._lastUsage = data.usage ? { input_tokens: data.usage.prompt_tokens || 0, output_tokens: data.usage.completion_tokens || 0 } : null;

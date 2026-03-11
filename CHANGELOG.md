@@ -5,6 +5,14 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.0.2] — feature/lmstudio-support
+*Author: Mark Barney + Cascade (Claude Opus 4.6 Thinking) | 2026-03-10*
+
+### Fixed
+- **"No API key for LM Studio" error** (`scaffolding.js`) — LM Studio is a local program, not a cloud API. It doesn't need an API key. But `_callLLMInner` has a key gate that all non-Puter providers must pass. The LM Studio call block was positioned after this gate with no key set, so every LLM call threw immediately. Fix: `loadModels()` now sets a dummy key (`'local-no-key-needed'`) in localStorage when LM Studio models are discovered (both server-side and client-side paths). The key gate passes, the LM Studio block ignores the key and uses `baseUrl` from localStorage instead. No restructuring of provider routing needed.
+
+---
+
 ## [1.0.1] — feature/lmstudio-support
 *Author: Mark Barney + Cascade (Claude Opus 4.6 Thinking) | 2026-03-10*
 

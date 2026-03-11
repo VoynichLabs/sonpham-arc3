@@ -4,25 +4,28 @@ Added in `feature/lmstudio-support`. This doc captures every gotcha hit during i
 
 ## Architecture
 
-LM Studio support is **pure client-side** — both discovery and LLM calls run in the browser.
+LM Studio LLM calls are **pure client-side** — the browser calls `localhost:1234/v1/chat/completions` directly. Discovery uses a **hybrid strategy** because of CORS limitations (see pitfall #8).
 
-### Discovery flow
-1. `loadModels()` in `scaffolding.js` fetches `/api/llm/models` from the server → returns cloud providers + Ollama + local servers (ports 8080/8000)
-2. `loadModels()` then fetches `{baseUrl}/v1/models` **directly from the browser** (default `http://localhost:1234`, 1.5s timeout)
-3. Returned models are annotated with capabilities from `LMSTUDIO_CAPABILITIES` (in `scaffolding.js`), embedding models are filtered out, and results are merged into `modelsData`
-4. If LM Studio isn't running, the fetch fails silently — no error, no LM Studio group in dropdown
+### Discovery flow (hybrid)
+1. `loadModels()` in `scaffolding.js` fetches `/api/llm/models` from the server
+2. **Staging mode**: the server probes `localhost:1234/v1/models` directly (server-to-server HTTP, no CORS). LM Studio models are returned with capabilities from `LMSTUDIO_CAPABILITIES` in `models.py`. Embedding models filtered out.
+3. **Production mode (Railway)**: server can't reach user's localhost:1234. Returns zero LM Studio models.
+4. `loadModels()` then attempts browser-side discovery: fetches `{baseUrl}/v1/models` directly (default `http://localhost:1234`, 1.5s timeout). This only works if LM Studio has CORS enabled.
+5. Client-side dedup: models already returned by the server (step 2) are skipped to prevent doubles.
+6. If both paths fail, no LM Studio group appears in the dropdown — no error.
 
 ### LLM call flow
 The browser calls `localhost:1234/v1/chat/completions` directly via `_callLLMInner()`. The Railway server is **never** in the LLM call path.
 
-### Why client-side?
-The server deploys on Railway where `localhost:1234` resolves to Railway's own host, not the user's machine. Only the browser can reach the user's local LM Studio. See `docs/2026-03-10-lmstudio-discovery-plan.md` for full rationale.
+### Why hybrid?
+- **Staging**: server is local, so server-to-server HTTP always works (no CORS needed). This is the reliable path.
+- **Production (Railway)**: server can't reach user's localhost:1234, so the browser must do it. But LM Studio does NOT send CORS headers by default (see pitfall #8). Users must enable CORS in LM Studio settings for production discovery to work.
 
 ### Key constraints
-- No server-side proxy needed (or possible — Railway can't reach user localhost)
+- LLM calls always go browser → LM Studio directly (no server proxy)
+- Discovery has two paths: server-side (staging, always works) and client-side (production, needs CORS)
 - User must have LM Studio running locally (or via Cloudflare Tunnel)
-- CORS works out of the box in LM Studio 0.3+ (no config required)
-- `LMSTUDIO_CAPABILITIES` is intentionally duplicated in `scaffolding.js` (browser) and `models.py` (CLI agent) — update both when adding models
+- `LMSTUDIO_CAPABILITIES` is intentionally duplicated in `scaffolding.js` (browser) and `models.py` (server/CLI) — update both when adding models
 
 ## Pitfalls (all real, all hit)
 

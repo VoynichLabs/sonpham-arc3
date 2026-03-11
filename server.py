@@ -4,13 +4,14 @@
 #   - Static file serving (index.html, game data, JS/CSS assets)
 #   - Session persistence (save/resume/branch via SQLite on Railway Volume)
 #   - Game step proxying (when Pyodide unavailable in browser)
-#   - Model registry API (/api/llm/models) — cloud + Ollama + local servers (NOT LM Studio)
+#   - Model registry API (/api/llm/models) — cloud + Ollama + local servers + LM Studio (staging only)
 #   - Cloudflare Workers AI proxy (/api/llm/cf-proxy — no browser CORS)
 #   - Observatory, share/replay, and admin endpoints
 #   NOTE: All LLM orchestration runs CLIENT-SIDE. See CLAUDE.md — Client-Side Architecture.
-#   NOTE: LM Studio discovery moved to browser-side in scaffolding.js (Mar 2026).
-#         Server cannot reach user's localhost:1234 when deployed on Railway.
-# Integration points: models.py (MODEL_REGISTRY, OLLAMA_*),
+#   NOTE: LM Studio discovery is HYBRID (Mar 2026): server probes localhost:1234 in
+#         staging mode (no CORS needed); browser does client-side discovery in production
+#         (Railway can't reach user's localhost). See docs/lmstudio-integration.md pitfall #8.
+# Integration points: models.py (MODEL_REGISTRY, LMSTUDIO_CAPABILITIES, OLLAMA_*),
 #   llm_providers.py (Copilot OAuth), db.py (SQLite), arc_agi/arcengine (game runtime)
 # Dependencies: Flask, httpx, sqlite3, Pyodide (client), Railway (deployment)
 # SRP/DRY check: Pass — model registry in models.py, LLM routing in scaffolding.js,
