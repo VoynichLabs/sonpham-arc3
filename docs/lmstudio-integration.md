@@ -156,3 +156,59 @@ LM Studio uses the OpenAI-compatible `/v1/models` and `/v1/chat/completions` end
 
 ### CLI agent LM Studio support
 The CLI agent (`agent.py` / `batch_runner.py`) can use LM Studio models if running on the same machine, since `localhost:1234` resolves correctly in that context. This uses `models.py` LMSTUDIO_CAPABILITIES for capability metadata. This is a separate concern from web UI discovery and is not addressed in the `feature/lmstudio-support` branch.
+
+## Production Readiness Assessment
+
+### Will this break on Railway? No.
+
+The changes are **safe for production deployment** because:
+
+1. **Server-side removal is additive, not breaking.** We removed code that *never worked on Railway anyway* — probing `localhost:1234` on Railway hits Railway's own host, which doesn't run LM Studio. The server was returning zero LM Studio models in production mode already.
+2. **Client-side discovery is fail-safe.** If the browser can't reach `localhost:1234` (which it can't if the user doesn't run LM Studio), the `fetch` throws, the `catch` swallows it silently, and the model dropdown shows no LM Studio group. No error, no console noise.
+3. **No server API contract changes.** `/api/llm/models` still returns the same structure — it just no longer includes `provider: 'lmstudio'` entries. The client adds them itself from the browser-side discovery.
+4. **Session persistence is unaffected.** Model names are stored as opaque strings in `sessions.model` and `llm_calls.model`. Whether the model came from server discovery or client discovery doesn't matter.
+5. **All 46 existing tests pass.** Import tests, JSON parse tests, config tests, fallback action tests — none touch LM Studio discovery, and none are broken by the changes.
+
+### What the test suite does NOT cover (gaps)
+
+The existing test suite tests server-side concerns only:
+- `test_imports.py` — verifies `db`, `server`, `agent`, `batch_runner` import without errors
+- `test_parse.py` — tests `_extract_json` and `_parse_llm_response` (server-side JSON parsing)
+- `test_config.py` — tests `load_config` and `_deep_merge` (CLI agent config)
+- `test_fallback.py` — tests `_fallback_action` (CLI agent fallback)
+- `test_providers.py` — live LLM call test per provider (requires API keys)
+- `test_scaffolds.py` — end-to-end game scaffold test with real LLM (requires API keys)
+- `test_gemini_live.py` — Gemini-specific live test
+
+**There are NO browser-side tests.** No Playwright, Selenium, Cypress, or equivalent. This means:
+- LM Studio client-side discovery is tested **manually only** (see Testing section above)
+- The BYOK panel, model dropdown, and provider wiring have no automated verification
+- Any future regression in `loadModels()` or `_callLLMInner()` will only be caught by a human
+
+**Recommendation for next developer:** Add a Playwright or Puppeteer test that:
+1. Starts the server in staging mode
+2. Opens the browser
+3. Mocks `localhost:1234/v1/models` with a fake response
+4. Verifies the LM Studio group appears in the dropdown
+5. Verifies embedding models are filtered out
+6. Verifies the group disappears when LM Studio is not running
+
+### What could go wrong in production (honest assessment)
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| LM Studio changes `/v1/models` response format | Low | Models don't appear | User reports it; update `loadModels()` parsing |
+| LM Studio disables CORS by default | Low | Discovery fails silently | Error message in `_callLLMInner` already directs user to check CORS |
+| Browser blocks `localhost` fetch from HTTPS page | Medium | Discovery fails on Railway prod (HTTPS) | **This is the #1 risk.** Mixed content: HTTPS page fetching HTTP localhost. Most browsers allow this for `localhost` specifically, but it's not guaranteed. Test on Railway prod URL. |
+| `AbortSignal.timeout` not supported in older browsers | Low | Discovery hangs or fails | Safari 16+, Chrome 103+, Firefox 100+ all support it. Only affects very old browsers. |
+| `LMSTUDIO_CAPABILITIES` gets out of sync between `scaffolding.js` and `models.py` | Medium | Wrong RSN/IMG tags | Comments in both files cross-reference each other. No automated check exists. |
+
+### The HTTPS mixed content risk (important)
+
+When deployed on Railway at `https://your-app.railway.app`, the browser will make a fetch to `http://localhost:1234/v1/models`. This is **mixed content** (HTTPS page → HTTP resource). Most modern browsers have a `localhost` exemption for this, but:
+- Chrome: allows it (explicit localhost exemption)
+- Firefox: allows it (explicit localhost exemption)
+- Safari: allows it as of Safari 15+
+- Edge: same as Chrome
+
+**If a user reports "LM Studio models don't appear in production but work in staging"**, the first thing to check is mixed content blocking in their browser's console.
