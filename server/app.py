@@ -82,6 +82,9 @@ from session_manager import (
     _reconstruct_session, _try_recover_session, _action_dict_from_row,
 )
 
+# Phase 14: Service layer imports
+from server.services import auth_service, game_service, session_service, social_service
+
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 # Stable secret key — needed for Flask session (Google OAuth CSRF state).
@@ -145,6 +148,26 @@ from server.helpers import (
     get_mode, feature_enabled, get_enabled_features, get_arcade, get_game_version,
     frame_to_grid, env_state_dict, _load_prompts, FEATURES, HIDDEN_GAMES, get_current_user
 )
+
+# Service layer imports (Phase 14 refactor)
+from server.services import auth_service, game_service, session_service, social_service
+
+# Database layer imports (kept for routes that call db directly for now)
+from db import (
+    _init_db, _get_db, db_conn,
+    create_magic_link, verify_magic_link, count_recent_magic_links,
+    find_or_create_user, create_auth_token, delete_auth_token, claim_sessions,
+    _db_insert_session, _db_update_session, _db_insert_action,
+    AUTH_TOKEN_TTL, DB_PATH,
+)
+
+# Configuration from environment
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM = os.environ.get("RESEND_FROM", "noreply@example.com")
+UMAMI_URL = os.environ.get("UMAMI_URL", "")
+UMAMI_WEBSITE_ID = os.environ.get("UMAMI_WEBSITE_ID", "")
 
 @app.after_request
 def add_cache_headers(response):
@@ -253,15 +276,17 @@ def auth_magic_link():
     """Send a magic link email. Rate limited to 3 per email per 15 min."""
     payload = request.get_json(force=True)
     email = (payload.get("email") or "").lower().strip()
-    if not email or "@" not in email or "." not in email.split("@")[-1]:
-        return jsonify({"error": "Valid email required"}), 400
-    # Rate limit: max 3 magic links per email per 15 minutes
-    recent = count_recent_magic_links(email)
-    if recent >= 3:
-        return jsonify({"error": "Too many requests. Please wait a few minutes."}), 429
-    code = create_magic_link(email)
+    
+    # Use auth_service to validate and create magic link
+    code, error_msg = auth_service.initiate_magic_link(email)
+    if error_msg:
+        status_code = 429 if "Too many requests" in error_msg else 400
+        return jsonify({"error": error_msg}), status_code
+    
     if not code:
         return jsonify({"error": "Service unavailable"}), 503
+    
+    # Send email via Resend
     sent = _send_magic_email(email, code)
     if not sent:
         # In staging/dev mode, log the code for manual testing
@@ -277,22 +302,18 @@ def auth_magic_link():
 def auth_verify():
     """Verify a magic link code and log the user in."""
     code = request.args.get("code", "")
-    if not code:
-        return "Missing code", 400
-    email = verify_magic_link(code)
-    if not email:
-        return "Invalid or expired link. Please request a new one.", 400
-    user = find_or_create_user(email)
-    if not user:
-        return "Service unavailable", 503
-    token = create_auth_token(user["id"])
-    if not token:
-        return "Service unavailable", 503
+    
+    # Use auth_service to verify and login
+    auth_info, error_msg = auth_service.verify_and_login(code)
+    if error_msg or not auth_info:
+        return error_msg or "Service unavailable", 400 if error_msg else 503
+    
+    token = auth_info["token"]
     resp = make_response("")
     resp.headers["Location"] = "/?logged_in=1"
     resp.status_code = 302
     resp.set_cookie("arc_auth", token,
-                     max_age=AUTH_TOKEN_TTL, httponly=True,
+                     max_age=auth_info["ttl"], httponly=True,
                      samesite="Lax", secure=request.is_secure)
     return resp
 
@@ -316,7 +337,8 @@ def auth_logout():
     """Delete auth token and clear cookie."""
     token = request.cookies.get("arc_auth")
     if token:
-        delete_auth_token(token)
+        # Use auth_service to logout
+        auth_service.logout(token)
         _auth_cache.pop(token, None)
     resp = make_response(jsonify({"status": "ok"}))
     resp.delete_cookie("arc_auth")
@@ -408,20 +430,21 @@ def auth_google_callback():
     email_verified = token_info.get("email_verified")
     if not email or email_verified not in ("true", True):
         return "Google login failed — email not verified", 401
-    # Create/find user and issue auth token
+    # Create/find user and issue auth token using auth_service
     google_name = token_info.get("name", "")
     google_sub = token_info.get("sub", "")
-    user = find_or_create_user(email, display_name=google_name, google_id=google_sub)
-    if not user:
-        return "Service unavailable", 503
-    token = create_auth_token(user["id"])
-    if not token:
-        return "Service unavailable", 503
+    auth_info, error_msg = auth_service.oauth_user_from_google(
+        email, display_name=google_name, google_id=google_sub
+    )
+    if error_msg or not auth_info:
+        return error_msg or "Service unavailable", 503
+    token = auth_info["token"]
+    user = auth_info["user"]
     app.logger.info(f"[GOOGLE_AUTH] login success: email={email} user_id={user['id'][:8]}...")
     resp = make_response("", 302, {"Location": "/?logged_in=1"})
     # Note: secure=False behind proxy (Railway terminates SSL), but SameSite=Lax is sufficient
     resp.set_cookie("arc_auth", token,
-                     max_age=AUTH_TOKEN_TTL, httponly=True,
+                     max_age=auth_info["ttl"], httponly=True,
                      samesite="Lax", secure=False)
     return resp
 
@@ -435,11 +458,14 @@ def auth_claim_sessions():
         return jsonify({"error": "Not authenticated"}), 401
     payload = request.get_json(force=True)
     session_ids = payload.get("session_ids", [])
-    if not session_ids or not isinstance(session_ids, list):
-        return jsonify({"error": "session_ids array required"}), 400
     # Limit to 100 at a time
-    session_ids = session_ids[:100]
-    claimed = claim_sessions(user["id"], session_ids)
+    session_ids = session_ids[:100] if session_ids else []
+    
+    # Use session_service to claim sessions
+    claimed, error_msg = session_service.claim_anonymous_sessions(user["id"], session_ids)
+    if error_msg:
+        return jsonify({"error": error_msg}), 400
+    
     return jsonify({"status": "ok", "claimed": claimed})
 
 
