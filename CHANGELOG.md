@@ -5,6 +5,14 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.2.4] — Fix: Analysis dropdown closes on every LLM response in Observatory
+*Author: Claude Sonnet 4.6 | 2026-03-12*
+
+### Fixed
+- **`static/js/observatory/obs-lifecycle.js`** — `syncObsReasoning()` was doing `dst.innerHTML = src.innerHTML` on every LLM response (via MutationObserver, debounced 300ms), which wiped the live DOM and closed all `<details>` elements (including the "Analysis" accordion). Fix: save the index positions of open `<details>` before the sync and restore their `open` attribute after.
+
+---
+
 ## [1.2.3] — Increase LLM timeout to 600s for local models
 *Author: Claude Sonnet 4.6 | 2026-03-12*
 

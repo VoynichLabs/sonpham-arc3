@@ -99,10 +99,15 @@ function syncObsReasoning() {
   const src = document.getElementById('reasoningContent');
   const dst = document.getElementById('obsReasoningContent');
   if (!src || !dst) return;
+  // Preserve open state of <details> elements so user-expanded sections survive the sync
+  const openDetails = new Set();
+  dst.querySelectorAll('details').forEach((d, i) => { if (d.open) openDetails.add(i); });
   // Check if source has meaningful content (not all human entries for an agent session)
   const hasLLMEntries = src.querySelector('.reasoning-entry:not(.human)');
   if (hasLLMEntries || !src.querySelector('.reasoning-entry')) {
     dst.innerHTML = src.innerHTML;
+    // Restore open state after innerHTML replacement
+    dst.querySelectorAll('details').forEach((d, i) => { if (openDetails.has(i)) d.open = true; });
     // Add click-to-navigate on mirrored entries that have data-step-nums
     dst.querySelectorAll('.reasoning-entry[data-step-nums]').forEach(el => {
       el.style.cursor = 'pointer';
