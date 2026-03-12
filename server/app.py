@@ -143,7 +143,7 @@ _server_port_prod = 5001
 
 from server.helpers import (
     get_mode, feature_enabled, get_enabled_features, get_arcade, get_game_version,
-    frame_to_grid, env_state_dict, _load_prompts, FEATURES, HIDDEN_GAMES
+    frame_to_grid, env_state_dict, _load_prompts, FEATURES, HIDDEN_GAMES, get_current_user
 )
 
 @app.after_request

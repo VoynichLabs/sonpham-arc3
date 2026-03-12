@@ -14,6 +14,7 @@ from flask import request
 
 from server.state import arcade_instance, DEV_SECRET
 from constants import ACTION_NAMES
+from db import verify_auth_token
 
 # Feature flags and config
 FEATURES = {
@@ -116,3 +117,26 @@ def _load_prompts():
                 f.stem: f.read_text() for f in sorted(section.glob("*.txt"))
             }
     return result
+
+
+# ── Auth cache ─────────────────────────────────────────────────────────
+
+_auth_cache: dict[str, tuple[dict, float]] = {}  # token → (user_dict, cache_expiry)
+_AUTH_CACHE_TTL = 300  # 5 minutes
+
+
+def get_current_user() -> dict | None:
+    """Get the currently authenticated user from the arc_auth cookie, or None."""
+    token = request.cookies.get("arc_auth")
+    if not token:
+        return None
+    now = time.time()
+    cached = _auth_cache.get(token)
+    if cached and cached[1] > now:
+        return cached[0]
+    user = verify_auth_token(token)
+    if user:
+        _auth_cache[token] = (user, now + _AUTH_CACHE_TTL)
+    else:
+        _auth_cache.pop(token, None)
+    return user
