@@ -316,6 +316,39 @@ MODEL_REGISTRY: dict[str, dict] = {
         "capabilities": {"image": True, "reasoning": True, "tools": True},
         "pricing": [0.0, 0.0, 0.0],
     },
+    # ── Puter.js (client-side, no env key) ─────────────────────────────────
+    "puter/gpt-4o-mini": {
+        "provider": "puter", "api_model": "gpt-4o-mini",
+        "env_key": "",
+        "price": "Free",
+        "context_window": 128000,
+        "capabilities": {"image": False, "reasoning": False, "tools": False},
+        "pricing": [0.0, 0.0, 0.0],
+    },
+    "puter/gpt-4o": {
+        "provider": "puter", "api_model": "gpt-4o",
+        "env_key": "",
+        "price": "Free",
+        "context_window": 128000,
+        "capabilities": {"image": False, "reasoning": False, "tools": False},
+        "pricing": [0.0, 0.0, 0.0],
+    },
+    "puter/claude-3.5-sonnet": {
+        "provider": "puter", "api_model": "claude-3.5-sonnet",
+        "env_key": "",
+        "price": "Free",
+        "context_window": 200000,
+        "capabilities": {"image": False, "reasoning": False, "tools": False},
+        "pricing": [0.0, 0.0, 0.0],
+    },
+    "puter/mistral-large-latest": {
+        "provider": "puter", "api_model": "mistral-large-latest",
+        "env_key": "",
+        "price": "Free",
+        "context_window": 128000,
+        "capabilities": {"image": False, "reasoning": False, "tools": False},
+        "pricing": [0.0, 0.0, 0.0],
+    },
 }
 
 # Ollama models discovered at runtime; all support text only by default.

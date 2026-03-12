@@ -137,16 +137,8 @@ async function loadModels() {
     if (e.name !== 'AbortError') console.warn('[LM Studio discovery] client-side fetch failed:', e.message);
   }
 
-  // Add Puter.js models to modelsData (before grouping)
-  if (FEATURES.puter_js) {
-    // Only add if not already present
-    const puterNames = new Set(modelsData.filter(m => m.provider === 'puter').map(m => m.name));
-    for (const m of ['gpt-4o-mini', 'gpt-4o', 'claude-3.5-sonnet', 'mistral-large-latest']) {
-      if (!puterNames.has(m)) {
-        modelsData.push({ name: m, provider: 'puter', price: 'Free', context_window: 128000, capabilities: { image: false, reasoning: false, tools: false }, available: true });
-      }
-    }
-  }
+  // Puter.js models are now fetched from the backend API (/api/llm/models)
+  // as part of the centralized MODEL_REGISTRY (models.py). No need to hardcode them here.
 
   // Group models by provider (shared by all selectors)
   const groups = {};

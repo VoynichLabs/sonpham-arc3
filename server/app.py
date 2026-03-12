@@ -44,7 +44,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 # Model registry and LLM providers extracted to separate modules
 from models import (
-    MODEL_REGISTRY, SYSTEM_MSG, THINKING_BUDGETS,
+    MODEL_REGISTRY, DEFAULT_MODEL, SYSTEM_MSG, THINKING_BUDGETS,
     OLLAMA_VRAM, OLLAMA_VISION_MODELS, _discovered_local_models,
 )
 from llm_providers import (
@@ -878,7 +878,7 @@ def llm_models():
             except Exception:
                 pass
 
-    return jsonify({"models": models, "mode": mode})
+    return jsonify({"models": models, "mode": mode, "default": DEFAULT_MODEL})
 
 
 
