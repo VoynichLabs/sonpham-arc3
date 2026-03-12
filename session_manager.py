@@ -17,16 +17,35 @@ parameters to avoid server.py → session_manager.py → server.py cycle.
 Use stdlib logging instead of app.logger.
 """
 
-import json
 import logging
 import threading
 from typing import Any
 
 from arcengine import GameAction
 
-from db import _get_db
+from db import _get_db, _db
 
 log = logging.getLogger(__name__)
+
+
+# ── Action dict conversion helper ──────────────────────────────────────────
+
+def _action_dict_from_row(row: dict) -> dict:
+    """Convert a session_actions DB row to an {action, data} dict for replay.
+    
+    The returned dict has:
+    - "action": integer action code
+    - "data": plain dict {"x": col, "y": row} or None
+    """
+    act = {"action": row.get("action", 0)}
+    row_num = row.get("row")
+    col_num = row.get("col")
+    if row_num is not None and col_num is not None:
+        act["data"] = {"x": col_num, "y": row_num}
+    else:
+        act["data"] = None
+    return act
+
 
 # ── In-memory session state ────────────────────────────────────────────────
 
@@ -52,8 +71,6 @@ def _reconstruct_session(game_id: str, actions: list[dict],
     for act in actions:
         action = GameAction.from_id(int(act["action"]))
         data = act.get("data") or None
-        if isinstance(data, str):
-            data = json.loads(data)
         frame_data = env.step(action, data=data if data else None)
         if frame_data is not None:
             state = env_state_dict_fn(env, frame_data)
@@ -97,14 +114,7 @@ def _try_recover_session(session_id: str, *, get_arcade_fn, env_state_dict_fn):
             log.info(f"Recovered session {session_id} (0 actions)")
             return env, state
 
-        actions = []
-        for r in rows:
-            act = {"action": r["action"]}
-            if r["row"] is not None and r["col"] is not None:
-                act["data"] = json.dumps({"x": r["col"], "y": r["row"]})
-            else:
-                act["data"] = None
-            actions.append(act)
+        actions = [_action_dict_from_row(dict(r)) for r in rows]
 
         env, state = _reconstruct_session(
             sess["game_id"], actions,

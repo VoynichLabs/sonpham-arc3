@@ -79,7 +79,7 @@ from session_manager import (
     game_sessions, session_grids, session_snapshots,
     session_api_mode, session_api_keys,
     session_lock, session_step_counts, session_last_llm,
-    _reconstruct_session, _try_recover_session,
+    _reconstruct_session, _try_recover_session, _action_dict_from_row,
 )
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -208,7 +208,7 @@ _custom_hard_memory: Optional[str] = None    # extra agent memory injected into 
 # ═══════════════════════════════════════════════════════════════════════════
 
 from db import (
-    DB_PATH, _init_db, _get_db, _compress_grid, _decompress_grid,
+    DB_PATH, _init_db, _get_db, db_conn, _compress_grid, _decompress_grid,
     _db_insert_session, _db_insert_action, _db_update_session,
     _log_llm_call, _get_session_calls, _read_session_from_file,
     _list_file_sessions, _log_tool_execution, _get_session_tool_executions,
@@ -1075,6 +1075,33 @@ def undo_step():
     with session_lock:
         session_grids[session_id] = restored_grid
 
+    # Persist undo to DB (make it durable)
+    if feature_enabled("session_db"):
+        try:
+            with db_conn() as conn:
+                # Delete the undone actions from session_actions
+                # Find the max step_num to keep (original max - count)
+                result = conn.execute(
+                    "SELECT MAX(step_num) as max_step FROM session_actions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                current_max = result["max_step"] if result["max_step"] is not None else 0
+                cutoff_step = max(0, current_max - count)
+                
+                # Delete all actions after the cutoff
+                conn.execute(
+                    "DELETE FROM session_actions WHERE session_id = ? AND step_num > ?",
+                    (session_id, cutoff_step),
+                )
+                # Update the session steps count
+                conn.execute(
+                    "UPDATE sessions SET steps = ? WHERE id = ?",
+                    (cutoff_step, session_id),
+                )
+        except Exception as e:
+            app.logger.warning(f"Undo DB write failed for {session_id}: {e}")
+            # Graceful degradation: undo visible in-memory, DB catches up on restart
+
     # Build a state dict from the snapshot
     state = env_state_dict(env)
     state["grid"] = restored_grid
@@ -1536,15 +1563,7 @@ def resume_session():
     all_rows = list(parent_rows) + list(own_rows)
 
     # Build action dicts for replay
-    actions = []
-    for r in all_rows:
-        rd = dict(r) if not isinstance(r, dict) else r
-        act = {"action": rd["action"]}
-        if rd.get("row") is not None and rd.get("col") is not None:
-            act["data"] = json.dumps({"x": rd["col"], "y": rd["row"]})
-        else:
-            act["data"] = None
-        actions.append(act)
+    actions = [_action_dict_from_row(dict(r)) for r in all_rows]
 
     # Replay all moves to get correct env state + per-step game stats
     env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True,
@@ -1698,15 +1717,7 @@ def branch_session():
         conn.close()
 
         # Build action dicts for replay
-        actions = []
-        for r in action_rows:
-            rd = dict(r) if not isinstance(r, dict) else r
-            act = {"action": rd["action"]}
-            if rd.get("row") is not None and rd.get("col") is not None:
-                act["data"] = json.dumps({"x": rd["col"], "y": rd["row"]})
-            else:
-                act["data"] = None
-            actions.append(act)
+        actions = [_action_dict_from_row(dict(r)) for r in action_rows]
         env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True,
                                                            get_arcade_fn=get_arcade, env_state_dict_fn=env_state_dict)
 

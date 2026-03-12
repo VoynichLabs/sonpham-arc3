@@ -410,6 +410,26 @@ def _get_db() -> sqlite3.Connection:
 
 
 @contextmanager
+def db_conn():
+    """Context manager for SQLite connections with atomic transaction.
+    
+    Uses BEGIN IMMEDIATE for stricter isolation in high-frequency paths.
+    On successful exit, commits the transaction. On exception, rolls back.
+    """
+    conn = _get_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        yield conn
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log.error(f"db_conn transaction rolled back: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+@contextmanager
 def _db():
     """Context manager for SQLite connections.
 
