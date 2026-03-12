@@ -34,7 +34,24 @@ let sessionTotalTokens = { input: 0, output: 0, cost: 0 };
 //   copyTimelineLogs(), getLastReasoningEntry()
 // These modules are loaded BEFORE llm.js in index.html (dependency order)
 
-
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// PART 1: ORCHESTRATION & REQUEST HANDLING
+// ═══════════════════════════════════════════════════════════════════════════
+// Core LLM request orchestration: model routing, prompt building, response parsing.
+// Functions:
+//   askLLM(ss) — main entry point for LLM calls
+//     - Handles all scaffolding types: RLM, 3-system, 2-system, agent-spawn, linear
+//     - Context compression, token estimation, history trimming
+//     - Parse retries, fallback action generation
+//     - Response validation and tool extraction
+// Called by: stepOnce(), toggleAutoPlay(), truncAutoRetry()
+// Dependencies:
+//   - buildCompactContext() from ui.js
+//   - askLLMRlm(), askLLMThreeSystem(), askLLMAgentSpawn() from scaffolding-*.js
+//   - executeToolBlocks(), gameStep() from engine.js
+//   - parseClientLLMResponse() from utils/json-parsing.js
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function askLLM(ss) {
   // ss = SessionState to operate on (optional, falls back to globals for backward compat)
@@ -721,9 +738,14 @@ async function askLLM(ss) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TRANSPORT CONTROLS: Step, Auto, Pause, Undo
 // ═══════════════════════════════════════════════════════════════════════════
-
+// PART 2: PLAN EXECUTION & ACTION HANDLING
+// ═══════════════════════════════════════════════════════════════════════════
+// Coordinates multi-step plan execution, single action execution, and state management.
+// Functions:
+//   executePlan(plan, resp, entry, expected, ss) — execute a multi-step plan from LLM
+//   executeOneAction(resp) — execute a single action (non-plan mode)
+// Called by: stepOnce(), toggleAutoPlay(), truncAutoRetry()
 // ═══════════════════════════════════════════════════════════════════════════
 // CONTROL FUNCTIONS: Extracted to llm-controls.js (Phase 12)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -978,6 +1000,9 @@ async function executePlan(plan, resp, entry, expected, ss) {
   return { completed, total: plan.length, interrupted: completed < plan.length };
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// SECTION: Single Action Execution (non-plan mode)
+// ──────────────────────────────────────────────────────────────────────────
 async function executeOneAction(resp) {
   // Execute a single action from LLM response
   const _actionSessionId = sessionId;
@@ -1034,6 +1059,19 @@ async function executeOneAction(resp) {
   return data;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// PART 3: STEP & AUTOPLAY CONTROL
+// ═══════════════════════════════════════════════════════════════════════════
+// Orchestrates single-step and continuous autoplay modes, including retry logic.
+// Functions:
+//   stepOnce() — single-step: call askLLM once, execute result
+//   toggleAutoPlay() — toggle autoplay loop: continuous askLLM calls until game ends
+//   truncAutoRetry(btn, maxRetries) — retry on truncation (token limit exceeded)
+//   truncIncreaseAndRetry(btn) — double token limit and retry
+// Dependencies: askLLM(), executePlan(), asks user permission for auto-branching
+// ═══════════════════════════════════════════════════════════════════════════
+
 async function stepOnce() {
   if (!sessionId) { alert('Start a game first'); return; }
   if (currentState.state !== 'NOT_FINISHED') return;
@@ -1064,6 +1102,9 @@ async function stepOnce() {
   return await executePlan(plan, resp, entry, expected, ss);
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// SECTION: Truncation & Retry Handlers
+// ──────────────────────────────────────────────────────────────────────────
 async function truncAutoRetry(btn, maxRetries) {
   // Disable all sibling buttons
   btn.closest('div').querySelectorAll('button').forEach(b => b.disabled = true);
@@ -1294,6 +1335,16 @@ async function toggleAutoPlay() {
   updateAutoBtn();
   renderSessionTabs();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// PART 4: SESSION MANAGEMENT (Reset & Undo)
+// ═══════════════════════════════════════════════════════════════════════════
+// Manages session state: resetting to initial game state, undoing turns.
+// Functions:
+//   resetSession() — reset current game to initial state, save as session
+//   undoStep() — undo the last turn(s) and restore grid state
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function resetSession() {
   if (!currentState.game_id) return;
