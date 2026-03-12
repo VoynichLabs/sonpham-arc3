@@ -6,7 +6,7 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 ---
 
 ## [1.2.1] — Senior Audit of Phase 1 Modularization
-*Author: Son Pham + Claude Opus 4.6 (audit) | 2026-03-12*
+*Author: Claude Opus 4.6 (audit) | 2026-03-12*
 
 ### Context
 Independent senior audit of the `refactor/phase-1-modularization` branch (56 commits, 145 files, +30k/-14k lines) prior to opening PR against `master`. Audit conducted by a different author to catch issues missed during development.
