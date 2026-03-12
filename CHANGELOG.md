@@ -5,6 +5,28 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.2.1] — Senior Audit of Phase 1 Modularization
+*Author: Son Pham + Claude Opus 4.6 (audit) | 2026-03-12*
+
+### Context
+Independent senior audit of the `refactor/phase-1-modularization` branch (56 commits, 145 files, +30k/-14k lines) prior to opening PR against `master`. Audit conducted by a different author to catch issues missed during development.
+
+### Bugs Found & Fixed
+- **Broken import in `agent_scaffold.py:28`** — `_PLANNER_SYSTEM_PROMPT` was renamed to `_PLANNER_SYSTEM_PROMPT_TEMPLATE` during the refactor but this import was never updated. Would crash at runtime on any code path that imports `agent_scaffold` (batch runner, CLI agent). Fixed by updating the import.
+- **`server/app.py` not directly executable** — Running `python server/app.py` failed with `ModuleNotFoundError: No module named 'models'` because the project root wasn't on `sys.path` when executed from the `server/` subdirectory. Fixed by adding `sys.path.insert(0, str(_ROOT))` after `_ROOT` is computed.
+- **Dead backup file committed** — `server/app.py.backup` (836 lines, the original `server.py`) was tracked in git. Removed.
+
+### Fixed
+- `CLAUDE.md` — updated two stale references from `server.py` to `server/state.py` for `HIDDEN_GAMES` list location
+
+### Audit Summary
+- **Test results:** 278 passed, 40 skipped, 0 failed
+- **All module imports:** 37/37 pass (including `agent_scaffold` after fix)
+- **Architecture grade:** 8/10 — service layer, DB split, and agent decomposition are well-executed
+- **Remaining warnings (non-blocking):** `SYSTEM_MSG` duplication in `constants.py` and `models.py`; `FEATURES` dict duplicated in `server/state.py` and `server/helpers.py`; non-refactor work (ws03/ws04 games, Codex integration) mixed into refactor branch; chaotic phase numbering in commit history
+
+---
+
 ## [1.2.0] — refactor/phase-1-modularization (phases 6-30)
 *Author: VoynichLabs AI Team | 2026-03-12*
 

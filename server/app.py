@@ -41,6 +41,8 @@ import arc_agi
 from arcengine import GameAction, GameState
 
 _ROOT = Path(__file__).parent.parent  # project root (one level up from server/)
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 load_dotenv(_ROOT / ".env")
 
 # Model registry and LLM providers extracted to separate modules

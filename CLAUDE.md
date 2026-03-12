@@ -116,7 +116,7 @@ Only two environments — no separate "local" mode:
 - **Staging** (`SERVER_MODE=staging` or unset) — all features, all games visible. Used for both local dev and Railway staging deployment.
 - **Prod** (`SERVER_MODE=prod`) — same features, but games in `HIDDEN_GAMES` list are hidden from `/api/games` unless `?show_all=1` is passed.
 
-The `HIDDEN_GAMES` list is a hardcoded Python list in `server.py`. `SERVER_MODE` env var controls which mode is active.
+The `HIDDEN_GAMES` list is a hardcoded Python list in `server/state.py`. `SERVER_MODE` env var controls which mode is active.
 
 ## Client-Side Architecture (CRITICAL)
 
@@ -177,7 +177,7 @@ There are two types of games with different ID formats:
 - **Observatory games** (our custom games): Use `{two-letter prefix}{two-digit version}` format. The version number in the ID matches the version directory. Examples: `lb03` (Light Bender v3), `ab01` (Antibody v1), `sn01` (Snake v1). When a major version bump occurs, the game ID itself changes (e.g., `lb01` → `lb03`).
 - **ARC Prize Foundation games** (imported from ARC Prize): Use just their short ID with no suffix. Examples: `ls20`, `vc33`, `ft09`, `lp85`. These come from the ARC Prize Foundation and don't follow our versioning convention in their ID.
 
-The `game_id` field in `metadata.json` must match this convention. The `HIDDEN_GAMES` list in `server.py` filters by the two-letter prefix (e.g., `"ab"` hides `ab01`, `ab02`, etc.).
+The `game_id` field in `metadata.json` must match this convention. The `HIDDEN_GAMES` list in `server/state.py` filters by the two-letter prefix (e.g., `"ab"` hides `ab01`, `ab02`, etc.).
 
 ### File Structure
 - Directory: `environment_files/<game_dir>/<version>/` (game_dir = two-letter code for Observatory or full ID for Foundation, version = zero-padded 8-digit number)

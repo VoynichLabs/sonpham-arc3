@@ -25,6 +25,6 @@ from scaffoldings.three_system.prompts import (  # noqa: F401
 )
 
 # The CLI-specific planner system prompt (with agent.py's ARC_AGI3_DESCRIPTION)
-from scaffoldings.three_system.systems import _PLANNER_SYSTEM_PROMPT as PLANNER_SYSTEM_PROMPT  # noqa: F401
+from scaffoldings.three_system.systems import _PLANNER_SYSTEM_PROMPT_TEMPLATE as PLANNER_SYSTEM_PROMPT  # noqa: F401
 # Re-export MONITOR_PROMPT_TEMPLATE under the old name too
 MONITOR_PROMPT_TEMPLATE = MONITOR_PROMPT_TEMPLATE  # noqa: F811
