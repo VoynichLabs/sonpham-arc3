@@ -61,6 +61,90 @@ Setting a separate (cheaper) model for condensation and reflection lets you use 
 
 ---
 
+## Module Structure
+
+The codebase is organized into clean, layered modules:
+
+### Python Backend
+
+**Entry Points:**
+- `server/app.py` — Flask application (58 routes), thin HTTP wrappers only
+- `Procfile` — `gunicorn server.app:app`
+- `batch_runner.py` — Background pipeline runner
+
+**Service Layer** (`server/services/`):
+- `auth_service.py` — Magic link, Google OAuth, Copilot auth, API key management
+- `session_service.py` — Session resume, branch, import, OBS events
+- `game_service.py` — Game start, step, reset, undo
+- `social_service.py` — Comments, leaderboard, contributors
+- `llm_admin_service.py` — LLM model listing, BYOK key management
+
+**Request Helpers:**
+- `server/helpers.py` — `get_current_user()`, session context helpers
+- `server/state.py` — Shared runtime state
+
+**Database Layer:**
+- `db.py` — Connection facade, schema init/migration
+- `db_sessions.py` — Session CRUD
+- `db_auth.py` — Users, tokens, magic links
+- `db_llm.py` — LLM call logging
+- `db_tools.py` — Tool execution logging
+- `db_exports.py` — File export/import
+
+**LLM Providers:**
+- `llm_providers.py` — Router: maps model ID → provider call
+- `llm_providers_openai.py` — OpenAI + LM Studio (OpenAI-compat)
+- `llm_providers_anthropic.py` — Anthropic Claude
+- `llm_providers_google.py` — Google Gemini
+- `llm_providers_copilot.py` — GitHub Copilot (device flow)
+
+**Game Agent:**
+- `agent.py` — Game-playing agent orchestrator
+- `agent_llm.py` — LLM decision logic
+- `agent_response_parsing.py` — Parse LLM responses into actions
+- `agent_history.py` — Maintain agent action history
+
+**Models & Infrastructure:**
+- `models.py` — LLM model registry (39 models: OpenAI, Anthropic, Google, Mistral, Groq, Cloudflare, HuggingFace, Ollama)
+- `constants.py` — Shared constants and configuration
+- `exceptions.py` — Structured error handling
+
+### JavaScript Frontend (`static/js/`)
+
+Files are loaded via `<script>` tags in global scope (no ES6 modules). Load order is critical (see `templates/index.html`).
+
+**Utility layers:**
+- `utils/formatting.js` — Text formatting utilities
+- `utils/tokens.js` — Token counting
+- `utils/json-parsing.js` — Safe JSON parsing
+
+**Core state & game engine:**
+- `state.js` — Shared application state
+- `engine.js` — Game step execution
+- `reasoning.js` — Reasoning pipeline
+
+**Rendering:**
+- `rendering/grid-renderer.js` — 64×64 grid visualization
+- `config/scaffolding-schemas.js` — Game scaffolding definitions
+
+**UI components:**
+- `ui*.js` — Model selector, token display, tab management, grid UI, main UI
+- `llm*.js` — LLM config, timeline, reasoning display, controls, executor
+
+**Game logic:**
+- `scaffolding*.js` — Game-specific scaffolding (RLM, three-system, agent-spawn, linear)
+- `session*.js` — Session views (grid, history, main)
+- `observatory.js` + `observatory/*.js` — OBS event log viewer
+
+**Human interaction:**
+- `human*.js` — Social, rendering, input handling, session, game control
+
+**Misc:**
+- `leaderboard.js` — Leaderboard display
+- `dev.js` — Developer tools (level selector for pi01)
+
+---
+
 ## Hard memory
 
 Two files persist knowledge between sessions:
