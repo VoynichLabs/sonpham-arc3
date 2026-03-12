@@ -325,6 +325,7 @@ def relevant_memory_section(hard_memory: str, game_id: str, max_chars: int) -> s
 # GRID ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════
 
+# TODO: unify with grid_analysis.py version (currently tailored for LLM prompts vs API responses)
 def compress_row(row: list[int]) -> str:
     if not row:
         return ""
@@ -340,6 +341,7 @@ def compress_row(row: list[int]) -> str:
     return " ".join(parts)
 
 
+# TODO: unify with grid_analysis.py version (grid_analysis returns dict, agent.py returns formatted str for LLM prompts)
 def compute_change_map(prev_grid: list, curr_grid: list) -> str:
     if not prev_grid or not curr_grid:
         return ""
@@ -370,6 +372,7 @@ def compute_change_map(prev_grid: list, curr_grid: list) -> str:
     return f"\n## CHANGE MAP ({changed_cells} cells changed since last action)\n" + "\n".join(rows)
 
 
+# TODO: unify with grid_analysis.py version (output format differs for prompts vs API)
 def compute_color_histogram(grid: list) -> str:
     if not grid:
         return ""
@@ -384,6 +387,7 @@ def compute_color_histogram(grid: list) -> str:
     return "\n## COLOR HISTOGRAM\n" + "\n".join(lines)
 
 
+# TODO: unify with grid_analysis.py version (data structure and output format differ for prompts vs API)
 def compute_region_map(grid: list) -> str:
     """BFS flood-fill connected components per color."""
     if not grid:
