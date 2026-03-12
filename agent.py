@@ -361,11 +361,16 @@ Rules:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# GAME LOOP
+# GAME LOOP — HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
-              session_id: str | None = None, step_callback=None) -> str:
+def _setup_game_session(arcade, game_id: str, cfg: dict) -> tuple:
+    """Initialize game environment and session state.
+    
+    Returns:
+        tuple: (env, frame, hard_memory, history, step_num, steps_since_condense, mcfg)
+               or None if game setup fails.
+    """
     print(f"\n{'='*65}")
     print(f"  PLAYING: {game_id}")
     print(f"  Executor: {effective_model(cfg, 'executor')}")
@@ -384,226 +389,397 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
     frame = env.observation_space
     if frame is None:
         print("  [ERROR] Could not start game.")
-        return "ERROR"
+        return None
 
     hard_memory = load_hard_memory(cfg)
     history: list[dict] = []
-    prev_grid: list | None = None
     step_num = 0
     steps_since_condense = 0
-
     mcfg = cfg["memory"]
+
+    return (env, frame, hard_memory, history, step_num, steps_since_condense, mcfg)
+
+
+def _maybe_condense_history(
+    history: list[dict],
+    cfg: dict,
+    steps_since_condense: int,
+    condense_every: int,
+    condense_threshold: int,
+) -> tuple:
+    """Check and apply history condensation if needed.
+    
+    Returns:
+        tuple: (updated_history, updated_steps_since_condense)
+    """
+    raw_history_len = sum(1 for h in history if not h.get("is_summary"))
+    
+    # Step-count triggers (legacy, disabled when 0)
+    should_condense = (
+        condense_every > 0 and steps_since_condense >= condense_every
+    ) or (
+        condense_threshold > 0 and raw_history_len >= condense_threshold
+    )
+    
+    # Token-based trigger: compact when history portion exceeds ~60% of budget
+    max_ctx_tokens = cfg["context"].get("max_context_tokens", 100000)
+    if max_ctx_tokens > 0 and raw_history_len > 0 and not should_condense:
+        estimated_tokens = len(str(history)) // 4  # rough estimate
+        if estimated_tokens > max_ctx_tokens * 0.6:
+            should_condense = True
+    
+    if should_condense and raw_history_len > 0:
+        history = condense_history(history, cfg)
+        steps_since_condense = 0
+    
+    return (history, steps_since_condense)
+
+
+def _prepare_prompt_and_call_llm(
+    grid: list,
+    state_str: str,
+    available: list[int],
+    levels_done: int,
+    win_levels: int,
+    game_id: str,
+    history: list[dict],
+    cfg: dict,
+    prev_grid: list | None,
+    hard_memory: str,
+    session_id: str | None,
+    step_num: int,
+) -> tuple:
+    """Build context/prompt and call LLM; handle logging.
+    
+    Returns:
+        tuple: (llm_result, prompt, elapsed_ms, turn_num)
+    """
+    context_block = build_context_block(
+        grid, state_str, available, levels_done, win_levels,
+        game_id, history, cfg, prev_grid, hard_memory,
+    )
+    prompt = build_action_prompt(context_block, cfg["reasoning"].get("planning_horizon", 1))
+
+    model_key = effective_model(cfg, "executor")
+    turn_start_time = time.time()
+    llm_result = call_model_with_metadata(model_key, prompt, cfg, role="executor")
+    elapsed_ms = llm_result.duration_ms
+    turn_num = step_num + 1
+
+    if session_id:
+        from db import _log_llm_call
+        _log_llm_call(
+            session_id, "executor", model_key,
+            step_num=step_num + 1,
+            turn_num=turn_num,
+            input_json=prompt[:500],
+            output_json=(llm_result.text or "")[:1000],
+            input_tokens=llm_result.input_tokens,
+            output_tokens=llm_result.output_tokens,
+            thinking_tokens=llm_result.thinking_tokens,
+            thinking_json=(llm_result.thinking_text or "")[:5000] if llm_result.thinking_text else None,
+            cost=llm_result.cost,
+            duration_ms=llm_result.duration_ms,
+            error=llm_result.error,
+        )
+
+    return (llm_result, prompt, elapsed_ms, turn_num)
+
+
+def _parse_and_build_action_list(
+    llm_result: LLMResult,
+    available: list[int],
+    planning_horizon: int,
+    game_id: str,
+    cfg: dict,
+) -> tuple:
+    """Parse LLM response and build action list.
+    
+    Returns:
+        tuple: (action_list, observation, reasoning, raw_reasoning_saved, hard_memory)
+    """
+    raw = llm_result.text
+    mcfg = cfg["memory"]
+
+    parsed = _parse_json(raw) if raw else None
+    if parsed is None and raw:
+        parsed = _fallback_parse(raw, available, cfg, effective_model(cfg, "executor"))
+    if parsed is None and raw:
+        parsed = _force_extract_action(raw, available, cfg, effective_model(cfg, "executor"))
+
+    raw_reasoning_saved = None
+    hard_memory = load_hard_memory(cfg)
+
+    if parsed is None:
+        action_id = _fallback_action(available)
+        action_data = {}
+        observation = "parse error / LLM unavailable"
+        reasoning = "fallback"
+        if raw:
+            raw_reasoning_saved = raw[:2000]
+            print(f"  [force-action] could not parse, forcing action={action_id}, reasoning saved")
+    else:
+        observation = parsed.get("observation", "")
+        reasoning = parsed.get("reasoning", "")
+        memory_update = parsed.get("memory_update")
+
+        # Inline memory write
+        if (
+            mcfg["allow_inline_memory_writes"]
+            and memory_update
+            and isinstance(memory_update, str)
+            and memory_update.strip()
+        ):
+            append_memory_bullet(cfg, game_id, memory_update)
+            hard_memory = load_hard_memory(cfg)  # reload
+            print(f"  [memory inline] {memory_update[:80]}")
+
+    # Build action list from parsed response
+    if parsed and "actions" in parsed and isinstance(parsed["actions"], list):
+        action_list = []
+        for a in parsed["actions"][:planning_horizon]:
+            aid = a.get("action", 1) if isinstance(a, dict) else int(a)
+            adata = (a.get("data") or {}) if isinstance(a, dict) else {}
+            action_list.append((aid, adata))
+    elif parsed:
+        action_list = [(parsed.get("action", 1), parsed.get("data") or {})]
+    else:
+        action_list = [(action_id, action_data)]
+
+    return (action_list, observation, reasoning, raw_reasoning_saved, hard_memory)
+
+
+def _execute_and_log_action_plan(
+    action_list: list,
+    env,
+    frame,
+    available: list[int],
+    grid: list,
+    levels_done: int,
+    win_levels: int,
+    elapsed_ms: int,
+    step_num: int,
+    observation: str,
+    reasoning: str,
+    raw_reasoning_saved: str | None,
+    parsed,
+    history: list[dict],
+    session_id: str | None,
+    llm_result: LLMResult,
+    step_callback=None,
+    max_steps: int = 200,
+) -> tuple:
+    """Execute action plan, update history, handle callbacks, log turn.
+    
+    Returns:
+        tuple: (updated_step_num, updated_frame, updated_grid, updated_available, 
+                updated_levels_done, updated_history, terminal_hit, steps_executed)
+    """
+    steps_planned = len(action_list)
+    steps_executed = 0
+    turn_step_start = step_num + 1
+    terminal_hit = False
+    prev_grid = grid
+    elapsed_sec = elapsed_ms / 1000
+    turn_num = step_num + 1
+
+    for action_idx, (act_id, act_data) in enumerate(action_list):
+        # Validate action against currently available actions
+        if act_id not in available:
+            act_id = available[0] if available else 1
+
+        try:
+            action = GameAction.from_id(int(act_id))
+        except (ValueError, KeyError):
+            action = GameAction.ACTION1
+
+        step_num += 1
+        steps_executed += 1
+        aname = ACTION_NAMES.get(act_id, f"ACTION{act_id}")
+        coord_str = f"@({act_data.get('x','?')},{act_data.get('y','?')})" if act_id == 6 and act_data else ""
+        plan_tag = f" [{action_idx+1}/{steps_planned}]" if steps_planned > 1 else ""
+        print(f"  Step {step_num:3d} | {aname}{coord_str:12s} | lvl {levels_done}/{win_levels} | {elapsed_sec:.1f}s{plan_tag}")
+
+        if action_idx == 0:
+            if observation:
+                print(f"           obs: {observation[:100]}")
+            if reasoning:
+                print(f"           why: {reasoning[:100]}")
+            if raw_reasoning_saved:
+                print(f"           raw: {raw_reasoning_saved[:100]}...")
+
+        prev_grid = grid
+        frame = env.step(action, data=act_data or None, reasoning=reasoning if action_idx == 0 else None)
+        if frame is None:
+            print("  [ERROR] env.step returned None")
+            terminal_hit = True
+            break
+
+        new_levels = frame.levels_completed if frame else levels_done
+        new_grid = frame.frame[-1].tolist() if frame.frame else grid
+        state_val = frame.state.value if frame and hasattr(frame.state, "value") else "?"
+        levels_done = new_levels
+        grid = new_grid
+        available = frame.available_actions
+
+        hist_entry = {
+            "step": step_num,
+            "action": act_id,
+            "data": act_data,
+            "state": state_val,
+            "levels": new_levels,
+            "observation": observation if action_idx == 0 else "",
+            "reasoning": reasoning if action_idx == 0 else "",
+        }
+        if raw_reasoning_saved and action_idx == 0:
+            hist_entry["raw_reasoning"] = raw_reasoning_saved
+        history.append(hist_entry)
+
+        # Invoke step callback (used by batch_runner for DB persistence)
+        if step_callback:
+            llm_resp = {"observation": observation, "reasoning": reasoning,
+                        "action": act_id, "data": act_data} if parsed else None
+            try:
+                step_callback(
+                    session_id=session_id, step_num=step_num,
+                    action=act_id, data=act_data,
+                    grid=new_grid, llm_response=llm_resp,
+                    state=state_val, levels=new_levels,
+                )
+            except Exception as cb_err:
+                print(f"  [callback error] {cb_err}")
+
+        # Check for terminal state — break plan early
+        if frame.state in (GameState.WIN, GameState.GAME_OVER):
+            terminal_hit = True
+            break
+
+        # Check step budget
+        if step_num >= max_steps:
+            break
+
+    # Log single-agent turn (1 turn, possibly multiple steps)
+    if session_id:
+        from db import _log_turn as _log_turn_db
+        _log_turn_db(
+            session_id, turn_num, "single_agent",
+            goal=reasoning,
+            steps_planned=steps_planned, steps_executed=steps_executed,
+            step_start=turn_step_start, step_end=step_num,
+            llm_calls=1,
+            total_input_tokens=llm_result.input_tokens,
+            total_output_tokens=llm_result.output_tokens,
+            total_duration_ms=elapsed_ms,
+            timestamp_start=time.time() - (elapsed_ms / 1000),
+            timestamp_end=time.time(),
+        )
+
+    return (step_num, frame, grid, available, levels_done, history, terminal_hit, steps_executed)
+
+
+def _check_terminal_and_post_game(
+    frame,
+    step_num: int,
+    max_steps: int,
+    levels_done: int,
+    win_levels: int,
+    history: list[dict],
+    arcade,
+    game_id: str,
+    cfg: dict,
+) -> tuple:
+    """Check for terminal state and handle post-game.
+    
+    Returns:
+        tuple: (done, result_str) or (False, None) if continuing
+    """
+    if frame.state == GameState.WIN:
+        print(f"\n  >>> WIN!  Completed {win_levels} levels in {step_num} steps <<<\n")
+        _post_game(arcade, game_id, history, "WIN", step_num, levels_done, win_levels, cfg)
+        return (True, "WIN")
+    
+    if frame.state == GameState.GAME_OVER:
+        print(f"\n  >>> GAME OVER at step {step_num}  (levels {levels_done}/{win_levels}) <<<\n")
+        _post_game(arcade, game_id, history, "GAME_OVER", step_num, levels_done, win_levels, cfg)
+        return (True, "GAME_OVER")
+    
+    if step_num >= max_steps:
+        final_state = frame.state.value if frame and hasattr(frame.state, "value") else "TIMEOUT"
+        print(f"\n  >>> Max steps reached ({max_steps}).  Final: {final_state} <<<\n")
+        _post_game(arcade, game_id, history, final_state, step_num,
+                   frame.levels_completed if frame else 0,
+                   frame.win_levels if frame else 0, cfg)
+        return (True, final_state)
+    
+    return (False, None)
+
+
+def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
+              session_id: str | None = None, step_callback=None) -> str:
+    """Orchestrator for game play loop.
+    
+    Manages session setup → main loop (prompt/LLM/parse/execute) → termination checks.
+    """
+    # Session initialization
+    setup_result = _setup_game_session(arcade, game_id, cfg)
+    if setup_result is None:
+        return "ERROR"
+
+    env, frame, hard_memory, history, step_num, steps_since_condense, mcfg = setup_result
     condense_every = mcfg["condense_every"]
     condense_threshold = mcfg["condense_threshold"]
-
+    planning_horizon = cfg["reasoning"].get("planning_horizon", 1)
+    
+    prev_grid: list | None = None
+    
+    # Main game loop
     while step_num < max_steps:
+        # Extract current frame state
         grid = frame.frame[-1].tolist() if frame.frame else []
         state_str = frame.state.value if hasattr(frame.state, "value") else str(frame.state)
         available = frame.available_actions
         levels_done = frame.levels_completed
         win_levels = frame.win_levels
 
-        # Terminal states
-        if frame.state == GameState.WIN:
-            print(f"\n  >>> WIN!  Completed {win_levels} levels in {step_num} steps <<<\n")
-            _post_game(arcade, game_id, history, "WIN", step_num, levels_done, win_levels, cfg)
-            return "WIN"
-        if frame.state == GameState.GAME_OVER:
-            print(f"\n  >>> GAME OVER at step {step_num}  (levels {levels_done}/{win_levels}) <<<\n")
-            _post_game(arcade, game_id, history, "GAME_OVER", step_num, levels_done, win_levels, cfg)
-            return "GAME_OVER"
-
-        # ── Context condensation ────────────────────────────────────────
-        raw_history_len = sum(1 for h in history if not h.get("is_summary"))
-        # Step-count triggers (legacy, disabled when 0)
-        should_condense = (
-            condense_every > 0 and steps_since_condense >= condense_every
-        ) or (
-            condense_threshold > 0 and raw_history_len >= condense_threshold
+        # Check for terminal states at loop start
+        done, result = _check_terminal_and_post_game(
+            frame, step_num, max_steps, levels_done, win_levels, history, arcade, game_id, cfg
         )
-        # Token-based trigger: compact when history portion exceeds ~60% of budget
-        max_ctx_tokens = cfg["context"].get("max_context_tokens", 100000)
-        if max_ctx_tokens > 0 and raw_history_len > 0 and not should_condense:
-            estimated_tokens = len(str(history)) // 4  # rough estimate
-            if estimated_tokens > max_ctx_tokens * 0.6:
-                should_condense = True
-        if should_condense and raw_history_len > 0:
-            history = condense_history(history, cfg)
-            steps_since_condense = 0
+        if done:
+            return result
 
-        # ── Build prompt ────────────────────────────────────────────────
-        context_block = build_context_block(
+        # Maybe condense history
+        history, steps_since_condense = _maybe_condense_history(
+            history, cfg, steps_since_condense, condense_every, condense_threshold
+        )
+
+        # Prepare prompt and call LLM
+        llm_result, prompt, elapsed_ms, turn_num = _prepare_prompt_and_call_llm(
             grid, state_str, available, levels_done, win_levels,
-            game_id, history, cfg, prev_grid, hard_memory,
+            game_id, history, cfg, prev_grid, hard_memory, session_id, step_num
         )
-        prompt = build_action_prompt(context_block, planning_horizon)
 
-        # ── Call LLM ────────────────────────────────────────────────────
-        model_key = effective_model(cfg, "executor")
-        turn_start_time = time.time()
-        llm_result = call_model_with_metadata(model_key, prompt, cfg, role="executor")
-        raw = llm_result.text
-        elapsed = llm_result.duration_ms / 1000
-        turn_num = step_num + 1  # turn number before executing any steps
+        # Parse response and build action list
+        action_list, observation, reasoning, raw_reasoning_saved, hard_memory = _parse_and_build_action_list(
+            llm_result, available, planning_horizon, game_id, cfg
+        )
 
-        if session_id:
-            from db import _log_llm_call
-            _log_llm_call(
-                session_id, "executor", model_key,
-                step_num=step_num + 1,
-                turn_num=turn_num,
-                input_json=prompt[:500],
-                output_json=(raw or "")[:1000],
-                input_tokens=llm_result.input_tokens,
-                output_tokens=llm_result.output_tokens,
-                thinking_tokens=llm_result.thinking_tokens,
-                thinking_json=(llm_result.thinking_text or "")[:5000] if llm_result.thinking_text else None,
-                cost=llm_result.cost,
-                duration_ms=llm_result.duration_ms,
-                error=llm_result.error,
-            )
+        # Execute actions and update history
+        (step_num, frame, grid, available, levels_done, history, 
+         terminal_hit, steps_executed) = _execute_and_log_action_plan(
+            action_list, env, frame, available, grid, levels_done, win_levels,
+            elapsed_ms, step_num, observation, reasoning, raw_reasoning_saved,
+            None, history, session_id, llm_result, step_callback, max_steps
+        )
+        
+        # Update steps_since_condense based on steps executed
+        steps_since_condense += steps_executed
 
-        parsed = _parse_json(raw) if raw else None
-        if parsed is None and raw:
-            parsed = _fallback_parse(raw, available, cfg, model_key)
-        if parsed is None and raw:
-            parsed = _force_extract_action(raw, available, cfg, model_key)
-        raw_reasoning_saved = None
-        if parsed is None:
-            action_id = _fallback_action(available)
-            action_data = {}
-            observation = "parse error / LLM unavailable"
-            reasoning = "fallback"
-            if raw:
-                raw_reasoning_saved = raw[:2000]
-                print(f"  [force-action] could not parse, forcing action={action_id}, reasoning saved")
-        else:
-            observation = parsed.get("observation", "")
-            reasoning = parsed.get("reasoning", "")
-            memory_update = parsed.get("memory_update")
+        # If terminal state was hit during action execution, check again at top of loop
+        if terminal_hit:
+            continue
 
-            # Inline memory write
-            if (
-                mcfg["allow_inline_memory_writes"]
-                and memory_update
-                and isinstance(memory_update, str)
-                and memory_update.strip()
-            ):
-                append_memory_bullet(cfg, game_id, memory_update)
-                hard_memory = load_hard_memory(cfg)  # reload
-                print(f"  [memory inline] {memory_update[:80]}")
-
-        # ── Build action list ─────────────────────────────────────────
-        # Always expect "actions" array; wrap single "action" as 1-element plan
-        if parsed and "actions" in parsed and isinstance(parsed["actions"], list):
-            action_list = []
-            for a in parsed["actions"][:planning_horizon]:
-                aid = a.get("action", 1) if isinstance(a, dict) else int(a)
-                adata = (a.get("data") or {}) if isinstance(a, dict) else {}
-                action_list.append((aid, adata))
-        elif parsed:
-            action_list = [(parsed.get("action", 1), parsed.get("data") or {})]
-        else:
-            action_list = [(action_id, action_data)]
-
-        # ── Execute action(s) ─────────────────────────────────────────
-        steps_planned = len(action_list)
-        steps_executed = 0
-        turn_step_start = step_num + 1
-        terminal_hit = False
-
-        for action_idx, (act_id, act_data) in enumerate(action_list):
-            # Validate action against currently available actions
-            if act_id not in available:
-                act_id = available[0] if available else 1
-
-            try:
-                action = GameAction.from_id(int(act_id))
-            except (ValueError, KeyError):
-                action = GameAction.ACTION1
-
-            step_num += 1
-            steps_since_condense += 1
-            steps_executed += 1
-            aname = ACTION_NAMES.get(act_id, f"ACTION{act_id}")
-            coord_str = f"@({act_data.get('x','?')},{act_data.get('y','?')})" if act_id == 6 and act_data else ""
-            plan_tag = f" [{action_idx+1}/{steps_planned}]" if steps_planned > 1 else ""
-            print(f"  Step {step_num:3d} | {aname}{coord_str:12s} | lvl {levels_done}/{win_levels} | {elapsed:.1f}s{plan_tag}")
-            if action_idx == 0:
-                if observation:
-                    print(f"           obs: {observation[:100]}")
-                if reasoning:
-                    print(f"           why: {reasoning[:100]}")
-                if raw_reasoning_saved:
-                    print(f"           raw: {raw_reasoning_saved[:100]}...")
-
-            prev_grid = grid
-            frame = env.step(action, data=act_data or None, reasoning=reasoning if action_idx == 0 else None)
-            if frame is None:
-                print("  [ERROR] env.step returned None")
-                terminal_hit = True
-                break
-
-            new_levels = frame.levels_completed if frame else levels_done
-            new_grid = frame.frame[-1].tolist() if frame.frame else grid
-            state_val = frame.state.value if frame and hasattr(frame.state, "value") else "?"
-            levels_done = new_levels
-            grid = new_grid
-            available = frame.available_actions
-
-            hist_entry = {
-                "step": step_num,
-                "action": act_id,
-                "data": act_data,
-                "state": state_val,
-                "levels": new_levels,
-                "observation": observation if action_idx == 0 else "",
-                "reasoning": reasoning if action_idx == 0 else "",
-            }
-            if raw_reasoning_saved and action_idx == 0:
-                hist_entry["raw_reasoning"] = raw_reasoning_saved
-            history.append(hist_entry)
-
-            # Invoke step callback (used by batch_runner for DB persistence)
-            if step_callback:
-                llm_resp = {"observation": observation, "reasoning": reasoning,
-                            "action": act_id, "data": act_data} if parsed else None
-                try:
-                    step_callback(
-                        session_id=session_id, step_num=step_num,
-                        action=act_id, data=act_data,
-                        grid=new_grid, llm_response=llm_resp,
-                        state=state_val, levels=new_levels,
-                    )
-                except Exception as cb_err:
-                    print(f"  [callback error] {cb_err}")
-
-            # Check for terminal state — break plan early
-            if frame.state in (GameState.WIN, GameState.GAME_OVER):
-                terminal_hit = True
-                break
-
-            # Check step budget
-            if step_num >= max_steps:
-                break
-
-        # Log single-agent turn (1 turn, possibly multiple steps)
-        if session_id:
-            from db import _log_turn as _log_turn_db
-            _log_turn_db(
-                session_id, turn_num, "single_agent",
-                goal=reasoning,
-                steps_planned=steps_planned, steps_executed=steps_executed,
-                step_start=turn_step_start, step_end=step_num,
-                llm_calls=1,
-                total_input_tokens=llm_result.input_tokens,
-                total_output_tokens=llm_result.output_tokens,
-                total_duration_ms=llm_result.duration_ms,
-                timestamp_start=turn_start_time,
-                timestamp_end=time.time(),
-            )
-
-    # Timed out
+    # Final check (max_steps exceeded)
     final_state = frame.state.value if frame and hasattr(frame.state, "value") else "TIMEOUT"
     print(f"\n  >>> Max steps reached ({max_steps}).  Final: {final_state} <<<\n")
     _post_game(arcade, game_id, history, final_state, step_num,
