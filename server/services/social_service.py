@@ -44,3 +44,28 @@ def validate_game_id(game_id: str) -> tuple[bool, str]:
     if not game_id:
         return False, "game_id required"
     return True, ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TODO: Phase 22 — Extract social route logic
+# ═══════════════════════════════════════════════════════════════════════════
+# Routes to extract:
+# - get_comments(game_id, voter_id) — fetch comments for a game, include voter's votes
+# - post_comment(game_id, user_id, body) — create a new comment
+# - vote_comment(comment_id, voter_id, vote_direction) — upvote/downvote
+# - get_leaderboard(player_type) — return best AI and human sessions per game
+# - leaderboard_detail(game_id) — detailed leaderboard for single game
+# - post_share() — create share record
+# - get_shares(game_id) — list shares for game
+#
+# Depends on:
+# - DB queries (comments, comment_votes, sessions, shares tables)
+# - User authentication (for ownership checks)
+# - Timestamps (for sorting/ranking)
+#
+# Features:
+# - Comment creation with authorship
+# - Vote aggregation (upvote/downvote counts)
+# - Voter's own vote tracking
+# - Leaderboard ranking (steps, cost, time)
+# - Session sharing (share code generation)

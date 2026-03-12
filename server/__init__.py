@@ -78,7 +78,7 @@ Phase 11: Client-side modularization (session.js → 4 modules)
 - session-views.js (routing/menus)
 """
 
-from server.app import app
+from server.app import app, get_mode
 
 # Re-exports for backward compatibility with tests
 # These functions are imported from prompt_builder into app.py
@@ -87,4 +87,4 @@ try:
 except ImportError:
     from prompt_builder import _extract_json, _parse_llm_response
 
-__all__ = ['app', '_extract_json', '_parse_llm_response']
+__all__ = ['app', 'get_mode', '_extract_json', '_parse_llm_response']

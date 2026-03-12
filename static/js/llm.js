@@ -739,21 +739,16 @@ async function askLLM(ss) {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════════════════
-// PART 2: PLAN EXECUTION & ACTION HANDLING
+// PART 2: PLAN EXECUTION & ACTION HANDLING (Extracted to llm-executor.js — Phase 22)
 // ═══════════════════════════════════════════════════════════════════════════
-// Coordinates multi-step plan execution, single action execution, and state management.
-// Functions:
+// Functions extracted to llm-executor.js:
 //   executePlan(plan, resp, entry, expected, ss) — execute a multi-step plan from LLM
 //   executeOneAction(resp) — execute a single action (non-plan mode)
-// Called by: stepOnce(), toggleAutoPlay(), truncAutoRetry()
-// ═══════════════════════════════════════════════════════════════════════════
-// CONTROL FUNCTIONS: Extracted to llm-controls.js (Phase 12)
-// ═══════════════════════════════════════════════════════════════════════════
-// Extracted functions:
-//   updateUndoBtn(), updateAutoBtn(), testModel()
-// These are loaded from llm-controls.js before this file
+//   stepOnce() — single-step orchestration
+// These are loaded from llm-executor.js before this file.
+// Called by: stepOnce(), toggleAutoPlay(), truncAutoRetry() (all now in llm-executor.js)
 
-async function executePlan(plan, resp, entry, expected, ss) {
+// [executePlan definition removed — see llm-executor.js]
   // Execute a multi-step plan, updating UI live
   // ss = SessionState (optional, falls back to globals)
   const _ss = ss || null;

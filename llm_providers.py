@@ -710,6 +710,9 @@ def _route_model_call(model_key: str, prompt: str, image_b64: str | None = None,
         return _call_copilot(api_model, prompt, img)
     if provider == "ollama":
         return _call_ollama(api_model, prompt, img)
+    if provider == "lmstudio":
+        url = "http://localhost:1234/v1/chat/completions"
+        return _call_openai_compatible(url, "no-key-needed", api_model, prompt, img, max_tokens=max_tokens)
 
     # OpenAI-compatible (Groq, Mistral, HuggingFace)
     api_key = os.environ.get(info.get("env_key", ""), "")

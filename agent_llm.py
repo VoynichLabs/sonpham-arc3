@@ -296,6 +296,8 @@ def call_model(model_key: str, prompt: str, cfg: dict, role: str = "executor",
         return _call_cloudflare(api_model, messages, temp, max_tok)
     if provider == "ollama":
         return _call_openai_compatible(info["url"], "", api_model, messages, temp, max_tok)
+    if provider == "lmstudio":
+        return _call_openai_compatible("http://localhost:1234/v1/chat/completions", "no-key-needed", api_model, messages, temp, max_tok)
 
     # Groq / Mistral / HuggingFace (OpenAI-compatible)
     api_key = os.environ.get(info["env_key"], "")

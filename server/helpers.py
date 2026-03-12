@@ -109,7 +109,7 @@ def env_state_dict(env, frame_data=None) -> dict:
 
 def _load_prompts():
     """Load all prompt .txt files from prompts/ directory."""
-    base = Path(__file__).parent / "prompts"
+    base = Path(__file__).parent.parent / "prompts"
     result = {}
     for section in sorted(base.iterdir()):
         if section.is_dir():

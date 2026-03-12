@@ -349,6 +349,23 @@ MODEL_REGISTRY: dict[str, dict] = {
         "capabilities": {"image": False, "reasoning": False, "tools": False},
         "pricing": [0.0, 0.0, 0.0],
     },
+    # ── LM Studio (local, OpenAI-compatible on port 1234) ───────────────────
+    "lmstudio/qwen3.5-35b": {
+        "provider": "lmstudio", "api_model": "qwen/qwen3.5-35b-a3b",
+        "env_key": "",
+        "price": "Free (local)",
+        "context_window": 32768,
+        "capabilities": {"image": False, "reasoning": False, "tools": False},
+        "pricing": [0.0, 0.0, 0.0],
+    },
+    "lmstudio/qwen3.5-9b": {
+        "provider": "lmstudio", "api_model": "qwen/qwen3.5-9b",
+        "env_key": "",
+        "price": "Free (local)",
+        "context_window": 32768,
+        "capabilities": {"image": False, "reasoning": False, "tools": False},
+        "pricing": [0.0, 0.0, 0.0],
+    },
 }
 
 # Ollama models discovered at runtime; all support text only by default.

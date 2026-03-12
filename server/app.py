@@ -40,7 +40,8 @@ from flask import Flask, Response, abort, jsonify, make_response, render_templat
 import arc_agi
 from arcengine import GameAction, GameState
 
-load_dotenv(Path(__file__).parent / ".env")
+_ROOT = Path(__file__).parent.parent  # project root (one level up from server/)
+load_dotenv(_ROOT / ".env")
 
 # Model registry and LLM providers extracted to separate modules
 from models import (
@@ -85,7 +86,9 @@ from session_manager import (
 # Phase 14: Service layer imports
 from server.services import auth_service, game_service, session_service, social_service
 
-app = Flask(__name__, template_folder="templates", static_folder="static")
+app = Flask(__name__,
+            template_folder=str(_ROOT / "templates"),
+            static_folder=str(_ROOT / "static"))
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 # Stable secret key — needed for Flask session (Google OAuth CSRF state).
 # Derive from GOOGLE_CLIENT_SECRET or env var so all gunicorn workers share the same key.
@@ -1216,8 +1219,7 @@ def memory_endpoint():
 @app.route("/api/sessions/import", methods=["POST", "OPTIONS"])
 @bot_protection
 def import_session():
-    """Import/upsert a session and its steps. Used by puter.kv auto-upload."""
-    # CORS for cross-origin uploads (local → Railway)
+    """Import/upsert a session and its steps. Thin HTTP wrapper — logic in session_service."""
     cors_headers = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -1232,212 +1234,50 @@ def import_session():
 
     if not feature_enabled("session_db"):
         return _cors_resp({"error": "Session DB not enabled"}, 400)
+    
     payload = request.get_json(force=True)
     sess = payload.get("session")
     steps = payload.get("steps", [])
-    if not sess or not sess.get("id") or not sess.get("game_id"):
-        return _cors_resp({"error": "session.id and session.game_id required"}, 400)
-    # Reject trivially short agent sessions (human sessions always saved)
-    is_human = sess.get("player_type") == "human"
-    if not is_human and len(steps) < 5:
-        return _cors_resp({"error": "Session too short (min 5 steps)", "skipped": True})
-    try:
-        scaffolding_json = json.dumps(sess.get("prompts") or sess.get("scaffolding")) if (sess.get("prompts") or sess.get("scaffolding")) else None
-        # Tag with authenticated user if present
-        user = get_current_user()
-        user_id = sess.get("user_id") or (user["id"] if user else None)
-        if user_id:
-            sess["user_id"] = user_id
-        conn = _get_db()
-        conn.execute(
-            """INSERT INTO sessions (id, game_id, model, mode, created_at, result, steps, levels,
-                                     parent_session_id, branch_at_step, scaffolding_json,
-                                     user_id, player_type, duration_seconds, live_mode, live_fps)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(id) DO UPDATE SET
-                 result = excluded.result, steps = excluded.steps, levels = excluded.levels,
-                 model = COALESCE(excluded.model, sessions.model),
-                 scaffolding_json = COALESCE(excluded.scaffolding_json, sessions.scaffolding_json),
-                 user_id = COALESCE(excluded.user_id, sessions.user_id),
-                 player_type = COALESCE(excluded.player_type, sessions.player_type),
-                 duration_seconds = COALESCE(excluded.duration_seconds, sessions.duration_seconds),
-                 live_mode = COALESCE(excluded.live_mode, sessions.live_mode),
-                 live_fps = COALESCE(excluded.live_fps, sessions.live_fps)""",
-            (sess["id"], sess["game_id"], sess.get("model", ""),
-             sess.get("mode", "online"), sess.get("created_at", time.time()),
-             sess.get("result", "NOT_FINISHED"), sess.get("steps", 0),
-             sess.get("levels", 0), sess.get("parent_session_id"),
-             sess.get("branch_at_step"), scaffolding_json, user_id,
-             sess.get("player_type", "agent"), sess.get("duration_seconds"),
-             1 if sess.get("live_mode") else 0,
-             sess.get("live_fps")),
-        )
-        app.logger.info(f"[import] session={sess['id'][:30]} steps={len(steps)}")
-        for s in steps:
-            states_json = None
-            if s.get("grid"):
-                states_json = json.dumps([{"grid": _compress_grid(s["grid"])}])
-            # Extract row/col from click data
-            sdata = s.get("data") or {}
-            act_row = sdata.get("y") if isinstance(sdata, dict) else None
-            act_col = sdata.get("x") if isinstance(sdata, dict) else None
-            # Determine author_type from step metadata
-            author_type = s.get("author_type") or ("agent" if s.get("llm_response") else None)
-            conn.execute(
-                """INSERT OR REPLACE INTO session_actions
-                   (session_id, step_num, action, row, col,
-                    author_type, states_json, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (sess["id"], s.get("step_num", 0), s.get("action", 0),
-                 act_row, act_col, author_type,
-                 states_json,
-                 s.get("timestamp", time.time())),
-            )
-        # Extract timeline events into llm_calls rows (delete existing to avoid duplicates on re-upload)
-        conn.execute("DELETE FROM llm_calls WHERE session_id = ?", (sess["id"],))
-        calls_imported = 0
-        timeline = sess.get("timeline") or []
-        if isinstance(timeline, str):
-            try:
-                timeline = json.loads(timeline)
-            except Exception:
-                timeline = []
-
-        # Build step_num→timestamp lookup for deriving call timestamps
-        step_ts = {}
-        for s in steps:
-            sn = s.get("step_num")
-            if sn is not None:
-                step_ts[sn] = s.get("timestamp", 0)
-
-        # Map timeline event types to llm_calls rows
-        # Supported: reasoning, compact, interrupt (linear/RLM scaffolds)
-        #            as_orch_*, as_sub_* (agent_spawn scaffold)
-        for ev in timeline:
-            etype = ev.get("type", "")
-            # Determine agent_type
-            if etype in ("reasoning", "compact", "interrupt"):
-                agent_type = ev.get("call_type", etype)
-            elif etype.startswith("as_"):
-                agent_type = etype  # e.g. as_orch_delegate, as_sub_result
-            else:
-                continue  # skip non-LLM events (act, game state, etc.)
-
-            # Derive timestamp: explicit > from step > from session start
-            ts = ev.get("timestamp") or 0
-            if not ts:
-                step_num = ev.get("stepStart") or ev.get("step_num")
-                if step_num and step_num in step_ts:
-                    ts = step_ts[step_num]
-            if not ts:
-                ts = sess.get("created_at", time.time())
-
-            # Build input/output JSON from available fields
-            input_data = (ev.get("task") or "")[:500]
-            output_preview = (ev.get("response_preview") or ev.get("response")
-                              or ev.get("reasoning") or ev.get("summary") or "")
-            if len(output_preview) > 1000:
-                output_preview = output_preview[:1000]
-
-            conn.execute(
-                """INSERT OR IGNORE INTO llm_calls
-                   (session_id, agent_type, step_num, turn_num, model,
-                    input_json, input_tokens, output_json, output_tokens,
-                    cost, duration_ms, error, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (sess["id"], agent_type,
-                 ev.get("stepStart") or ev.get("step_num"),
-                 ev.get("turn") or ev.get("parentTurn"),
-                 ev.get("model", ""),
-                 json.dumps(input_data) if input_data else None,
-                 ev.get("input_tokens", 0),
-                 json.dumps(output_preview) if output_preview else None,
-                 ev.get("output_tokens", 0),
-                 ev.get("cost", 0),
-                 ev.get("duration") or ev.get("duration_ms") or 0,
-                 ev.get("error"), ts),
-            )
-            calls_imported += 1
-
-        conn.commit()
-        conn.close()
-        return _cors_resp({"status": "ok", "session_id": sess["id"],
-                           "steps_imported": len(steps), "calls_imported": calls_imported})
-    except Exception as e:
-        app.logger.warning(f"Session import failed: {e}")
-        return _cors_resp({"error": str(e)}, 500)
+    
+    user = get_current_user()
+    user_id = sess.get("user_id") if sess else None
+    if not user_id and user:
+        user_id = user["id"]
+    
+    # Call session_service to do the import
+    result, error_msg = session_service.import_session(sess, steps, user_id, get_mode())
+    if error_msg:
+        status_code = 400 if "required" in error_msg else 413 if "too short" in error_msg.lower() else 500
+        return _cors_resp({"error": error_msg, "skipped": result.get("skipped", False)}, status_code)
+    
+    return _cors_resp(result, 200)
 
 
 @app.route("/api/sessions/resume", methods=["POST"])
 @bot_protection
 @turnstile_required
 def resume_session():
-    """Resume an unfinished session. Replays all steps and returns live state."""
+    """Resume an unfinished session. Thin HTTP wrapper — logic in session_service."""
     if not feature_enabled("session_db"):
         return jsonify({"error": "Session DB not enabled"}), 400
+    
     payload = request.get_json(force=True)
     session_id = payload.get("session_id")
     if not session_id:
         return jsonify({"error": "session_id required"}), 400
-    # Fetch session metadata and action rows from DB
-    try:
-        conn = _get_db()
-        sess = conn.execute(
-            "SELECT game_id, model, parent_session_id, branch_at_step FROM sessions WHERE id = ?",
-            (session_id,),
-        ).fetchone()
-        if sess:
-            sess = dict(sess)
-
-        parent_rows = []
-        own_rows = []
-
-        if sess:
-            if sess.get("parent_session_id") and sess.get("branch_at_step") is not None:
-                parent_rows = conn.execute(
-                    "SELECT * FROM session_actions WHERE session_id = ? AND step_num <= ? ORDER BY step_num",
-                    (sess["parent_session_id"], sess["branch_at_step"]),
-                ).fetchall()
-            own_rows = conn.execute(
-                "SELECT * FROM session_actions WHERE session_id = ? ORDER BY step_num",
-                (session_id,),
-            ).fetchall()
-        conn.close()
-
-        if not sess:
-            return jsonify({"error": "Session not found"}), 404
-    except Exception as e:
-        return jsonify({"error": f"DB error: {e}"}), 500
-
-    # Combine: parent actions + own actions = full action history
-    all_rows = list(parent_rows) + list(own_rows)
-
-    # Build action dicts for replay
-    actions = [_action_dict_from_row(dict(r)) for r in all_rows]
-
-    # Replay all moves to get correct env state + per-step game stats
-    env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True,
-                                                       get_arcade_fn=get_arcade, env_state_dict_fn=env_state_dict)
-
-    # Register the recovered env in global state
-    with session_lock:
-        game_sessions[session_id] = env
-        session_grids[session_id] = state.get("grid", [])
-        session_snapshots[session_id] = []
-        session_step_counts[session_id] = len(actions)
-
-    state["session_id"] = session_id
-    state["change_map"] = {"changes": [], "change_count": 0, "change_map_text": "(resumed)"}
-    state["resumed_step_count"] = len(actions)
-
-    # Build step history with per-step game stats from replay
-    step_list = [_format_action_row(dict(r)) for r in all_rows]
-    for i, s in enumerate(step_list):
-        if i < len(per_step_states):
-            s["result_state"] = per_step_states[i]["state"]
-            s["levels_completed"] = per_step_states[i]["levels_completed"]
-    state["steps"] = step_list
-    state["model"] = sess["model"] or ""
+    
+    # Call session_service to resume
+    state, error_msg = session_service.resume(
+        session_id,
+        get_arcade_fn=get_arcade,
+        env_state_dict_fn=env_state_dict,
+        format_action_row_fn=_format_action_row,
+    )
+    
+    if error_msg:
+        status_code = 404 if "not found" in error_msg.lower() else 500
+        return jsonify({"error": error_msg}), status_code
+    
     return jsonify(state)
 
 
@@ -1546,68 +1386,29 @@ def browse_sessions():
 @bot_protection
 @turnstile_required
 def branch_session():
-    """Branch a session at a given step. Creates a new live session from that point."""
+    """Branch a session at a given step. Thin HTTP wrapper — logic in session_service."""
     if not feature_enabled("session_db"):
         return jsonify({"error": "Session DB not enabled"}), 400
+    
     payload = request.get_json(force=True)
     parent_id = payload.get("parent_session_id")
     step_num = payload.get("step_num")
     if not parent_id or step_num is None:
         return jsonify({"error": "parent_session_id and step_num required"}), 400
-    try:
-        conn = _get_db()
-        sess = conn.execute("SELECT game_id FROM sessions WHERE id = ?", (parent_id,)).fetchone()
-        if not sess:
-            conn.close()
-            return jsonify({"error": "Parent session not found"}), 404
-        action_rows = conn.execute(
-            "SELECT * FROM session_actions WHERE session_id = ? AND step_num <= ? ORDER BY step_num",
-            (parent_id, step_num),
-        ).fetchall()
-        conn.close()
-
-        # Build action dicts for replay
-        actions = [_action_dict_from_row(dict(r)) for r in action_rows]
-        env, state, per_step_states = _reconstruct_session(sess["game_id"], actions, capture_per_step=True,
-                                                           get_arcade_fn=get_arcade, env_state_dict_fn=env_state_dict)
-
-        # Generate new session ID
-        new_session_id = env._guid if hasattr(env, "_guid") else secrets.token_hex(16)
-        with session_lock:
-            game_sessions[new_session_id] = env
-            session_grids[new_session_id] = state.get("grid", [])
-            session_snapshots[new_session_id] = []
-            session_step_counts[new_session_id] = len(actions)
-
-        # Persist the branched session
-        conn = _get_db()
-        conn.execute(
-            """INSERT INTO sessions (id, game_id, mode, created_at, result, steps, levels,
-                                     parent_session_id, branch_at_step)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (new_session_id, sess["game_id"], get_mode(), time.time(),
-             "NOT_FINISHED", len(actions), state.get("levels_completed", 0),
-             parent_id, step_num),
-        )
-        conn.commit()
-        conn.close()
-
-        state["session_id"] = new_session_id
-        state["parent_session_id"] = parent_id
-        state["branch_at_step"] = step_num
-        state["change_map"] = {"changes": [], "change_count": 0, "change_map_text": "(branch)"}
-
-        # Include step history with per-step game stats for reasoning trace
-        step_list = [_format_action_row(dict(r)) for r in action_rows]
-        for i, s in enumerate(step_list):
-            if i < len(per_step_states):
-                s["result_state"] = per_step_states[i]["state"]
-                s["levels_completed"] = per_step_states[i]["levels_completed"]
-        state["steps"] = step_list
-        return jsonify(state)
-    except Exception as e:
-        app.logger.warning(f"Session branch failed: {e}")
-        return jsonify({"error": str(e)}), 500
+    
+    # Call session_service to branch
+    state, error_msg = session_service.branch(
+        parent_id, step_num, get_mode(),
+        get_arcade_fn=get_arcade,
+        env_state_dict_fn=env_state_dict,
+        format_action_row_fn=_format_action_row,
+    )
+    
+    if error_msg:
+        status_code = 404 if "not found" in error_msg.lower() else 500
+        return jsonify({"error": error_msg}), status_code
+    
+    return jsonify(state)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2123,9 +1924,9 @@ def list_public_sessions():
 import importlib.util as _importlib_util
 import numpy as _np
 
-_FD_PATH = Path(__file__).parent / "environment_files" / "fd" / "00000001" / "fd.py"
-_CUSTOM_SCENES_FILE = Path(__file__).parent / "environment_files" / "fd" / "00000001" / "custom_scenes.json"
-_CUSTOM_DIFFS_FILE  = Path(__file__).parent / "environment_files" / "fd" / "00000001" / "custom_diffs.json"
+_FD_PATH = _ROOT / "environment_files" / "fd" / "00000001" / "fd.py"
+_CUSTOM_SCENES_FILE = _ROOT / "environment_files" / "fd" / "00000001" / "custom_scenes.json"
+_CUSTOM_DIFFS_FILE  = _ROOT / "environment_files" / "fd" / "00000001" / "custom_diffs.json"
 
 
 def _load_fd_module():

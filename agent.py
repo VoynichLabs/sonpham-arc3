@@ -37,6 +37,7 @@ ROOT = Path(__file__).parent
 from constants import COLOR_NAMES, ACTION_NAMES, ARC_AGI3_DESCRIPTION, SYSTEM_MSG
 from models import MODELS, compute_cost, DEFAULT_MODEL
 from agent_llm import LLMResult, call_model_with_metadata, call_model_with_retry
+from grid_analysis import compress_row, compute_change_map, compute_color_histogram, compute_region_map
 from agent_response_parsing import _parse_json, _fallback_parse, _force_extract_action, _fallback_action
 from agent_history import condense_history, reflect_and_update_memory
 
@@ -291,9 +292,10 @@ def build_context_block(
 
     # ── Change map ────────────────────────────────────────────────────────
     if ctx["change_map"] and prev_grid:
-        change_text = compute_change_map(prev_grid, grid)
-        if change_text:
-            parts.append(change_text.strip())
+        change_result = compute_change_map(prev_grid, grid)
+        change_text = change_result.get("change_map_text", "")
+        if change_text and change_text != "(no changes)":
+            parts.append(f"## CHANGE MAP\n{change_text}".strip())
 
     # ── Color histogram ───────────────────────────────────────────────────
     if ctx["color_histogram"]:

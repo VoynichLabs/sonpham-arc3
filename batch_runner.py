@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import logging
 import os
 import secrets
 import sys
@@ -10,6 +11,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 
@@ -62,8 +65,8 @@ def _install_rate_limiting(model_key: str):
     This rate-limits both call_model_with_metadata and call_model_with_retry since
     they both delegate to call_model internally.
     """
-    import agent
-    original = agent.call_model
+    import agent_llm
+    original = agent_llm.call_model
 
     if getattr(original, '_rate_limited', False):
         return  # already patched
@@ -82,7 +85,7 @@ def _install_rate_limiting(model_key: str):
 
     rate_limited_call._rate_limited = True
     rate_limited_call.__wrapped__ = real_fn
-    agent.call_model = rate_limited_call
+    agent_llm.call_model = rate_limited_call
 
 
 # ═══════════════════════════════════════════════════════════════════════════

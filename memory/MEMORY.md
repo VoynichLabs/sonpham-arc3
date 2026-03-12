@@ -47,3 +47,7 @@
 ## vc33
 
 ## ls20-cb3b57cc
+- The player remains confined to rows 61-62 during rightward movement, indicating this corridor may be a dead-end or requires a specific condition to proceed vertically.
+- Progress is stalled at levels=0 despite multiple consecutive movements, suggesting a need to exit the current corridor or trigger a level transition event not yet encountered.
+- The maze contains walls colored 4 and paths colored 3, with additional yellow path segments in the lower section.
+- ACTION4 moves the player right along a specific bottom corridor (rows 61-62) composed of yellow paths.

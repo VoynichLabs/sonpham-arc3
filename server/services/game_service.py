@@ -35,3 +35,25 @@ def validate_session_id(session_id: str) -> tuple[bool, str]:
     if not session_id:
         return False, "session_id required"
     return True, ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TODO: Phase 22 — Extract game route logic
+# ═══════════════════════════════════════════════════════════════════════════
+# Routes to extract:
+# - start_game() — create new session, initialize env, register in game_sessions
+# - step_game() — execute action, update grid, handle undo snapshots
+# - reset_game() — reset env to initial state
+# - undo_step() — restore from snapshot, backtrack grid state
+#
+# Depends on:
+# - game_sessions, session_grids, session_snapshots, session_step_counts (from session_manager)
+# - _compress_grid, _decompress_grid (from db)
+# - get_arcade, env_state_dict (helpers)
+# - compute_change_map, _db_insert_action, _db_update_session (utils)
+#
+# Features:
+# - Validates action_id, session_id
+# - Manages in-memory game state (env, grid)
+# - Persists actions to SQLite (if session_db enabled)
+# - Computes change maps for client diff rendering
