@@ -51,7 +51,7 @@ from models import (
 from llm_providers import (
     _route_model_call, _get_or_create_gemini_cache,
     _execute_python, _cleanup_tool_session,
-    copilot_auth_lock, _save_copilot_token, PROVIDER_MIN_DELAY,
+    PROVIDER_MIN_DELAY,
 )
 import llm_providers
 from constants import COLOR_MAP, COLOR_NAMES, ACTION_NAMES, ARC_AGI3_DESCRIPTION
@@ -908,9 +908,6 @@ def _proxy_to_official_api(endpoint: str, payload: dict, client_id: str = "defau
 # ═══════════════════════════════════════════════════════════════════════════
 # COPILOT AUTH ENDPOINTS (local only)
 # ═══════════════════════════════════════════════════════════════════════════
-
-COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98"
-
 
 @app.route("/api/copilot/auth/start", methods=["POST"])
 @bot_protection

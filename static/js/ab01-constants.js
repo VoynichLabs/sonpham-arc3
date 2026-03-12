@@ -1,8 +1,10 @@
 'use strict';
 
 // ═══════════════════════════════════════════════════════════════
-//  CONSTANTS
+//  CONSTANTS & LEVELS MODULE — ab01-constants.js
 // ═══════════════════════════════════════════════════════════════
+
+// Canvas & Physics
 const W = 900, H = 500, GROUND = 440;
 const GRAV = 0.38;
 const SLING_X = 162, SLING_Y = 338;  // bird launch point
@@ -121,3 +123,10 @@ const LEVELS = [
     pigs:[[530,212,2],[615,142,2],[725,212,2],[615,168,1],[530,168,1],[725,168,1]]
   },
 ];
+
+// ═══════════════════════════════════════════════════════════════
+//  UTILITY
+// ═══════════════════════════════════════════════════════════════
+function clamp(v,lo,hi){return v<lo?lo:v>hi?hi:v}
+function dist(ax,ay,bx,by){const dx=ax-bx,dy=ay-by;return Math.sqrt(dx*dx+dy*dy)}
+function lerp(a,b,t){return a+(b-a)*t}
