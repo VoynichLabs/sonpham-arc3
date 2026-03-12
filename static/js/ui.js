@@ -5,53 +5,22 @@
 //   delegating to grid-renderer.js), keyboard/mouse input handling, canvas click-to-act,
 //   cell info tooltips, navigation buttons, and DOM manipulation helpers. Modified in
 //   Phase 3 to extract pure grid rendering to rendering/grid-renderer.js.
-// SRP/DRY check: Pass — pure rendering in grid-renderer.js; this file owns UI interaction
+// 
+// PHASE 24 (2026-03-12): Modularized UI into focused files:
+//   - ui-models.js: Model selector, BYOK keys, model caps
+//   - ui-tokens.js: Token display, context limits, compact settings
+//   - ui-tabs.js: Tab/panel switching
+//   - ui-grid.js: Grid rendering, canvas interaction, coord tooltips
+//   This file now owns: core UI init, event listeners, game logic, actions, API calls
+//
+// SRP/DRY check: Pass — pure rendering in grid-renderer.js; focused module separation; this file owns init and interaction logic
 // ═══════════════════════════════════════════════════════════════════════════
-// COLLAPSIBLE SECTIONS
+// COLLAPSIBLE SECTIONS (tab switching extracted to ui-tabs.js)
 // ═══════════════════════════════════════════════════════════════════════════
-
-function toggleSection(id) {
-  document.getElementById(id).classList.toggle('open');
-}
-
-function toggleCompactSettings() {
-  const on = document.getElementById('compactContext')?.checked;
-  const body = document.getElementById('compactSettingsBody');
-  if (body) { body.style.opacity = on ? '1' : '0.4'; body.style.pointerEvents = on ? 'auto' : 'none'; }
-  updatePipelineOpacity();
-}
-
-function toggleInterruptSettings() {
-  const on = document.getElementById('interruptPlan')?.checked;
-  const body = document.getElementById('interruptSettingsBody');
-  if (body) { body.style.opacity = on ? '1' : '0.4'; body.style.pointerEvents = on ? 'auto' : 'none'; }
-  updatePipelineOpacity();
-}
-
-function switchTopTab(tab) {
-  // History tab removed — this is now a no-op kept for compat with resume/branch code
-  if (tab === 'agent') switchSubTab('settings');
-}
-
-function switchSubTab(tab) {
-  // Reasoning/timeline tabs removed — redirect to settings
-  if (tab === 'reasoning' || tab === 'timeline') tab = 'settings';
-  document.querySelectorAll('.subtab-bar button').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.subtab-pane').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
-  const tabMap = { settings: 'subtabSettings', prompts: 'subtabPrompts', graphics: 'subtabGraphics' };
-  const buttons = document.querySelectorAll('.subtab-bar button');
-  const idx = { settings: 0, prompts: 1, graphics: 2 }[tab] || 0;
-  if (buttons[idx]) buttons[idx].classList.add('active');
-  const pane = document.getElementById(tabMap[tab]);
-  if (pane) { pane.classList.add('active'); pane.style.display = 'flex'; }
-  if (tab === 'prompts') renderPromptsTab();
-}
-
-function toggleAdBanner() {} // legacy no-op
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GRAPHICS LISTENERS
+// GRAPHICS LISTENERS (grid rendering functions extracted to ui-grid.js)
 // ═══════════════════════════════════════════════════════════════════════════
 
 document.getElementById('changeOpacity').addEventListener('input', (e) => {
@@ -68,111 +37,9 @@ function clearTransportDesc() {
   document.getElementById('transportDesc').textContent = '';
 }
 
-function redrawGrid() {
-  if (!currentGrid) return;
-  if (currentChangeMap && currentChangeMap.change_count > 0 && document.getElementById('showChanges').checked) {
-    renderGridWithChanges(currentGrid, currentChangeMap);
-  } else {
-    renderGrid(currentGrid);
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
-// MODEL CAPABILITIES → auto-disable image toggle
+// MODEL CAPABILITIES → auto-disable image toggle (extracted to ui-models.js)
 // ═══════════════════════════════════════════════════════════════════════════
-
-function getSelectedModel() {
-  if (activeScaffoldingType === 'rlm') {
-    return document.getElementById('sf_rlm_modelSelect')?.value || '';
-  }
-  if (activeScaffoldingType === 'three_system') {
-    return document.getElementById('sf_ts_plannerModelSelect')?.value || '';
-  }
-  if (activeScaffoldingType === 'two_system') {
-    return document.getElementById('sf_2s_plannerModelSelect')?.value || '';
-  }
-  if (activeScaffoldingType === 'agent_spawn') {
-    return document.getElementById('sf_as_orchestratorModelSelect')?.value || '';
-  }
-  return document.getElementById('modelSelect')?.value || '';
-}
-
-// Provider name mapping for BYOK prompt
-const PROVIDER_LABELS = {
-  gemini: 'Google Gemini', anthropic: 'Anthropic', openai: 'OpenAI',
-  cloudflare: 'Cloudflare', groq: 'Groq', mistral: 'Mistral', huggingface: 'Huggingface',
-  local: 'Local Model', ollama: 'Ollama',
-};
-
-// ── Centralized BYOK Key Management ──
-// Scans ALL model selects, collects unique providers, renders key inputs dynamically.
-// Called on any model select change. Future-proof: no per-scaffold wiring needed.
-
-const _BYOK_FREE_PROVIDERS = new Set(['puter', 'copilot', 'ollama', 'local']);
-const _BYOK_PROVIDER_EXTRA_FIELDS = {
-  cloudflare: [{ key: 'byok_cf_account_id', label: 'Cloudflare Account ID', placeholder: 'Paste Account ID here...', hint: 'Found in Cloudflare dashboard → Workers & Pages.', type: 'password' }],
-};
-
-function updateAllByokKeys() {
-  const container = document.getElementById('byokKeysContainer');
-  if (!container) return;
-
-  // 1. Collect all model select IDs (main + compact + interrupt + all scaffold sub-selects)
-  const allSelectIds = ['modelSelect', 'compactModelSelectTop', 'interruptModelSelect',
-    'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
-    'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
-    'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect',
-    'sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect'];
-
-  // 2. Collect unique providers that need keys
-  const neededProviders = new Set();
-  for (const selId of allSelectIds) {
-    const val = document.getElementById(selId)?.value;
-    if (!val || val === 'auto' || val === 'auto-fastest' || val === 'same') continue;
-    const info = getModelInfo(val);
-    if (info && !_BYOK_FREE_PROVIDERS.has(info.provider)) {
-      neededProviders.add(info.provider);
-    }
-  }
-
-  // 3. Build HTML for each provider (preserving existing input values)
-  // Save current values before rebuilding
-  const savedValues = {};
-  container.querySelectorAll('input[data-byok-provider]').forEach(inp => {
-    savedValues[inp.dataset.byokProvider] = inp.value;
-  });
-  container.querySelectorAll('input[data-byok-extra]').forEach(inp => {
-    savedValues[inp.dataset.byokExtra] = inp.value;
-  });
-
-  if (neededProviders.size === 0) {
-    container.innerHTML = '<div style="padding:8px 0;font-size:11px;color:var(--text-dim);font-style:italic;">Required keys will appear when models are selected.</div>';
-    return;
-  }
-
-  let html = '';
-  for (const provider of neededProviders) {
-    const label = PROVIDER_LABELS[provider] || provider;
-    const saved = savedValues[provider] || localStorage.getItem(`byok_key_${provider}`) || '';
-    html += `<div style="margin-bottom:8px;">`;
-    html += `<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">${label} API Key</div>`;
-    html += `<input type="password" class="text-input" data-byok-provider="${provider}" value="${saved.replace(/"/g, '&quot;')}" placeholder="Paste API key for ${label} here..." style="margin-bottom:4px;">`;
-    // Extra fields (e.g. Cloudflare Account ID)
-    const extras = _BYOK_PROVIDER_EXTRA_FIELDS[provider] || [];
-    for (const extra of extras) {
-      const extraSaved = savedValues[extra.key] || localStorage.getItem(extra.key) || '';
-      html += `<div style="font-size:10px;color:var(--dim);margin-bottom:3px;margin-top:4px;text-transform:uppercase;letter-spacing:0.5px;">${extra.label}</div>`;
-      html += `<input type="${extra.type || 'text'}" class="text-input" data-byok-extra="${extra.key}" value="${extraSaved.replace(/"/g, '&quot;')}" placeholder="${extra.placeholder}" style="margin-bottom:2px;">`;
-      if (extra.hint) html += `<div style="font-size:9px;color:var(--dim);font-style:italic;">${extra.hint}</div>`;
-    }
-    html += `<div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only — never sent to our server.</div></div>`;
-  }
-  container.innerHTML = html;
-
-  // Auto-open Model Keys section
-  const sec = document.getElementById('secKeys');
-  if (sec && !sec.classList.contains('open')) sec.classList.add('open');
-}
 
 // Auto-save BYOK keys on input (single delegated listener)
 document.addEventListener('input', (e) => {
@@ -186,85 +53,7 @@ document.addEventListener('input', (e) => {
   }
 });
 
-
-function getModelInfo(key) {
-  return modelsData.find(m => m.name === key);
-}
-
-function updateModelCaps() {
-  const key = getSelectedModel();
-  const info = getModelInfo(key);
-  const caps = info?.capabilities || {};
-  const el = document.getElementById('modelCaps');
-
-  if (el) {
-    const badges = [];
-    if (caps.image) badges.push('<span class="opt-badge badge-img">IMAGE</span>');
-    else badges.push('<span class="opt-badge badge-off">no image</span>');
-    if (caps.reasoning) badges.push('<span class="opt-badge badge-reason">REASONING</span>');
-    if (caps.tools) badges.push('<span class="opt-badge badge-tools">TOOLS</span>');
-    el.innerHTML = badges.join(' ');
-  }
-
-  // Disable image toggle if model doesn't support it
-  const imgToggle = document.getElementById('inputImage');
-  const imgRow = document.getElementById('imageRow');
-  if (imgToggle && imgRow) {
-    if (!caps.image) {
-      imgToggle.checked = false;
-      imgToggle.disabled = true;
-      imgRow.classList.add('disabled');
-    } else {
-      imgToggle.disabled = false;
-      imgRow.classList.remove('disabled');
-    }
-  }
-}
-
-// Moved to attachSettingsListeners() — called after renderScaffoldingSettings()
-
-function updateModelEta() { /* removed — countdown/ETA disabled */ }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// RENDERING
-// ═══════════════════════════════════════════════════════════════════════════
-
-function renderGrid(grid) {
-  if (!grid || !grid.length) return;
-  currentGrid = grid;  // ui.js-specific side effect
-  renderGridOnCanvas(grid, canvas, ctx, COLORS);
-}
-
-function renderGridWithChanges(grid, changeMap) {
-  renderGridOnCanvas(grid, canvas, ctx, COLORS);
-  const enabled = document.getElementById('showChanges') ? document.getElementById('showChanges').checked : true;
-  const opacityEl = document.getElementById('changeOpacity');
-  const colorEl = document.getElementById('changeColor');
-  const opacity = opacityEl ? parseInt(opacityEl.value) / 100 : 0.4;
-  const color = colorEl ? colorEl.value : '#ff0000';
-  renderGridWithChangesOnCanvas(grid, changeMap, canvas, ctx, COLORS, { opacity, color, stroke: true, enabled });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// COORDINATE TOOLTIP & HIGHLIGHT
-// ═══════════════════════════════════════════════════════════════════════════
-
-let _canvasHoverCell = null;  // {row, col} of cell under cursor
-
-function drawCanvasHover(row, col) {
-  if (!currentGrid) return;
-  const h = currentGrid.length, w = currentGrid[0].length;
-  if (row < 0 || row >= h || col < 0 || col >= w) return;
-  const scale = Math.floor(512 / Math.max(h, w));
-  ctx.save();
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
-  ctx.fillRect(col * scale, row * scale, scale, scale);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(col * scale + 0.5, row * scale + 0.5, scale - 1, scale - 1);
-  ctx.restore();
-}
-
+// Canvas listeners and coord-ref hover (grid rendering extracted to ui-grid.js)
 canvas.addEventListener('mousemove', (e) => {
   const tip = document.getElementById('coordTooltip');
   if (!currentGrid) { tip.style.display = 'none'; _canvasHoverCell = null; return; }
@@ -304,121 +93,6 @@ canvas.addEventListener('mouseleave', () => {
     if (_highlightCells.length) drawCellHighlights(_highlightCells);
   }
 });
-
-let _highlightCells = [];
-
-function drawCellHighlights(cells) {
-  if (!cells.length || !currentGrid) return;
-  const h = currentGrid.length, w = currentGrid[0].length;
-  const scale = Math.floor(512 / Math.max(h, w));
-  ctx.save();
-  for (const {row, col} of cells) {
-    if (row < 0 || row >= h || col < 0 || col >= w) continue;
-    ctx.fillStyle = 'rgba(255, 255, 100, 0.4)';
-    ctx.fillRect(col * scale, row * scale, scale, scale);
-    ctx.strokeStyle = 'rgba(255, 255, 100, 0.8)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(col * scale + 1, row * scale + 1, scale - 2, scale - 2);
-  }
-  ctx.restore();
-}
-
-function highlightCellsOnCanvas(cells) {
-  _highlightCells = cells;
-  if (currentGrid) {
-    renderGrid(currentGrid);
-    drawCellHighlights(cells);
-  }
-}
-
-function clearCellHighlights() {
-  _highlightCells = [];
-  if (currentGrid) renderGrid(currentGrid);
-}
-
-function annotateCoordRefs(element) {
-  // Combined regex — order matters (longest first):
-  // 1. Region: "rows N-M, cols N-M" (combined into one highlight)
-  // 2. Point: (row, col)
-  // 3. rows? N[-N]
-  // 4. cols? N[-N]
-  const COORD_RE = /(?:rows?)\s+(\d+)(?:\s*[-–]\s*(\d+))?\s*,\s*(?:cols?)\s+(\d+)(?:\s*[-–]\s*(\d+))?|\((\d+),\s*(\d+)\)|(?:rows?)\s+(\d+)(?:\s*[-–]\s*(\d+))?|(?:cols?)\s+(\d+)(?:\s*[-–]\s*(\d+))?/gi;
-
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-  const textNodes = [];
-  while (walker.nextNode()) textNodes.push(walker.currentNode);
-
-  for (const node of textNodes) {
-    const text = node.textContent;
-    COORD_RE.lastIndex = 0;
-    if (!COORD_RE.test(text)) continue;
-    COORD_RE.lastIndex = 0;
-
-    const frag = document.createDocumentFragment();
-    let lastIdx = 0;
-    let match;
-    while ((match = COORD_RE.exec(text)) !== null) {
-      if (match.index > lastIdx) {
-        frag.appendChild(document.createTextNode(text.slice(lastIdx, match.index)));
-      }
-      const span = document.createElement('span');
-      span.className = 'coord-ref';
-      if (match[1] !== undefined) {
-        // Region: rows N-M, cols N-M
-        span.dataset.rows = match[2] !== undefined ? `${match[1]}-${match[2]}` : match[1];
-        span.dataset.cols = match[4] !== undefined ? `${match[3]}-${match[4]}` : match[3];
-      } else if (match[5] !== undefined) {
-        // (row, col) point
-        span.dataset.row = match[5];
-        span.dataset.col = match[6];
-      } else if (match[7] !== undefined) {
-        // rows N or rows N-M
-        span.dataset.rows = match[8] !== undefined ? `${match[7]}-${match[8]}` : match[7];
-      } else if (match[9] !== undefined) {
-        // cols N or cols N-M
-        span.dataset.cols = match[10] !== undefined ? `${match[9]}-${match[10]}` : match[9];
-      }
-      span.textContent = match[0];
-      frag.appendChild(span);
-      lastIdx = COORD_RE.lastIndex;
-    }
-    if (lastIdx < text.length) {
-      frag.appendChild(document.createTextNode(text.slice(lastIdx)));
-    }
-    if (lastIdx > 0) node.parentNode.replaceChild(frag, node);
-  }
-}
-
-function cellsFromCoordRef(ref) {
-  const cells = [];
-  if (!currentGrid) return cells;
-  const h = currentGrid.length, w = currentGrid[0].length;
-  if (ref.dataset.row !== undefined && ref.dataset.col !== undefined) {
-    // Single point
-    cells.push({row: parseInt(ref.dataset.row), col: parseInt(ref.dataset.col)});
-  } else if (ref.dataset.rows !== undefined && ref.dataset.cols !== undefined) {
-    // Region: rows + cols combined
-    const rp = ref.dataset.rows.split('-').map(Number);
-    const cp = ref.dataset.cols.split('-').map(Number);
-    const r0 = rp[0], r1 = rp.length > 1 ? rp[1] : r0;
-    const c0 = cp[0], c1 = cp.length > 1 ? cp[1] : c0;
-    for (let r = r0; r <= r1; r++)
-      for (let c = c0; c <= c1; c++) cells.push({row: r, col: c});
-  } else if (ref.dataset.rows !== undefined) {
-    // Rows only — highlight full rows
-    const parts = ref.dataset.rows.split('-').map(Number);
-    const r0 = parts[0], r1 = parts.length > 1 ? parts[1] : r0;
-    for (let r = r0; r <= r1; r++)
-      for (let c = 0; c < w; c++) cells.push({row: r, col: c});
-  } else if (ref.dataset.cols !== undefined) {
-    // Cols only — highlight full columns
-    const parts = ref.dataset.cols.split('-').map(Number);
-    const c0 = parts[0], c1 = parts.length > 1 ? parts[1] : c0;
-    for (let r = 0; r < h; r++)
-      for (let c = c0; c <= c1; c++) cells.push({row: r, col: c});
-  }
-  return cells;
-}
 
 // Event delegation for coord-ref hover on reasoning content
 document.addEventListener('mouseover', (e) => {
@@ -815,83 +489,8 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// REASONING MODE HELPERS
+// REASONING MODE HELPERS (token/compact helpers extracted to ui-tokens.js)
 // ═══════════════════════════════════════════════════════════════════════════
-
-function getCompactSettings() {
-  const enabledEl = document.getElementById('compactContext');
-  if (!enabledEl) return { enabled: false, after: null, contextLimitUnit: 'tokens', contextLimitVal: 64000, compactOnLevel: false };
-  const enabled = enabledEl.checked;
-  const afterVal = document.getElementById('compactAfter')?.value;
-  const after = afterVal ? parseInt(afterVal) : null;  // null = disabled
-  const unit = document.getElementById('contextLimitUnit')?.value || 'tokens';
-  const rawVal = parseInt(document.getElementById('compactContextPct')?.value) || 64000;
-  const compactOnLevel = document.getElementById('compactOnLevel')?.checked ?? true;
-  return { enabled, after, contextLimitUnit: unit, contextLimitVal: rawVal, compactOnLevel };
-}
-
-function onContextLimitUnitChange() {
-  const unit = document.getElementById('contextLimitUnit').value;
-  const input = document.getElementById('compactContextPct');
-  if (unit === 'pct') {
-    input.value = 60;
-  } else {
-    input.value = 32000;
-  }
-}
-
-// Spin context limit: dir=1 up, dir=-1 down
-function spinContextLimit(dir) {
-  const unit = document.getElementById('contextLimitUnit').value;
-  const input = document.getElementById('compactContextPct');
-  const val = parseInt(input.value) || 0;
-  if (unit === 'tokens') {
-    input.value = dir > 0 ? Math.min(val * 2, 2000000) : Math.max(Math.floor(val / 2), 1000);
-  } else {
-    input.value = dir > 0 ? Math.min(val + 5, 99) : Math.max(val - 5, 1);
-  }
-}
-
-// ArrowUp/Down listener moved to attachSettingsListeners()
-
-function getContextTokenLimit(compact, contextWindow) {
-  if (compact.contextLimitUnit === 'tokens') return compact.contextLimitVal;
-  return Math.floor(contextWindow * compact.contextLimitVal / 100);
-}
-
-function getSelectedModelContextWindow() {
-  const model = getSelectedModel();
-  const info = modelsData.find(m => m.name === model);
-  return (info && info.context_window) || 128000;
-}
-
-function estimateTokens(text) {
-  // Rough estimate: ~4 chars per token for English/code
-  return Math.ceil((text || '').length / 4);
-}
-
-function trimHistoryForTokens(history, maxTokens) {
-  // If history fits within budget, return as-is.
-  // Otherwise drop grid snapshots from older steps, keeping last 5 with grids.
-  const KEEP_GRIDS = 5;
-  if (!history || history.length <= KEEP_GRIDS) return history;
-
-  // Estimate token cost of full history with grids
-  let totalChars = 0;
-  for (const h of history) {
-    totalChars += 60; // step line overhead
-    if (h.grid) totalChars += h.grid.length * 30; // rough RLE per row
-  }
-  const est = Math.ceil(totalChars / 4);
-  if (est <= maxTokens) return history; // fits, keep all
-
-  // Strip grids from older entries, keep last KEEP_GRIDS with grids
-  return history.map((h, i) => {
-    if (i >= history.length - KEEP_GRIDS) return h;
-    const { grid, ...rest } = h;
-    return rest;
-  });
-}
 
 function collectObservation(resp, ss) {
   if (!resp || !resp.parsed) return;
