@@ -16,7 +16,7 @@
 // getCanvasScreenshotB64(), getInputSettings(), getScaffoldingSettings()
 // These are loaded from llm-config.js before this file
 
-// estimateTokens, TOKEN_PRICES — defined in utils/tokens.js (loaded before llm.js)
+// estimateTokens, _getModelPricing — defined in utils/tokens.js (loaded before llm.js)
 
 let sessionTotalTokens = { input: 0, output: 0, cost: 0 };
 

@@ -55,10 +55,7 @@ function getSelectedModelContextWindow() {
   return (info && info.context_window) || 128000;
 }
 
-function estimateTokens(text) {
-  // Rough estimate: ~4 chars per token for English/code
-  return Math.ceil((text || '').length / 4);
-}
+// estimateTokens() defined in utils/tokens.js (loaded first)
 
 function trimHistoryForTokens(history, maxTokens) {
   // If history fits within budget, return as-is.
