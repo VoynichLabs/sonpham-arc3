@@ -1,5 +1,5 @@
 """
-gh01 – Ghost Heist  (ARC-AGI-3 game)
+gh14 – Ghost Heist  (ARC-AGI-3 game)
 
 Controls
 --------
@@ -402,8 +402,8 @@ levels = [
 
 # ── Display ───────────────────────────────────────────────────────────────────
 
-class Gh01Display(RenderableUserDisplay):
-    def __init__(self, game: "Gh01"):
+class Gh14Display(RenderableUserDisplay):
+    def __init__(self, game: "Gh14"):
         self.game = game
 
     def render_interface(self, frame: np.ndarray) -> np.ndarray:
@@ -471,9 +471,9 @@ class Gh01Display(RenderableUserDisplay):
 
 # ── Game ──────────────────────────────────────────────────────────────────────
 
-class Gh01(ARCBaseGame):
+class Gh14(ARCBaseGame):
     def __init__(self):
-        self.display = Gh01Display(self)
+        self.display = Gh14Display(self)
 
         # Mutable state – reset by on_set_level
         self.thief_x     = 1
