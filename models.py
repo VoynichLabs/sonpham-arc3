@@ -18,6 +18,56 @@ THINKING_BUDGETS = {
 # ═══════════════════════════════════════════════════════════════════════════
 
 MODEL_REGISTRY: dict[str, dict] = {
+    # ── LM Studio (local, OpenAI-compatible on port 1234) ───────────────────
+    "lmstudio/qwen3.5-35b": {
+        "provider": "lmstudio", "api_model": "qwen/qwen3.5-35b-a3b",
+        "env_key": "",
+        "price": "Free (local)",
+        "context_window": 32768,
+        "capabilities": {"image": False, "reasoning": False, "tools": False},
+        "pricing": [0.0, 0.0, 0.0],
+    },
+    "lmstudio/qwen3.5-9b": {
+        "provider": "lmstudio", "api_model": "qwen/qwen3.5-9b",
+        "env_key": "",
+        "price": "Free (local)",
+        "context_window": 32768,
+        "capabilities": {"image": False, "reasoning": False, "tools": False},
+        "pricing": [0.0, 0.0, 0.0],
+    },
+    # ── Anthropic (API key or Claude Code OAuth token) ────────────────────
+    "claude-opus-4-6": {
+        "provider": "anthropic", "api_model": "claude-opus-4-6",
+        "env_key": "ANTHROPIC_API_KEY",
+        "price": "$15/$75 per 1M tok",
+        "context_window": 200000,
+        "capabilities": {"image": True, "reasoning": True, "tools": True},
+        "pricing": [15.0, 75.0, 75.0],
+    },
+    "claude-sonnet-4-6": {
+        "provider": "anthropic", "api_model": "claude-sonnet-4-6",
+        "env_key": "ANTHROPIC_API_KEY",
+        "price": "$3/$15 per 1M tok",
+        "context_window": 200000,
+        "capabilities": {"image": True, "reasoning": True, "tools": True},
+        "pricing": [3.0, 15.0, 15.0],
+    },
+    "claude-sonnet-4-5": {
+        "provider": "anthropic", "api_model": "claude-sonnet-4-5-20241022",
+        "env_key": "ANTHROPIC_API_KEY",
+        "price": "$3/$15 per 1M tok",
+        "context_window": 200000,
+        "capabilities": {"image": True, "reasoning": True, "tools": True},
+        "pricing": [3.0, 15.0, 15.0],
+    },
+    "claude-haiku-4-5": {
+        "provider": "anthropic", "api_model": "claude-haiku-4-5-20251001",
+        "env_key": "ANTHROPIC_API_KEY",
+        "price": "$0.80/$4 per 1M tok",
+        "context_window": 200000,
+        "capabilities": {"image": True, "reasoning": False, "tools": True},
+        "pricing": [0.80, 4.0, 4.0],
+    },
     # ── Gemini ────────────────────────────────────────────────────────────
     "gemini-3.1-pro": {
         "provider": "gemini", "api_model": "gemini-3.1-pro-preview",
@@ -90,31 +140,6 @@ MODEL_REGISTRY: dict[str, dict] = {
         "context_window": 1000000,
         "capabilities": {"image": True, "reasoning": False, "tools": False},
         "pricing": [0.0, 0.0, 0.0],
-    },
-    # ── Anthropic ─────────────────────────────────────────────────────────
-    "claude-sonnet-4-6": {
-        "provider": "anthropic", "api_model": "claude-sonnet-4-6",
-        "env_key": "ANTHROPIC_API_KEY",
-        "price": "$3/$15 per 1M tok",
-        "context_window": 200000,
-        "capabilities": {"image": True, "reasoning": True, "tools": True},
-        "pricing": [3.0, 15.0, 15.0],
-    },
-    "claude-sonnet-4-5": {
-        "provider": "anthropic", "api_model": "claude-sonnet-4-5-20241022",
-        "env_key": "ANTHROPIC_API_KEY",
-        "price": "$3/$15 per 1M tok",
-        "context_window": 200000,
-        "capabilities": {"image": True, "reasoning": True, "tools": True},
-        "pricing": [3.0, 15.0, 15.0],
-    },
-    "claude-haiku-4-5": {
-        "provider": "anthropic", "api_model": "claude-haiku-4-5-20251001",
-        "env_key": "ANTHROPIC_API_KEY",
-        "price": "$0.80/$4 per 1M tok",
-        "context_window": 200000,
-        "capabilities": {"image": True, "reasoning": False, "tools": True},
-        "pricing": [0.80, 4.0, 4.0],
     },
     # ── Groq ──────────────────────────────────────────────────
     "groq/llama-3.3-70b-versatile": {
@@ -346,23 +371,6 @@ MODEL_REGISTRY: dict[str, dict] = {
         "env_key": "",
         "price": "Free",
         "context_window": 128000,
-        "capabilities": {"image": False, "reasoning": False, "tools": False},
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    # ── LM Studio (local, OpenAI-compatible on port 1234) ───────────────────
-    "lmstudio/qwen3.5-35b": {
-        "provider": "lmstudio", "api_model": "qwen/qwen3.5-35b-a3b",
-        "env_key": "",
-        "price": "Free (local)",
-        "context_window": 32768,
-        "capabilities": {"image": False, "reasoning": False, "tools": False},
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    "lmstudio/qwen3.5-9b": {
-        "provider": "lmstudio", "api_model": "qwen/qwen3.5-9b",
-        "env_key": "",
-        "price": "Free (local)",
-        "context_window": 32768,
         "capabilities": {"image": False, "reasoning": False, "tools": False},
         "pricing": [0.0, 0.0, 0.0],
     },

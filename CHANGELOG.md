@@ -5,15 +5,20 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
-## [1.2.7] — feat: support Claude Code OAuth tokens + fix BYOK key persistence
+## [1.2.7] — feat: Claude Code OAuth tokens, Opus 4.6, model list reorder, BYOK fix
 *Author: Claude Opus 4.6 | 2026-03-12*
 
 ### Added
 - **Claude Code OAuth token support** — The app now accepts `sk-ant-oat*` OAuth tokens (from `claude setup-token`) in addition to standard `sk-ant-api*` API keys. OAuth tokens are sent as `Authorization: Bearer` instead of `x-api-key`, matching the Anthropic OAuth spec.
-  - **`server/services/auth_service.py`** — Relaxed prefix validation from `sk-ant-` to accept both `sk-ant-api*` and `sk-ant-oat*`.
+  - **`server/services/auth_service.py`** — Relaxed prefix validation to accept both `sk-ant-api*` and `sk-ant-oat*`.
   - **`llm_providers_anthropic.py`** — Added `_is_oauth_token()` helper and `_anthropic_auth_headers()` to route Bearer vs x-api-key based on token type.
   - **`static/js/scaffolding.js`** — Client-side Anthropic calls detect `sk-ant-oat` prefix and switch to Bearer auth headers.
   - **`agent_llm.py`** — CLI/batch runner path updated with the same OAuth token detection.
+- **Claude Opus 4.6** added to model registry (`claude-opus-4-6`, $15/$75 per 1M tok, 200k context, image+reasoning+tools).
+- **BYOK UI hint for Anthropic** — When an Anthropic model is selected, the key input shows a hint: run `claude setup-token` to get a free OAuth token from your Claude Pro/Max subscription.
+
+### Changed
+- **Model list reordered** — LM Studio (local) and Anthropic models now appear first in the dropdown. Previously Gemini was first.
 
 ### Fixed
 - **BYOK key persistence** — API keys entered in the Model Keys UI were lost on page refresh because the dynamically-rendered `<input>` elements had no event listeners to save to `localStorage`. Added `input` listeners in `static/js/ui-models.js` for both `data-byok-provider` and `data-byok-extra` fields.

@@ -83,7 +83,13 @@ function updateAllByokKeys() {
     const saved = savedValues[provider] || localStorage.getItem(`byok_key_${provider}`) || '';
     html += `<div style="margin-bottom:8px;">`;
     html += `<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">${label} API Key</div>`;
-    html += `<input type="password" class="text-input" data-byok-provider="${provider}" value="${saved.replace(/"/g, '&quot;')}" placeholder="Paste API key for ${label} here..." style="margin-bottom:4px;">`;
+    const placeholder = provider === 'anthropic'
+      ? 'Paste API key (sk-ant-api...) or Claude Code token (sk-ant-oat...)...'
+      : `Paste API key for ${label} here...`;
+    html += `<input type="password" class="text-input" data-byok-provider="${provider}" value="${saved.replace(/"/g, '&quot;')}" placeholder="${placeholder}" style="margin-bottom:4px;">`;
+    if (provider === 'anthropic') {
+      html += `<div style="font-size:9px;color:var(--text-dim);margin-bottom:4px;">No API key? Run <code style="background:var(--bg-secondary);padding:1px 4px;border-radius:3px;">claude setup-token</code> in your terminal to generate a free OAuth token from your Claude Pro/Max subscription.</div>`;
+    }
     // Extra fields (e.g. Cloudflare Account ID)
     const extras = _BYOK_PROVIDER_EXTRA_FIELDS[provider] || [];
     for (const extra of extras) {
