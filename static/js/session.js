@@ -70,7 +70,6 @@ function createNewSession() {
   // Reset UI on the fresh DOM
   canvas.style.display = 'none';
   document.getElementById('emptyState').style.display = '';
-  document.getElementById('controls').style.display = 'none';
   document.getElementById('transportBar').style.display = 'none';
   document.getElementById('gameTitle').textContent = 'No game selected';
   const statusEl = document.getElementById('gameStatus');
@@ -560,5 +559,11 @@ async function claimLocalSessions() {
   }
 }
 
-// If no Turnstile gate (not configured), init immediately
-if (turnstileVerified) initApp();
+// If no Turnstile gate (not configured), init after all scripts are loaded
+if (turnstileVerified) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => initApp());
+  } else {
+    initApp();
+  }
+}

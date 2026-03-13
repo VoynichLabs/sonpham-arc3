@@ -85,6 +85,36 @@ const LMSTUDIO_CAPABILITIES = {
   'qwen/qwen3.5-9b':        { reasoning: true,  image: false },
 };
 
+/** LM Studio discovery — runs in background, doesn't block init */
+async function _discoverLmStudioAsync() {
+  try {
+    const lmsBaseUrl = (localStorage.getItem('byok_lmstudio_base_url') || 'http://localhost:1234').replace(/\/$/, '');
+    const lmsResp = await fetch(`${lmsBaseUrl}/v1/models`, { signal: AbortSignal.timeout(3000) });
+    if (!lmsResp.ok) return;
+    const lmsData = await lmsResp.json();
+    const existingLms = new Set(modelsData.filter(m => m.provider === 'lmstudio').map(m => m.api_model));
+    let added = 0;
+    for (const m of (lmsData.data || [])) {
+      const mid = m.id || '';
+      if (!mid || mid.toLowerCase().includes('embedding') || existingLms.has(mid)) continue;
+      const caps = LMSTUDIO_CAPABILITIES[mid] || { reasoning: false, image: false };
+      modelsData.push({
+        name: mid, api_model: mid, provider: 'lmstudio',
+        price: 'Free (local)', context_window: 8192,
+        capabilities: { ...caps, tools: false }, available: true,
+      });
+      added++;
+    }
+    if (added > 0) {
+      localStorage.setItem('byok_key_lmstudio', 'local-no-key-needed');
+      // Re-populate model selects with newly discovered models
+      _populateAllModelSelects();
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') console.warn('[LM Studio discovery] client-side fetch failed:', e.message);
+  }
+}
+
 async function loadModels() {
   const data = await fetchJSON('/api/llm/models');
   modelsData = data.models || [];
@@ -97,50 +127,15 @@ async function loadModels() {
   }
 
   // ── LM Studio client-side discovery (production path) ──
-  // In production (Railway), the server can't reach user's localhost:1234, so the browser
-  // fetches it directly. In staging, the server already discovered LM Studio models above
-  // via /api/llm/models — the dedup set below prevents doubles.
-  // IMPORTANT: LM Studio does NOT always send CORS headers. If CORS is disabled, this
-  // fetch fails silently and models come from server-side discovery only (staging mode).
-  // In production, user MUST enable CORS in LM Studio settings for discovery to work.
-  // See docs/lmstudio-integration.md "CORS pitfall" for details.
-  try {
-    const lmsBaseUrl = (localStorage.getItem('byok_lmstudio_base_url') || 'http://localhost:1234').replace(/\/$/, '');
-    const lmsResp = await fetch(`${lmsBaseUrl}/v1/models`, { signal: AbortSignal.timeout(15000) });
-    if (lmsResp.ok) {
-      const lmsData = await lmsResp.json();
-      // Dedup: skip models the server already returned (staging mode server-side discovery)
-      const existingLms = new Set(modelsData.filter(m => m.provider === 'lmstudio').map(m => m.api_model));
-      for (const m of (lmsData.data || [])) {
-        const mid = m.id || '';
-        // Skip empty IDs, embedding models, and duplicates from server discovery
-        if (!mid || mid.toLowerCase().includes('embedding') || existingLms.has(mid)) continue;
-        // Look up known capabilities; unknown models default to text-only
-        const caps = LMSTUDIO_CAPABILITIES[mid] || { reasoning: false, image: false };
-        modelsData.push({
-          name: mid, api_model: mid, provider: 'lmstudio',
-          price: 'Free (local)',
-          // Context window set to 8192 — LM Studio default is 3900 which silently truncates.
-          // See docs/lmstudio-integration.md pitfall #3 for details.
-          context_window: 8192,
-          capabilities: { ...caps, tools: false },
-          available: true,
-        });
-      }
-      // Client-side discovery found models — set dummy key for the key gate
-      if (modelsData.some(m => m.provider === 'lmstudio')) {
-        localStorage.setItem('byok_key_lmstudio', 'local-no-key-needed');
-      }
-    }
-  } catch (e) {
-    // LM Studio not running, unreachable, or CORS blocked — silently skip.
-    // In production (HTTPS → HTTP localhost), CORS must be enabled in LM Studio settings.
-    if (e.name !== 'AbortError') console.warn('[LM Studio discovery] client-side fetch failed:', e.message);
-  }
+  // Runs in background to avoid blocking app init (fetch can take up to 15s if LM Studio
+  // is not running). Results are merged into model selects asynchronously.
+  _discoverLmStudioAsync();
 
-  // Puter.js models are now fetched from the backend API (/api/llm/models)
-  // as part of the centralized MODEL_REGISTRY (models.py). No need to hardcode them here.
+  _populateAllModelSelects();
+}
 
+/** Populate all model <select> elements from modelsData. Called by loadModels() and async LM Studio discovery. */
+function _populateAllModelSelects() {
   // Group models by provider (shared by all selectors)
   const groups = {};
   for (const m of modelsData) {
@@ -299,6 +294,30 @@ async function loadModels() {
         sf_2s_monitorModelSelect: ts2S.monitor_model,
       };
       for (const [id, val] of Object.entries(ts2Map)) {
+        const el = document.getElementById(id);
+        if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
+      }
+    }
+  } catch {}
+
+  // Populate World Model harness model selects if they exist
+  for (const wmSelId of ['sf_wm_agentModelSelect', 'sf_wm_wmModelSelect']) {
+    const wmSel = document.getElementById(wmSelId);
+    if (!wmSel) continue;
+    const wmSaved = wmSel.value;
+    wmSel.innerHTML = '<option value="">Select a model...</option>';
+    _populateSubModelSelect(wmSel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, wmSaved);
+  }
+  // Restore World Model model selections from saved settings
+  try {
+    const wmRaw = localStorage.getItem('arc_scaffolding_world_model');
+    if (wmRaw) {
+      const wmS = JSON.parse(wmRaw);
+      const wmMap = {
+        sf_wm_agentModelSelect: wmS.model,
+        sf_wm_wmModelSelect: wmS.wm_model,
+      };
+      for (const [id, val] of Object.entries(wmMap)) {
         const el = document.getElementById(id);
         if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
       }

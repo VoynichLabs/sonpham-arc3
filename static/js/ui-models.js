@@ -50,7 +50,8 @@ function updateAllByokKeys() {
     'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
     'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
     'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect',
-    'sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect'];
+    'sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect',
+    'sf_wm_agentModelSelect', 'sf_wm_wmModelSelect'];
 
   // 2. Collect unique providers that need keys
   const neededProviders = new Set();
@@ -96,6 +97,18 @@ function updateAllByokKeys() {
     html += `<div style="font-size:9px;color:var(--dim);font-style:italic;">Key stored locally only — never sent to our server.</div></div>`;
   }
   container.innerHTML = html;
+
+  // Attach save-to-localStorage listeners on the new inputs
+  container.querySelectorAll('input[data-byok-provider]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      localStorage.setItem(`byok_key_${inp.dataset.byokProvider}`, inp.value.trim());
+    });
+  });
+  container.querySelectorAll('input[data-byok-extra]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      localStorage.setItem(inp.dataset.byokExtra, inp.value.trim());
+    });
+  });
 
   // Auto-open Model Keys section
   const sec = document.getElementById('secKeys');
