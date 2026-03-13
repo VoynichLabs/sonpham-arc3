@@ -377,6 +377,7 @@ async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'of
 }
 
 async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel = 'off', onChunk = null } = {}) {
+  callLLM._lastTruncated = false;
   const modelInfo = getModelInfo(model);
   const provider = modelInfo?.provider;
   const apiModel = modelInfo?.api_model || model;
@@ -453,8 +454,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
       const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('') || '';
       const gUsage = data.usageMetadata;
       callLLM._lastUsage = gUsage ? { input_tokens: gUsage.promptTokenCount || 0, output_tokens: gUsage.candidatesTokenCount || 0 } : null;
-      if (fr === 'MAX_TOKENS') return { text, truncated: true };
-      if (fr === 'MALFORMED_FUNCTION_CALL') return { text, malformed: true, finishMessage: data.candidates?.[0]?.finishMessage || '' };
+      if (fr === 'MAX_TOKENS') callLLM._lastTruncated = true;
       return text;
     }
   }
@@ -556,7 +556,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
     const msg = data.choices?.[0]?.message || {};
     // GLM-series models return thinking tokens in reasoning_content; content may be null
     const text = msg.content || msg.reasoning_content || '';
-    if (data.choices?.[0]?.finish_reason === 'length') return { text, truncated: true };
+    if (data.choices?.[0]?.finish_reason === 'length') callLLM._lastTruncated = true;
     return text;
   }
 
@@ -582,6 +582,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
   throw new Error(`Unsupported provider: ${provider || 'unknown'}. Configure an API key or use Puter.js.`);
 }
 callLLM._lastUsage = null;
+callLLM._lastTruncated = false;
 
 // ── [Section extracted to scaffolding-rlm.js continued] ────────────────
 
