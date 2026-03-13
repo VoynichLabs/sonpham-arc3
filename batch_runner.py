@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import logging
 import os
 import secrets
 import sys
@@ -11,6 +12,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
+log = logging.getLogger(__name__)
+
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -18,9 +21,10 @@ load_dotenv(Path(__file__).parent / ".env")
 import arc_agi
 
 from agent import (
-    MODELS, DEFAULT_MODEL, call_model_with_retry,
+    call_model_with_retry,
     load_config, effective_model, play_game,
 )
+from models import MODELS, DEFAULT_MODEL
 from db import (
     _get_db, _db_insert_session, _db_insert_action, _db_update_session,
     _compress_grid,
@@ -61,8 +65,8 @@ def _install_rate_limiting(model_key: str):
     This rate-limits both call_model_with_metadata and call_model_with_retry since
     they both delegate to call_model internally.
     """
-    import agent
-    original = agent.call_model
+    import agent_llm
+    original = agent_llm.call_model
 
     if getattr(original, '_rate_limited', False):
         return  # already patched
@@ -81,7 +85,7 @@ def _install_rate_limiting(model_key: str):
 
     rate_limited_call._rate_limited = True
     rate_limited_call.__wrapped__ = real_fn
-    agent.call_model = rate_limited_call
+    agent_llm.call_model = rate_limited_call
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -219,6 +223,7 @@ def run_single_game(arcade, game_id: str, cfg: dict, max_steps: int,
     except Exception as e:
         import traceback
         traceback.print_exc()
+        log.exception("Error in run_single_game (game_id=%s, session_id=%s): %s", game_id, session_id, str(e), extra={"operation": "run_single_game", "game_id": game_id, "session_id": session_id, "error_type": type(e).__name__})
         error_msg = str(e)
         result = "ERROR"
 
@@ -393,6 +398,7 @@ def run_batch(
                     tag = f"{result['result']:12s}"
                     print(f"  [done] {game_id} r{repeat_idx} -> {tag} ({result['steps']} steps, {result['elapsed']}s)")
                 except Exception as e:
+                    log.exception("Error processing future result (game_id=%s, repeat_idx=%d): %s", game_id, repeat_idx, str(e), extra={"operation": "process_future_result", "game_id": game_id, "repeat_idx": repeat_idx, "error_type": type(e).__name__})
                     print(f"  [error] {game_id} r{repeat_idx}: {e}")
                     results.append({
                         "game_id": game_id, "repeat_idx": repeat_idx,
@@ -456,6 +462,7 @@ def _start_obs_server():
         _obs_port = start_obs_server()
         print(f"\n  Observatory dashboard: http://localhost:{_obs_port}/obs\n")
     except Exception as e:
+        log.exception("Error in _start_obs_server: %s", str(e), extra={"operation": "_start_obs_server", "error_type": type(e).__name__})
         print(f"  [obs] Failed to start dashboard server: {e}")
 
 

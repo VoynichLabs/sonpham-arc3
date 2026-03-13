@@ -85,7 +85,7 @@ All games must be **fully deterministic** — no random elements of any kind:
 
 ## LLM Providers
 
-There are two model registries — `agent.py:MODELS` (CLI agent) and `server.py:MODEL_REGISTRY` (web UI). The batch runner uses `agent.py:MODELS`.
+There are two model registries — `agent.py:MODELS` (CLI agent) and `models.py:MODEL_REGISTRY` (web UI, via server/app.py). The batch runner uses `agent.py:MODELS`.
 
 ### Provider Reference
 
@@ -141,7 +141,7 @@ Only two environments — no separate "local" mode:
 - **Staging** (`SERVER_MODE=staging` or unset) — all features, all games visible. Used for both local dev and Railway staging deployment.
 - **Prod** (`SERVER_MODE=prod`) — same features, but games in `HIDDEN_GAMES` list are hidden from `/api/games` unless `?show_all=1` is passed.
 
-The `HIDDEN_GAMES` list is a hardcoded Python list in `server.py`. `SERVER_MODE` env var controls which mode is active.
+The `HIDDEN_GAMES` list is a hardcoded Python list in `server/state.py`. `SERVER_MODE` env var controls which mode is active.
 
 ## Client-Side Architecture (CRITICAL)
 
@@ -202,7 +202,7 @@ There are two types of games with different ID formats:
 - **Observatory games** (our custom games): Use `{two-letter prefix}{two-digit version}` format. The version number in the ID matches the version directory. Examples: `lb03` (Light Bender v3), `ab01` (Antibody v1), `sn01` (Snake v1). When a major version bump occurs, the game ID itself changes (e.g., `lb01` → `lb03`).
 - **ARC Prize Foundation games** (imported from ARC Prize): Use just their short ID with no suffix. Examples: `ls20`, `vc33`, `ft09`, `lp85`. These come from the ARC Prize Foundation and don't follow our versioning convention in their ID.
 
-The `game_id` field in `metadata.json` must match this convention. The `HIDDEN_GAMES` list in `server.py` filters by the two-letter prefix (e.g., `"ab"` hides `ab01`, `ab02`, etc.).
+The `game_id` field in `metadata.json` must match this convention. The `HIDDEN_GAMES` list in `server/state.py` filters by the two-letter prefix (e.g., `"ab"` hides `ab01`, `ab02`, etc.).
 
 ### File Structure
 - Directory: `environment_files/<game_dir>/<version>/` (game_dir = two-letter code for Observatory or full ID for Foundation, version = zero-padded 8-digit number)
@@ -260,7 +260,7 @@ After completing any fix or feature, **always**:
 1. Push to `staging`
 2. Run all non-LLM tests (import check + any unit/integration tests that don't require API keys)
 3. After any refactor, clean up dead code: remove old functions, aliases, unused HTML IDs, and dangling references that are no longer called
-4. Restart the local server: `pkill -f "python server.py"; python server.py &`
+4. Restart the local server: `pkill -f "gunicorn"; gunicorn server.app:app &`
 
 ## Pre-Push QC
 
@@ -268,6 +268,6 @@ Before every push to staging, run:
 
 ```bash
 python tests/test_providers.py          # all provider API paths work
-python -c "import db; import server; import agent; import batch_runner; print('OK')"  # import check
+python -c "from server.app import app; import db; import agent; import batch_runner; print('OK')"  # import check
 python batch_runner.py --games ls20 --concurrency 1 --max-steps 5  # smoke test
 ```

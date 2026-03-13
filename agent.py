@@ -1,3 +1,14 @@
+# Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
+# Date: 2026-03-12 12:52
+# PURPOSE: CLI autonomous agent for ARC-AGI-3 coordinator. Config-driven, memory-aware game
+#   player that calls LLM providers (Gemini, Anthropic, OpenAI, local) to solve
+#   ARC puzzles via the arcengine API. Delegates to agent_llm.py (provider calls),
+#   agent_response_parsing.py (response handling), and agent_history.py (memory).
+#   Supports RLM scaffolding with Pyodide REPL, planning modes, tool use, persistent memory.
+#   Standalone entry point — does not depend on Flask server.
+# SRP/DRY check: Pass — LLM calls (Phase 11), response parsing, and history management
+#   extracted to focused modules; agent.py retains config, memory I/O, prompt building,
+#   and game loop orchestration.
 """ARC-AGI-3 Autonomous Agent — config-driven, memory-aware."""
 
 import argparse
@@ -23,149 +34,19 @@ load_dotenv(Path(__file__).parent / ".env")
 
 ROOT = Path(__file__).parent
 
+from constants import COLOR_NAMES, ACTION_NAMES, ARC_AGI3_DESCRIPTION, SYSTEM_MSG
+from models import MODELS, compute_cost, DEFAULT_MODEL
+from agent_llm import LLMResult, call_model_with_metadata, call_model_with_retry, call_model
+from grid_analysis import compress_row, compute_change_map, compute_color_histogram, compute_region_map
+from agent_response_parsing import _parse_json, _fallback_parse, _force_extract_action, _fallback_action
+from agent_history import condense_history, reflect_and_update_memory
+
 # Thread-safety locks for shared file writes
 _memory_lock = threading.Lock()
 _session_log_lock = threading.Lock()
 
-# ── Palette & action labels ────────────────────────────────────────────────
-
-COLOR_NAMES = {
-    0: "White", 1: "LightGray", 2: "Gray", 3: "DarkGray",
-    4: "VeryDarkGray", 5: "Black", 6: "Magenta", 7: "LightMagenta",
-    8: "Red", 9: "Blue", 10: "LightBlue", 11: "Yellow",
-    12: "Orange", 13: "Maroon", 14: "Green", 15: "Purple",
-}
-
-ACTION_NAMES = {
-    0: "RESET", 1: "ACTION1", 2: "ACTION2", 3: "ACTION3",
-    4: "ACTION4", 5: "ACTION5", 6: "ACTION6", 7: "ACTION7",
-}
-
-ARC_AGI3_DESCRIPTION = (Path(__file__).parent / "prompts" / "shared" / "arc_description.txt").read_text().strip()
-
-SYSTEM_MSG = (
-    "You are an expert puzzle-solving AI. Analyse game grids and output ONLY "
-    "valid JSON — no markdown, no explanation outside JSON."
-)
 
 
-@dataclass
-class LLMResult:
-    """Metadata from a single LLM call (text + tokens + timing)."""
-    text: str | None = None
-    input_tokens: int = 0
-    output_tokens: int = 0
-    thinking_tokens: int = 0
-    thinking_text: str | None = None
-    duration_ms: int = 0
-    model: str = ""
-    error: str | None = None
-    attempt: int = 0
-    cost: float = 0.0
-
-
-# ── Model registry ─────────────────────────────────────────────────────────
-
-MODELS = {
-    # Groq (free tier, OpenAI-compatible)
-    # Pricing: per 1M tokens — [input, output, thinking] in USD
-    "groq/llama-3.3-70b-versatile": {
-        "provider": "groq",
-        "api_model": "llama-3.3-70b-versatile",
-        "env_key": "GROQ_API_KEY",
-        "url": "https://api.groq.com/openai/v1/chat/completions",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    "groq/gemma2-9b-it": {
-        "provider": "groq",
-        "api_model": "gemma2-9b-it",
-        "env_key": "GROQ_API_KEY",
-        "url": "https://api.groq.com/openai/v1/chat/completions",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    "groq/mixtral-8x7b-32768": {
-        "provider": "groq",
-        "api_model": "mixtral-8x7b-32768",
-        "env_key": "GROQ_API_KEY",
-        "url": "https://api.groq.com/openai/v1/chat/completions",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    # Mistral (free tier, OpenAI-compatible)
-    "mistral/mistral-small-latest": {
-        "provider": "mistral",
-        "api_model": "mistral-small-latest",
-        "env_key": "MISTRAL_API_KEY",
-        "url": "https://api.mistral.ai/v1/chat/completions",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    "mistral/open-mistral-nemo": {
-        "provider": "mistral",
-        "api_model": "open-mistral-nemo",
-        "env_key": "MISTRAL_API_KEY",
-        "url": "https://api.mistral.ai/v1/chat/completions",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    # Gemini (google-genai SDK)
-    # Pricing: [input $/1M, output $/1M, thinking $/1M]
-    "gemini-2.0-flash":      {"provider": "gemini", "api_model": "gemini-2.0-flash",      "env_key": "GEMINI_API_KEY", "pricing": [0.10, 0.40, 0.0]},
-    "gemini-2.5-flash-lite": {"provider": "gemini", "api_model": "gemini-2.5-flash-lite",  "env_key": "GEMINI_API_KEY", "pricing": [0.075, 0.30, 0.30]},
-    "gemini-2.5-flash":      {"provider": "gemini", "api_model": "gemini-2.5-flash",       "env_key": "GEMINI_API_KEY", "pricing": [0.15, 0.60, 0.60]},
-    "gemini-2.5-pro":        {"provider": "gemini", "api_model": "gemini-2.5-pro",         "env_key": "GEMINI_API_KEY", "pricing": [1.25, 10.0, 10.0]},
-    "gemini-3-flash":        {"provider": "gemini", "api_model": "gemini-3-flash-preview",        "env_key": "GEMINI_API_KEY", "pricing": [0.15, 0.60, 0.60]},
-    "gemini-3.1-flash-lite": {"provider": "gemini", "api_model": "gemini-3.1-flash-lite-preview", "env_key": "GEMINI_API_KEY", "pricing": [0.075, 0.30, 0.30]},
-    "gemini-3-pro":          {"provider": "gemini", "api_model": "gemini-3-pro-preview",    "env_key": "GEMINI_API_KEY", "pricing": [1.25, 10.0, 10.0]},
-    "gemini-3.1-pro":        {"provider": "gemini", "api_model": "gemini-3.1-pro-preview",  "env_key": "GEMINI_API_KEY", "pricing": [1.25, 10.0, 10.0]},
-    # Anthropic (direct API via httpx)
-    "claude-haiku-4-5":      {"provider": "anthropic", "api_model": "claude-haiku-4-5-20251001", "env_key": "ANTHROPIC_API_KEY", "pricing": [0.80, 4.0, 4.0]},
-    "claude-sonnet-4-5":     {"provider": "anthropic", "api_model": "claude-sonnet-4-5",         "env_key": "ANTHROPIC_API_KEY", "pricing": [3.0, 15.0, 15.0]},
-    "claude-sonnet-4-6":     {"provider": "anthropic", "api_model": "claude-sonnet-4-6",         "env_key": "ANTHROPIC_API_KEY", "pricing": [3.0, 15.0, 15.0]},
-    # Cloudflare Workers AI (OpenAI-compatible)
-    "cloudflare/llama-3.3-70b": {
-        "provider": "cloudflare",
-        "api_model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-        "env_key": "CLOUDFLARE_API_KEY",
-        "env_account": "CLOUDFLARE_ACCOUNT_ID",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    # HuggingFace (OpenAI-compatible)
-    "hf/meta-llama-3.3-70b": {
-        "provider": "huggingface",
-        "api_model": "meta-llama/Llama-3.3-70B-Instruct",
-        "env_key": "HUGGINGFACE_API_KEY",
-        "url": "https://router.huggingface.co/v1/chat/completions",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    # Ollama (local)
-    "ollama/qwen3.5": {
-        "provider": "ollama",
-        "api_model": "qwen3.5:35b-a3b",
-        "url": "http://localhost:11434/v1/chat/completions",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    "ollama/llama3.3": {
-        "provider": "ollama",
-        "api_model": "llama3.3",
-        "url": "http://localhost:11434/v1/chat/completions",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-    "ollama/llama3.1": {
-        "provider": "ollama",
-        "api_model": "llama3.1",
-        "url": "http://localhost:11434/v1/chat/completions",
-        "pricing": [0.0, 0.0, 0.0],
-    },
-}
-
-
-def compute_cost(model_key: str, input_tokens: int, output_tokens: int,
-                 thinking_tokens: int = 0) -> float:
-    """Compute USD cost for an LLM call based on model pricing."""
-    info = MODELS.get(model_key, {})
-    pricing = info.get("pricing", [0.0, 0.0, 0.0])
-    cost_in, cost_out, cost_think = pricing[0], pricing[1], pricing[2] if len(pricing) > 2 else pricing[1]
-    return (input_tokens * cost_in + output_tokens * cost_out + thinking_tokens * cost_think) / 1_000_000
-
-DEFAULT_MODEL = "groq/llama-3.3-70b-versatile"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CONFIG
@@ -333,441 +214,18 @@ def relevant_memory_section(hard_memory: str, game_id: str, max_chars: int) -> s
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# GRID ANALYSIS
+# GRID ANALYSIS (imported from grid_analysis.py)
 # ═══════════════════════════════════════════════════════════════════════════
-
-def compress_row(row: list[int]) -> str:
-    if not row:
-        return ""
-    parts = []
-    cur, count = row[0], 1
-    for v in row[1:]:
-        if v == cur:
-            count += 1
-        else:
-            parts.append(f"{cur}x{count}" if count > 1 else str(cur))
-            cur, count = v, 1
-    parts.append(f"{cur}x{count}" if count > 1 else str(cur))
-    return " ".join(parts)
-
-
-def compute_change_map(prev_grid: list, curr_grid: list) -> str:
-    if not prev_grid or not curr_grid:
-        return ""
-    h = min(len(prev_grid), len(curr_grid))
-    w = min(len(prev_grid[0]), len(curr_grid[0])) if h > 0 else 0
-    changed_cells, rows = 0, []
-    for y in range(h):
-        row_chars = []
-        for x in range(w):
-            if prev_grid[y][x] != curr_grid[y][x]:
-                row_chars.append("X")
-                changed_cells += 1
-            else:
-                row_chars.append(".")
-        row_str = "".join(row_chars)
-        if "X" in row_str:
-            parts, cur, c = [], row_str[0], 1
-            for ch in row_str[1:]:
-                if ch == cur:
-                    c += 1
-                else:
-                    parts.append(f"{cur}x{c}" if c > 3 else cur * c)
-                    cur, c = ch, 1
-            parts.append(f"{cur}x{c}" if c > 3 else cur * c)
-            rows.append(f"Row {y}: {''.join(parts)}")
-    if not rows:
-        return ""
-    return f"\n## CHANGE MAP ({changed_cells} cells changed since last action)\n" + "\n".join(rows)
-
-
-def compute_color_histogram(grid: list) -> str:
-    if not grid:
-        return ""
-    counts: dict[int, int] = {}
-    for row in grid:
-        for v in row:
-            counts[v] = counts.get(v, 0) + 1
-    lines = [
-        f"  {v}={COLOR_NAMES.get(v, str(v))}: {cnt}"
-        for v, cnt in sorted(counts.items())
-    ]
-    return "\n## COLOR HISTOGRAM\n" + "\n".join(lines)
-
-
-def compute_region_map(grid: list) -> str:
-    """BFS flood-fill connected components per color."""
-    if not grid:
-        return ""
-    h, w = len(grid), len(grid[0])
-    visited = [[False] * w for _ in range(h)]
-    regions: dict[int, list[tuple[int, int, int]]] = {}  # color -> [(y, x, size)]
-
-    for sy in range(h):
-        for sx in range(w):
-            if visited[sy][sx]:
-                continue
-            color = grid[sy][sx]
-            queue = deque([(sy, sx)])
-            visited[sy][sx] = True
-            cells = []
-            while queue:
-                y, x = queue.popleft()
-                cells.append((y, x))
-                for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                    ny, nx = y + dy, x + dx
-                    if 0 <= ny < h and 0 <= nx < w and not visited[ny][nx] and grid[ny][nx] == color:
-                        visited[ny][nx] = True
-                        queue.append((ny, nx))
-            ys = [c[0] for c in cells]
-            xs = [c[1] for c in cells]
-            bbox = f"rows {min(ys)}-{max(ys)}, cols {min(xs)}-{max(xs)}"
-            entry = (min(ys), min(xs), len(cells), bbox)
-            regions.setdefault(color, []).append(entry)
-
-    lines = ["\n## REGION MAP (connected components)"]
-    for color in sorted(regions):
-        name = COLOR_NAMES.get(color, str(color))
-        sorted_regions = sorted(regions[color], key=lambda r: -r[2])  # largest first
-        top = sorted_regions[:5]  # show at most 5 regions per color
-        for r in top:
-            lines.append(f"  {color}={name}: {r[2]} cells at {r[3]}")
-        if len(sorted_regions) > 5:
-            lines.append(f"  {color}={name}: ... ({len(sorted_regions) - 5} more regions)")
-    return "\n".join(lines)
+# Grid analysis functions are maintained in grid_analysis.py and used by both
+# prompt building and server. Not imported here as agent.py uses prompt_builder.py
+# for prompt construction which already handles grid analysis utilities.
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# LLM API CALLS
+# LLM API CALLS (imported from agent_llm.py)
 # ═══════════════════════════════════════════════════════════════════════════
-
-def _call_openai_compatible(url: str, api_key: str, model: str, messages: list,
-                             temperature: float, max_tokens: int) -> dict:
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    resp = httpx.post(
-        url,
-        headers=headers,
-        json={"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
-        timeout=90.0,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    usage = data.get("usage", {})
-    return {
-        "text": data["choices"][0]["message"]["content"],
-        "input_tokens": usage.get("prompt_tokens", 0),
-        "output_tokens": usage.get("completion_tokens", 0),
-    }
-
-
-def _call_anthropic(model: str, messages: list, system: str,
-                    temperature: float, max_tokens: int) -> dict:
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    resp = httpx.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json={
-            "model": model,
-            "system": system,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        },
-        timeout=90.0,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    usage = data.get("usage", {})
-    return {
-        "text": data["content"][0]["text"],
-        "input_tokens": usage.get("input_tokens", 0),
-        "output_tokens": usage.get("output_tokens", 0),
-    }
-
-
-def _call_gemini(model_name: str, prompt: str, temperature: float, max_tokens: int,
-                  tools_enabled: bool = False, session_id: str = "",
-                  grid=None, prev_grid=None, thinking_budget: int = 0) -> dict:
-    from google import genai
-    import re as _re
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    client = genai.Client(api_key=api_key)
-
-    # Thinking models (2.5+, 3.x) need an explicit thinking budget,
-    # otherwise thinking eats the entire max_output_tokens and the
-    # actual response gets truncated.
-    is_thinking = bool(_re.search(r"2\.5|3-pro|3-flash|3\.1", model_name))
-    thinking_cfg = None
-    if is_thinking:
-        budget = thinking_budget if thinking_budget > 0 else 1024
-        thinking_cfg = genai.types.ThinkingConfig(
-            thinking_budget=budget,
-            include_thoughts=True,
-        )
-
-    config = genai.types.GenerateContentConfig(
-        temperature=temperature,
-        max_output_tokens=max_tokens,
-        thinking_config=thinking_cfg,
-    )
-
-    # Enable run_python tool if requested and we have a session context
-    if tools_enabled and session_id:
-        from code_sandbox import get_tool_declarations, execute_python
-        config.tools = [get_tool_declarations()]
-
-    contents = [genai.types.Content(
-        role="user",
-        parts=[genai.types.Part.from_text(text=f"{SYSTEM_MSG}\n\n{prompt}")],
-    )]
-
-    total_input = 0
-    total_output = 0
-    total_thinking = 0
-    all_thinking_text = []
-    max_rounds = 3 if (tools_enabled and session_id) else 1
-
-    for round_i in range(max_rounds):
-        # On the last round, remove tools to force a text answer
-        if round_i == max_rounds - 1 and config.tools:
-            config.tools = None
-            # Add instruction to force JSON text output
-            contents.append(genai.types.Content(
-                role="user",
-                parts=[genai.types.Part.from_text(
-                    text="Tool calls are no longer available. Now output your final answer as a JSON object."
-                )],
-            ))
-
-        response = client.models.generate_content(
-            model=model_name, contents=contents, config=config,
-        )
-        usage = getattr(response, "usage_metadata", None)
-        total_input += (getattr(usage, "prompt_token_count", 0) or 0) if usage else 0
-        total_output += (getattr(usage, "candidates_token_count", 0) or 0) if usage else 0
-        total_thinking += (getattr(usage, "thoughts_token_count", 0) or 0) if usage else 0
-
-        # Extract thinking content from response parts
-        if response.candidates and response.candidates[0].content:
-            for part in (response.candidates[0].content.parts or []):
-                if getattr(part, "thought", False) and hasattr(part, "text") and part.text:
-                    all_thinking_text.append(part.text)
-
-        # Handle MALFORMED_FUNCTION_CALL — model tried to call a tool but
-        # formatted it as a code block instead of a proper function call
-        if response.candidates and tools_enabled and session_id:
-            fr = getattr(response.candidates[0], 'finish_reason', None)
-            fr_str = str(fr).upper() if fr else ""
-            if "MALFORMED" in fr_str:
-                raw_text = ""
-                try:
-                    raw_text = response.text or ""
-                except Exception:
-                    fm = getattr(response.candidates[0], 'finish_message', None)
-                    if fm:
-                        raw_text = fm
-                code_match = _re.search(r'```python\s*\n(.*?)```', raw_text, _re.DOTALL)
-                if code_match:
-                    code = code_match.group(1).strip()
-                    print(f"  [tools] recovered MALFORMED code ({len(code)} chars), executing")
-                    output = execute_python(session_id, code, grid, prev_grid)
-                    contents.append(genai.types.Content(
-                        role="model",
-                        parts=[genai.types.Part.from_function_call(
-                            name="run_python", args={"code": code}
-                        )],
-                    ))
-                    contents.append(genai.types.Content(
-                        role="user",
-                        parts=[genai.types.Part.from_function_response(
-                            name="run_python",
-                            response={"result": output},
-                        )],
-                    ))
-                    config.tools = None  # force text answer on next round
-                    continue
-                else:
-                    config.tools = None
-                    continue
-
-        # Check for function calls in the response
-        if response.candidates and response.candidates[0].content and tools_enabled and session_id:
-            model_parts = response.candidates[0].content.parts or []
-            fn_call_parts = [p for p in model_parts if p.function_call]
-
-            if fn_call_parts:
-                contents.append(response.candidates[0].content)
-                fn_response_parts = []
-                for part in fn_call_parts:
-                    fc = part.function_call
-                    code = fc.args.get("code", "") if fc.args else ""
-                    print(f"  [tools] run_python ({len(code)} chars)")
-                    output = execute_python(session_id, code, grid, prev_grid)
-                    fn_response_parts.append(
-                        genai.types.Part.from_function_response(
-                            name=fc.name,
-                            response={"result": output},
-                        )
-                    )
-                contents.append(genai.types.Content(
-                    role="user",
-                    parts=fn_response_parts,
-                ))
-                continue  # next round
-
-        # No function call — extract final text and return
-        break
-
-    # Extract text safely — response may contain function_call parts
-    # if the model exhausted all rounds without giving a text answer
-    final_text = ""
-    try:
-        final_text = response.text or ""
-    except (ValueError, AttributeError):
-        # response.text raises ValueError when there are only non-text parts
-        if response.candidates and response.candidates[0].content:
-            text_parts = [p.text for p in response.candidates[0].content.parts
-                          if hasattr(p, 'text') and p.text]
-            final_text = "\n".join(text_parts)
-
-    return {
-        "text": final_text,
-        "input_tokens": total_input,
-        "output_tokens": total_output,
-        "thinking_tokens": total_thinking,
-        "thinking_text": "\n".join(all_thinking_text) if all_thinking_text else None,
-    }
-
-
-def _call_cloudflare(model: str, messages: list, temperature: float, max_tokens: int) -> dict:
-    api_key = os.environ.get("CLOUDFLARE_API_KEY", "")
-    account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
-    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions"
-    return _call_openai_compatible(url, api_key, model, messages, temperature, max_tokens)
-
-
-def call_model(model_key: str, prompt: str, cfg: dict, role: str = "executor",
-               tools_enabled: bool = False, session_id: str = "",
-               grid=None, prev_grid=None, thinking_budget: int = 0) -> dict:
-    """Route to the right provider. Returns dict with {text, input_tokens, output_tokens}.
-
-    Optional kwargs for Gemini tool calling:
-        tools_enabled: enable run_python tool
-        session_id: sandbox session ID
-        grid / prev_grid: current and previous game grids (list-of-lists)
-    """
-    info = MODELS.get(model_key)
-    if info is None:
-        raise ValueError(f"Unknown model: {model_key}")
-
-    r = cfg["reasoning"]
-    temp = r["temperature"]
-    # Role-based max_tokens
-    role_token_keys = {
-        "executor": "max_tokens",
-        "planner": "planner_max_tokens",
-        "monitor": "monitor_max_tokens",
-        "world_model": "world_model_max_tokens",
-        "condenser": "reflection_max_tokens",
-        "reflector": "reflection_max_tokens",
-    }
-    max_tok = r.get(role_token_keys.get(role, "max_tokens"), r["max_tokens"])
-
-    provider = info["provider"]
-    api_model = info["api_model"]
-    messages = [{"role": "system", "content": SYSTEM_MSG}, {"role": "user", "content": prompt}]
-
-    if provider == "gemini":
-        return _call_gemini(api_model, prompt, temp, max_tok,
-                            tools_enabled=tools_enabled, session_id=session_id,
-                            grid=grid, prev_grid=prev_grid,
-                            thinking_budget=thinking_budget)
-    if provider == "anthropic":
-        return _call_anthropic(api_model, [{"role": "user", "content": prompt}],
-                                SYSTEM_MSG, temp, max_tok)
-    if provider == "cloudflare":
-        return _call_cloudflare(api_model, messages, temp, max_tok)
-    if provider == "ollama":
-        return _call_openai_compatible(info["url"], "", api_model, messages, temp, max_tok)
-
-    # Groq / Mistral / HuggingFace (OpenAI-compatible)
-    api_key = os.environ.get(info["env_key"], "")
-    return _call_openai_compatible(info["url"], api_key, api_model, messages, temp, max_tok)
-
-
-def call_model_with_metadata(model_key: str, prompt: str, cfg: dict, role: str = "executor",
-                              retries: int = 10,
-                              tools_enabled: bool = False, session_id: str = "",
-                              grid=None, prev_grid=None,
-                              thinking_budget: int = 0) -> LLMResult:
-    """Call LLM with retries, returning full metadata (tokens, timing, errors).
-
-    Retries up to `retries` times (default 10) with exponential backoff.
-    Rate-limit (429) waits scale from 15s to 120s; server errors use shorter waits.
-    """
-    t0 = time.time()
-    for attempt in range(retries + 1):
-        try:
-            result = call_model(model_key, prompt, cfg, role,
-                                tools_enabled=tools_enabled, session_id=session_id,
-                                grid=grid, prev_grid=prev_grid,
-                                thinking_budget=thinking_budget)
-            duration_ms = int((time.time() - t0) * 1000)
-            in_tok = result.get("input_tokens", 0)
-            out_tok = result.get("output_tokens", 0)
-            think_tok = result.get("thinking_tokens", 0)
-            cost = compute_cost(model_key, in_tok, out_tok, think_tok)
-            return LLMResult(
-                text=result["text"],
-                input_tokens=in_tok,
-                output_tokens=out_tok,
-                thinking_tokens=think_tok,
-                thinking_text=result.get("thinking_text"),
-                duration_ms=duration_ms,
-                model=model_key,
-                attempt=attempt,
-                cost=cost,
-            )
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
-                wait = min(10 * (2 ** attempt), 120)  # exponential: 10, 20, 40, 80, 120, 120...
-                print(f"  [Rate limited] attempt {attempt+1}/{retries+1}, waiting {wait}s...")
-                time.sleep(wait)
-            elif e.response.status_code in (500, 502, 503, 529) and attempt < retries:
-                wait = min(5 * (2 ** attempt), 60)  # exponential: 5, 10, 20, 40, 60...
-                print(f"  [HTTP {e.response.status_code}] attempt {attempt+1}/{retries+1}, retrying in {wait}s...")
-                time.sleep(wait)
-            else:
-                duration_ms = int((time.time() - t0) * 1000)
-                print(f"  [HTTP error {e.response.status_code}]: {e}")
-                return LLMResult(error=str(e), duration_ms=duration_ms, model=model_key, attempt=attempt)
-        except Exception as e:
-            err_str = str(e).lower()
-            # Retry on transient errors (quota, timeout, server errors)
-            if attempt < retries and any(k in err_str for k in ("429", "quota", "rate", "timeout", "503", "500", "overloaded", "resource_exhausted")):
-                is_rate_limit = any(k in err_str for k in ("429", "quota", "rate", "resource_exhausted"))
-                wait = min(10 * (2 ** attempt), 120) if is_rate_limit else min(5 * (2 ** attempt), 60)
-                print(f"  [LLM error] {e} — attempt {attempt+1}/{retries+1}, retrying in {wait}s...")
-                time.sleep(wait)
-            else:
-                duration_ms = int((time.time() - t0) * 1000)
-                print(f"  [LLM error]: {e}")
-                return LLMResult(error=str(e), duration_ms=duration_ms, model=model_key, attempt=attempt)
-    duration_ms = int((time.time() - t0) * 1000)
-    return LLMResult(error="max retries exceeded", duration_ms=duration_ms, model=model_key, attempt=retries)
-
-
-def call_model_with_retry(model_key: str, prompt: str, cfg: dict, role: str = "executor",
-                           retries: int = 10) -> str | None:
-    """Thin wrapper: returns just the text (or None). For backward compatibility."""
-    result = call_model_with_metadata(model_key, prompt, cfg, role, retries)
-    return result.text
+# All LLM provider calls, retry logic, and cost tracking extracted to agent_llm.py
+# in Phase 11. Imported above: call_model_with_metadata, call_model_with_retry.
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -834,9 +292,10 @@ def build_context_block(
 
     # ── Change map ────────────────────────────────────────────────────────
     if ctx["change_map"] and prev_grid:
-        change_text = compute_change_map(prev_grid, grid)
-        if change_text:
-            parts.append(change_text.strip())
+        change_result = compute_change_map(prev_grid, grid)
+        change_text = change_result.get("change_map_text", "")
+        if change_text and change_text != "(no changes)":
+            parts.append(f"## CHANGE MAP\n{change_text}".strip())
 
     # ── Color histogram ───────────────────────────────────────────────────
     if ctx["color_histogram"]:
@@ -887,226 +346,31 @@ Rules:
 # HISTORY CONDENSATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-def condense_history(history: list[dict], cfg: dict) -> list[dict]:
-    """Summarise all non-summary entries via LLM, replacing them with one summary entry."""
-    raw_entries = [h for h in history if not h.get("is_summary")]
-    if not raw_entries:
-        return history
-
-    model_key = effective_model(cfg, "condenser")
-    reasoning_trace = cfg.get("context", {}).get("reasoning_trace", False)
-    lines = []
-    for h in raw_entries:
-        aname = ACTION_NAMES.get(h["action"], f"ACTION{h['action']}")
-        obs = (h.get("observation", "") or "")[:300]
-        line = f"Step {h['step']}: {aname} -> levels={h.get('levels','?')}  | {obs}"
-        if reasoning_trace and h.get("reasoning"):
-            line += f" | reasoning: {h['reasoning'][:300]}"
-        lines.append(line)
-
-    prompt = (
-        "You are summarising an ARC-AGI-3 game history for an AI agent.\n\n"
-        "Raw history:\n" + "\n".join(lines) + "\n\n"
-        "Write a compact tactical summary (≤ 8 bullet points, ≤ 120 chars each) "
-        "capturing: what actions were tried, what each did, what level progress was made, "
-        "and any rules/patterns discovered.\n"
-        "Respond with ONLY a JSON object: {\"summary\": \"bullet1\\nbullet2\\n...\"}"
-    )
-
-    print(f"  [memory] condensing {len(raw_entries)} history entries...")
-    raw = call_model_with_retry(model_key, prompt, cfg, role="condenser")
-    summary_text = ""
-    if raw:
-        parsed = _parse_json(raw)
-        if parsed:
-            summary_text = parsed.get("summary", "")
-    if not summary_text:
-        summary_text = f"(condensed {len(raw_entries)} steps — summary unavailable)"
-
-    summary_entry = {
-        "is_summary": True,
-        "step_range": f"{raw_entries[0]['step']}-{raw_entries[-1]['step']}",
-        "summary": summary_text,
-    }
-    # Keep existing summary entries at the front, then the new one
-    existing_summaries = [h for h in history if h.get("is_summary")]
-    return existing_summaries + [summary_entry]
+# ═══════════════════════════════════════════════════════════════════════════
+# HISTORY MANAGEMENT (imported from agent_history.py)
+# ═══════════════════════════════════════════════════════════════════════════
+# History condensation and post-game reflection extracted to agent_history.py
+# in Phase 11. Imported above: condense_history, reflect_and_update_memory.
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# POST-GAME REFLECTION
+# RESPONSE PARSING (imported from agent_response_parsing.py)
 # ═══════════════════════════════════════════════════════════════════════════
-
-def reflect_and_update_memory(
-    game_id: str,
-    history: list[dict],
-    result: str,
-    steps_taken: int,
-    levels_done: int,
-    win_levels: int,
-    cfg: dict,
-) -> None:
-    """Ask the reflector LLM to extract learnings and append them to MEMORY.md."""
-    if not cfg["memory"]["reflect_after_game"]:
-        return
-
-    model_key = effective_model(cfg, "reflector")
-    raw_entries = [h for h in history if not h.get("is_summary")]
-
-    history_text = "\n".join(
-        f"Step {h['step']}: {ACTION_NAMES.get(h['action'], str(h['action']))} -> "
-        f"levels={h.get('levels','?')} | {(h.get('observation','') or '')[:80]}"
-        for h in raw_entries[-40:]  # last 40 entries is enough for reflection
-    )
-
-    existing_memory = load_hard_memory(cfg)
-    game_section_exists = f"## {game_id}" in existing_memory
-
-    prompt = (
-        f"You played ARC-AGI-3 game '{game_id}'.\n"
-        f"Result: {result} | Steps: {steps_taken} | Levels: {levels_done}/{win_levels}\n\n"
-        f"Game history (last 40 steps):\n{history_text}\n\n"
-        f"Based on this run, extract 2-5 concise, NOVEL facts worth remembering for future runs.\n"
-        f"Focus on: what each action does, how levels advance, obstacles, winning strategies.\n"
-        f"{'Existing game-specific notes are already stored — only add NEW facts.' if game_section_exists else ''}\n\n"
-        f"Respond with ONLY JSON: "
-        f"{{\"learnings\": [\"fact1\", \"fact2\", ...]}}"
-    )
-
-    print(f"  [memory] running post-game reflection with {model_key}...")
-    raw = call_model_with_retry(model_key, prompt, cfg, role="reflector")
-    if not raw:
-        return
-    parsed = _parse_json(raw)
-    if not parsed or "learnings" not in parsed:
-        return
-
-    for bullet in parsed["learnings"]:
-        bullet = bullet.strip()
-        if bullet:
-            append_memory_bullet(cfg, game_id, bullet)
-            print(f"  [memory] stored: {bullet[:80]}")
+# Response parsing and action extraction extracted to agent_response_parsing.py
+# in Phase 11. Imported above: _parse_json, _fallback_parse, _force_extract_action, _fallback_action.
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# RESPONSE PARSING
+# GAME LOOP — HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _parse_json(content: str) -> dict | None:
-    # Strip <think>...</think> blocks (some models emit these)
-    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-    try:
-        start = content.find("{")
-        end = content.rfind("}") + 1
-        if start >= 0 and end > start:
-            return json.loads(content[start:end])
-    except json.JSONDecodeError:
-        pass
-    return None
-
-
-FALLBACK_PARSE_MODELS = [
-    "gemini-2.5-flash",
-    "groq/llama-3.3-70b-versatile",
-    "mistral/mistral-small-latest",
-]
-
-
-def _fallback_parse(raw: str, available: list[int], cfg: dict,
-                    executor_model: str) -> dict | None:
-    """Use a cheap model to extract action from an unparseable LLM response."""
-    # Pick a fallback model different from the executor (avoid same failure mode)
-    fallback_model = None
-    for m in FALLBACK_PARSE_MODELS:
-        if m == executor_model:
-            continue
-        info = MODELS.get(m)
-        if not info:
-            continue
-        env_key = info.get("env_key", "")
-        if not env_key or os.environ.get(env_key):
-            fallback_model = m
-            break
-    if not fallback_model:
-        return None
-
-    prompt = (
-        "An LLM was asked to pick a game action and respond with JSON, but its "
-        "response was malformed or truncated. Extract the intended action from "
-        "the response below.\n\n"
-        f"Available actions: {available}\n"
-        f"Raw response (may be truncated):\n{raw[:1500]}\n\n"
-        "Respond with ONLY valid JSON: "
-        '{"action": <int>, "data": {}, "observation": "<what the model saw>", '
-        '"reasoning": "<what the model intended>"}'
-    )
-    try:
-        fallback_result = call_model(fallback_model, prompt, cfg, role="executor")
-        fallback_raw = fallback_result["text"]
-        parsed = _parse_json(fallback_raw)
-        if parsed and "action" in parsed:
-            print(f"  [fallback parse] recovered action={parsed['action']} via {fallback_model}")
-            return parsed
-    except Exception as e:
-        print(f"  [fallback parse] failed: {e}")
-    return None
-
-
-def _force_extract_action(raw: str, available: list[int], cfg: dict,
-                          executor_model: str) -> dict | None:
-    """Last-resort: ask a cheap model to pick the most conservative action
-    from unparseable output. Returns parsed dict or None."""
-    fallback_model = None
-    for m in FALLBACK_PARSE_MODELS:
-        if m == executor_model:
-            continue
-        info = MODELS.get(m)
-        if not info:
-            continue
-        env_key = info.get("env_key", "")
-        if not env_key or os.environ.get(env_key):
-            fallback_model = m
-            break
-    if not fallback_model:
-        return None
-
-    non_reset = [a for a in available if a != 0]
-    safe_default = non_reset[0] if non_reset else (available[0] if available else 1)
-
-    prompt = (
-        "An LLM was asked to pick a game action and respond with JSON, but its "
-        "response was completely unparseable. Extract the most likely intended action "
-        "from the raw output below. If you truly cannot determine one, pick the most "
-        f"conservative action (use {safe_default}).\n\n"
-        f"Available actions: {available}\n"
-        f"Raw response (may be truncated):\n{raw[:2000]}\n\n"
-        "Respond with ONLY valid JSON:\n"
-        '{"action": <int>, "data": {}, "observation": "<best guess of what model saw>", '
-        '"reasoning": "<best guess of what model intended>"}'
-    )
-    try:
-        result = call_model(fallback_model, prompt, cfg, role="executor")
-        parsed = _parse_json(result["text"])
-        if parsed and "action" in parsed:
-            print(f"  [force-action] extracted action={parsed['action']} via {fallback_model}")
-            return parsed
-    except Exception as e:
-        print(f"  [force-action] failed: {e}")
-    return None
-
-
-def _fallback_action(available: list[int]) -> int:
-    """Absolute last resort: pick first non-RESET action deterministically."""
-    candidates = [a for a in available if a != 0]
-    return candidates[0] if candidates else (available[0] if available else 1)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# GAME LOOP
-# ═══════════════════════════════════════════════════════════════════════════
-
-def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
-              session_id: str | None = None, step_callback=None) -> str:
+def _setup_game_session(arcade, game_id: str, cfg: dict) -> tuple:
+    """Initialize game environment and session state.
+    
+    Returns:
+        tuple: (env, frame, hard_memory, history, step_num, steps_since_condense, mcfg)
+               or None if game setup fails.
+    """
     print(f"\n{'='*65}")
     print(f"  PLAYING: {game_id}")
     print(f"  Executor: {effective_model(cfg, 'executor')}")
@@ -1125,226 +389,397 @@ def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
     frame = env.observation_space
     if frame is None:
         print("  [ERROR] Could not start game.")
-        return "ERROR"
+        return None
 
     hard_memory = load_hard_memory(cfg)
     history: list[dict] = []
-    prev_grid: list | None = None
     step_num = 0
     steps_since_condense = 0
-
     mcfg = cfg["memory"]
+
+    return (env, frame, hard_memory, history, step_num, steps_since_condense, mcfg)
+
+
+def _maybe_condense_history(
+    history: list[dict],
+    cfg: dict,
+    steps_since_condense: int,
+    condense_every: int,
+    condense_threshold: int,
+) -> tuple:
+    """Check and apply history condensation if needed.
+    
+    Returns:
+        tuple: (updated_history, updated_steps_since_condense)
+    """
+    raw_history_len = sum(1 for h in history if not h.get("is_summary"))
+    
+    # Step-count triggers (legacy, disabled when 0)
+    should_condense = (
+        condense_every > 0 and steps_since_condense >= condense_every
+    ) or (
+        condense_threshold > 0 and raw_history_len >= condense_threshold
+    )
+    
+    # Token-based trigger: compact when history portion exceeds ~60% of budget
+    max_ctx_tokens = cfg["context"].get("max_context_tokens", 100000)
+    if max_ctx_tokens > 0 and raw_history_len > 0 and not should_condense:
+        estimated_tokens = len(str(history)) // 4  # rough estimate
+        if estimated_tokens > max_ctx_tokens * 0.6:
+            should_condense = True
+    
+    if should_condense and raw_history_len > 0:
+        history = condense_history(history, cfg)
+        steps_since_condense = 0
+    
+    return (history, steps_since_condense)
+
+
+def _prepare_prompt_and_call_llm(
+    grid: list,
+    state_str: str,
+    available: list[int],
+    levels_done: int,
+    win_levels: int,
+    game_id: str,
+    history: list[dict],
+    cfg: dict,
+    prev_grid: list | None,
+    hard_memory: str,
+    session_id: str | None,
+    step_num: int,
+) -> tuple:
+    """Build context/prompt and call LLM; handle logging.
+    
+    Returns:
+        tuple: (llm_result, prompt, elapsed_ms, turn_num)
+    """
+    context_block = build_context_block(
+        grid, state_str, available, levels_done, win_levels,
+        game_id, history, cfg, prev_grid, hard_memory,
+    )
+    prompt = build_action_prompt(context_block, cfg["reasoning"].get("planning_horizon", 1))
+
+    model_key = effective_model(cfg, "executor")
+    turn_start_time = time.time()
+    llm_result = call_model_with_metadata(model_key, prompt, cfg, role="executor")
+    elapsed_ms = llm_result.duration_ms
+    turn_num = step_num + 1
+
+    if session_id:
+        from db import _log_llm_call
+        _log_llm_call(
+            session_id, "executor", model_key,
+            step_num=step_num + 1,
+            turn_num=turn_num,
+            input_json=prompt[:500],
+            output_json=(llm_result.text or "")[:1000],
+            input_tokens=llm_result.input_tokens,
+            output_tokens=llm_result.output_tokens,
+            thinking_tokens=llm_result.thinking_tokens,
+            thinking_json=(llm_result.thinking_text or "")[:5000] if llm_result.thinking_text else None,
+            cost=llm_result.cost,
+            duration_ms=llm_result.duration_ms,
+            error=llm_result.error,
+        )
+
+    return (llm_result, prompt, elapsed_ms, turn_num)
+
+
+def _parse_and_build_action_list(
+    llm_result: LLMResult,
+    available: list[int],
+    planning_horizon: int,
+    game_id: str,
+    cfg: dict,
+) -> tuple:
+    """Parse LLM response and build action list.
+    
+    Returns:
+        tuple: (action_list, observation, reasoning, raw_reasoning_saved, hard_memory)
+    """
+    raw = llm_result.text
+    mcfg = cfg["memory"]
+
+    parsed = _parse_json(raw) if raw else None
+    if parsed is None and raw:
+        parsed = _fallback_parse(raw, available, cfg, effective_model(cfg, "executor"))
+    if parsed is None and raw:
+        parsed = _force_extract_action(raw, available, cfg, effective_model(cfg, "executor"))
+
+    raw_reasoning_saved = None
+    hard_memory = load_hard_memory(cfg)
+
+    if parsed is None:
+        action_id = _fallback_action(available)
+        action_data = {}
+        observation = "parse error / LLM unavailable"
+        reasoning = "fallback"
+        if raw:
+            raw_reasoning_saved = raw[:2000]
+            print(f"  [force-action] could not parse, forcing action={action_id}, reasoning saved")
+    else:
+        observation = parsed.get("observation", "")
+        reasoning = parsed.get("reasoning", "")
+        memory_update = parsed.get("memory_update")
+
+        # Inline memory write
+        if (
+            mcfg["allow_inline_memory_writes"]
+            and memory_update
+            and isinstance(memory_update, str)
+            and memory_update.strip()
+        ):
+            append_memory_bullet(cfg, game_id, memory_update)
+            hard_memory = load_hard_memory(cfg)  # reload
+            print(f"  [memory inline] {memory_update[:80]}")
+
+    # Build action list from parsed response
+    if parsed and "actions" in parsed and isinstance(parsed["actions"], list):
+        action_list = []
+        for a in parsed["actions"][:planning_horizon]:
+            aid = a.get("action", 1) if isinstance(a, dict) else int(a)
+            adata = (a.get("data") or {}) if isinstance(a, dict) else {}
+            action_list.append((aid, adata))
+    elif parsed:
+        action_list = [(parsed.get("action", 1), parsed.get("data") or {})]
+    else:
+        action_list = [(action_id, action_data)]
+
+    return (action_list, observation, reasoning, raw_reasoning_saved, hard_memory)
+
+
+def _execute_and_log_action_plan(
+    action_list: list,
+    env,
+    frame,
+    available: list[int],
+    grid: list,
+    levels_done: int,
+    win_levels: int,
+    elapsed_ms: int,
+    step_num: int,
+    observation: str,
+    reasoning: str,
+    raw_reasoning_saved: str | None,
+    parsed,
+    history: list[dict],
+    session_id: str | None,
+    llm_result: LLMResult,
+    step_callback=None,
+    max_steps: int = 200,
+) -> tuple:
+    """Execute action plan, update history, handle callbacks, log turn.
+    
+    Returns:
+        tuple: (updated_step_num, updated_frame, updated_grid, updated_available, 
+                updated_levels_done, updated_history, terminal_hit, steps_executed)
+    """
+    steps_planned = len(action_list)
+    steps_executed = 0
+    turn_step_start = step_num + 1
+    terminal_hit = False
+    prev_grid = grid
+    elapsed_sec = elapsed_ms / 1000
+    turn_num = step_num + 1
+
+    for action_idx, (act_id, act_data) in enumerate(action_list):
+        # Validate action against currently available actions
+        if act_id not in available:
+            act_id = available[0] if available else 1
+
+        try:
+            action = GameAction.from_id(int(act_id))
+        except (ValueError, KeyError):
+            action = GameAction.ACTION1
+
+        step_num += 1
+        steps_executed += 1
+        aname = ACTION_NAMES.get(act_id, f"ACTION{act_id}")
+        coord_str = f"@({act_data.get('x','?')},{act_data.get('y','?')})" if act_id == 6 and act_data else ""
+        plan_tag = f" [{action_idx+1}/{steps_planned}]" if steps_planned > 1 else ""
+        print(f"  Step {step_num:3d} | {aname}{coord_str:12s} | lvl {levels_done}/{win_levels} | {elapsed_sec:.1f}s{plan_tag}")
+
+        if action_idx == 0:
+            if observation:
+                print(f"           obs: {observation[:100]}")
+            if reasoning:
+                print(f"           why: {reasoning[:100]}")
+            if raw_reasoning_saved:
+                print(f"           raw: {raw_reasoning_saved[:100]}...")
+
+        prev_grid = grid
+        frame = env.step(action, data=act_data or None, reasoning=reasoning if action_idx == 0 else None)
+        if frame is None:
+            print("  [ERROR] env.step returned None")
+            terminal_hit = True
+            break
+
+        new_levels = frame.levels_completed if frame else levels_done
+        new_grid = frame.frame[-1].tolist() if frame.frame else grid
+        state_val = frame.state.value if frame and hasattr(frame.state, "value") else "?"
+        levels_done = new_levels
+        grid = new_grid
+        available = frame.available_actions
+
+        hist_entry = {
+            "step": step_num,
+            "action": act_id,
+            "data": act_data,
+            "state": state_val,
+            "levels": new_levels,
+            "observation": observation if action_idx == 0 else "",
+            "reasoning": reasoning if action_idx == 0 else "",
+        }
+        if raw_reasoning_saved and action_idx == 0:
+            hist_entry["raw_reasoning"] = raw_reasoning_saved
+        history.append(hist_entry)
+
+        # Invoke step callback (used by batch_runner for DB persistence)
+        if step_callback:
+            llm_resp = {"observation": observation, "reasoning": reasoning,
+                        "action": act_id, "data": act_data} if parsed else None
+            try:
+                step_callback(
+                    session_id=session_id, step_num=step_num,
+                    action=act_id, data=act_data,
+                    grid=new_grid, llm_response=llm_resp,
+                    state=state_val, levels=new_levels,
+                )
+            except Exception as cb_err:
+                print(f"  [callback error] {cb_err}")
+
+        # Check for terminal state — break plan early
+        if frame.state in (GameState.WIN, GameState.GAME_OVER):
+            terminal_hit = True
+            break
+
+        # Check step budget
+        if step_num >= max_steps:
+            break
+
+    # Log single-agent turn (1 turn, possibly multiple steps)
+    if session_id:
+        from db import _log_turn as _log_turn_db
+        _log_turn_db(
+            session_id, turn_num, "single_agent",
+            goal=reasoning,
+            steps_planned=steps_planned, steps_executed=steps_executed,
+            step_start=turn_step_start, step_end=step_num,
+            llm_calls=1,
+            total_input_tokens=llm_result.input_tokens,
+            total_output_tokens=llm_result.output_tokens,
+            total_duration_ms=elapsed_ms,
+            timestamp_start=time.time() - (elapsed_ms / 1000),
+            timestamp_end=time.time(),
+        )
+
+    return (step_num, frame, grid, available, levels_done, history, terminal_hit, steps_executed)
+
+
+def _check_terminal_and_post_game(
+    frame,
+    step_num: int,
+    max_steps: int,
+    levels_done: int,
+    win_levels: int,
+    history: list[dict],
+    arcade,
+    game_id: str,
+    cfg: dict,
+) -> tuple:
+    """Check for terminal state and handle post-game.
+    
+    Returns:
+        tuple: (done, result_str) or (False, None) if continuing
+    """
+    if frame.state == GameState.WIN:
+        print(f"\n  >>> WIN!  Completed {win_levels} levels in {step_num} steps <<<\n")
+        _post_game(arcade, game_id, history, "WIN", step_num, levels_done, win_levels, cfg)
+        return (True, "WIN")
+    
+    if frame.state == GameState.GAME_OVER:
+        print(f"\n  >>> GAME OVER at step {step_num}  (levels {levels_done}/{win_levels}) <<<\n")
+        _post_game(arcade, game_id, history, "GAME_OVER", step_num, levels_done, win_levels, cfg)
+        return (True, "GAME_OVER")
+    
+    if step_num >= max_steps:
+        final_state = frame.state.value if frame and hasattr(frame.state, "value") else "TIMEOUT"
+        print(f"\n  >>> Max steps reached ({max_steps}).  Final: {final_state} <<<\n")
+        _post_game(arcade, game_id, history, final_state, step_num,
+                   frame.levels_completed if frame else 0,
+                   frame.win_levels if frame else 0, cfg)
+        return (True, final_state)
+    
+    return (False, None)
+
+
+def play_game(arcade, game_id: str, cfg: dict, max_steps: int = 200,
+              session_id: str | None = None, step_callback=None) -> str:
+    """Orchestrator for game play loop.
+    
+    Manages session setup → main loop (prompt/LLM/parse/execute) → termination checks.
+    """
+    # Session initialization
+    setup_result = _setup_game_session(arcade, game_id, cfg)
+    if setup_result is None:
+        return "ERROR"
+
+    env, frame, hard_memory, history, step_num, steps_since_condense, mcfg = setup_result
     condense_every = mcfg["condense_every"]
     condense_threshold = mcfg["condense_threshold"]
-
+    planning_horizon = cfg["reasoning"].get("planning_horizon", 1)
+    
+    prev_grid: list | None = None
+    
+    # Main game loop
     while step_num < max_steps:
+        # Extract current frame state
         grid = frame.frame[-1].tolist() if frame.frame else []
         state_str = frame.state.value if hasattr(frame.state, "value") else str(frame.state)
         available = frame.available_actions
         levels_done = frame.levels_completed
         win_levels = frame.win_levels
 
-        # Terminal states
-        if frame.state == GameState.WIN:
-            print(f"\n  >>> WIN!  Completed {win_levels} levels in {step_num} steps <<<\n")
-            _post_game(arcade, game_id, history, "WIN", step_num, levels_done, win_levels, cfg)
-            return "WIN"
-        if frame.state == GameState.GAME_OVER:
-            print(f"\n  >>> GAME OVER at step {step_num}  (levels {levels_done}/{win_levels}) <<<\n")
-            _post_game(arcade, game_id, history, "GAME_OVER", step_num, levels_done, win_levels, cfg)
-            return "GAME_OVER"
-
-        # ── Context condensation ────────────────────────────────────────
-        raw_history_len = sum(1 for h in history if not h.get("is_summary"))
-        # Step-count triggers (legacy, disabled when 0)
-        should_condense = (
-            condense_every > 0 and steps_since_condense >= condense_every
-        ) or (
-            condense_threshold > 0 and raw_history_len >= condense_threshold
+        # Check for terminal states at loop start
+        done, result = _check_terminal_and_post_game(
+            frame, step_num, max_steps, levels_done, win_levels, history, arcade, game_id, cfg
         )
-        # Token-based trigger: compact when history portion exceeds ~60% of budget
-        max_ctx_tokens = cfg["context"].get("max_context_tokens", 100000)
-        if max_ctx_tokens > 0 and raw_history_len > 0 and not should_condense:
-            estimated_tokens = len(str(history)) // 4  # rough estimate
-            if estimated_tokens > max_ctx_tokens * 0.6:
-                should_condense = True
-        if should_condense and raw_history_len > 0:
-            history = condense_history(history, cfg)
-            steps_since_condense = 0
+        if done:
+            return result
 
-        # ── Build prompt ────────────────────────────────────────────────
-        context_block = build_context_block(
+        # Maybe condense history
+        history, steps_since_condense = _maybe_condense_history(
+            history, cfg, steps_since_condense, condense_every, condense_threshold
+        )
+
+        # Prepare prompt and call LLM
+        llm_result, prompt, elapsed_ms, turn_num = _prepare_prompt_and_call_llm(
             grid, state_str, available, levels_done, win_levels,
-            game_id, history, cfg, prev_grid, hard_memory,
+            game_id, history, cfg, prev_grid, hard_memory, session_id, step_num
         )
-        prompt = build_action_prompt(context_block, planning_horizon)
 
-        # ── Call LLM ────────────────────────────────────────────────────
-        model_key = effective_model(cfg, "executor")
-        turn_start_time = time.time()
-        llm_result = call_model_with_metadata(model_key, prompt, cfg, role="executor")
-        raw = llm_result.text
-        elapsed = llm_result.duration_ms / 1000
-        turn_num = step_num + 1  # turn number before executing any steps
+        # Parse response and build action list
+        action_list, observation, reasoning, raw_reasoning_saved, hard_memory = _parse_and_build_action_list(
+            llm_result, available, planning_horizon, game_id, cfg
+        )
 
-        if session_id:
-            from db import _log_llm_call
-            _log_llm_call(
-                session_id, "executor", model_key,
-                step_num=step_num + 1,
-                turn_num=turn_num,
-                input_json=prompt[:500],
-                output_json=(raw or "")[:1000],
-                input_tokens=llm_result.input_tokens,
-                output_tokens=llm_result.output_tokens,
-                thinking_tokens=llm_result.thinking_tokens,
-                thinking_json=(llm_result.thinking_text or "")[:5000] if llm_result.thinking_text else None,
-                cost=llm_result.cost,
-                duration_ms=llm_result.duration_ms,
-                error=llm_result.error,
-            )
+        # Execute actions and update history
+        (step_num, frame, grid, available, levels_done, history, 
+         terminal_hit, steps_executed) = _execute_and_log_action_plan(
+            action_list, env, frame, available, grid, levels_done, win_levels,
+            elapsed_ms, step_num, observation, reasoning, raw_reasoning_saved,
+            None, history, session_id, llm_result, step_callback, max_steps
+        )
+        
+        # Update steps_since_condense based on steps executed
+        steps_since_condense += steps_executed
 
-        parsed = _parse_json(raw) if raw else None
-        if parsed is None and raw:
-            parsed = _fallback_parse(raw, available, cfg, model_key)
-        if parsed is None and raw:
-            parsed = _force_extract_action(raw, available, cfg, model_key)
-        raw_reasoning_saved = None
-        if parsed is None:
-            action_id = _fallback_action(available)
-            action_data = {}
-            observation = "parse error / LLM unavailable"
-            reasoning = "fallback"
-            if raw:
-                raw_reasoning_saved = raw[:2000]
-                print(f"  [force-action] could not parse, forcing action={action_id}, reasoning saved")
-        else:
-            observation = parsed.get("observation", "")
-            reasoning = parsed.get("reasoning", "")
-            memory_update = parsed.get("memory_update")
+        # If terminal state was hit during action execution, check again at top of loop
+        if terminal_hit:
+            continue
 
-            # Inline memory write
-            if (
-                mcfg["allow_inline_memory_writes"]
-                and memory_update
-                and isinstance(memory_update, str)
-                and memory_update.strip()
-            ):
-                append_memory_bullet(cfg, game_id, memory_update)
-                hard_memory = load_hard_memory(cfg)  # reload
-                print(f"  [memory inline] {memory_update[:80]}")
-
-        # ── Build action list ─────────────────────────────────────────
-        # Always expect "actions" array; wrap single "action" as 1-element plan
-        if parsed and "actions" in parsed and isinstance(parsed["actions"], list):
-            action_list = []
-            for a in parsed["actions"][:planning_horizon]:
-                aid = a.get("action", 1) if isinstance(a, dict) else int(a)
-                adata = (a.get("data") or {}) if isinstance(a, dict) else {}
-                action_list.append((aid, adata))
-        elif parsed:
-            action_list = [(parsed.get("action", 1), parsed.get("data") or {})]
-        else:
-            action_list = [(action_id, action_data)]
-
-        # ── Execute action(s) ─────────────────────────────────────────
-        steps_planned = len(action_list)
-        steps_executed = 0
-        turn_step_start = step_num + 1
-        terminal_hit = False
-
-        for action_idx, (act_id, act_data) in enumerate(action_list):
-            # Validate action against currently available actions
-            if act_id not in available:
-                act_id = available[0] if available else 1
-
-            try:
-                action = GameAction.from_id(int(act_id))
-            except (ValueError, KeyError):
-                action = GameAction.ACTION1
-
-            step_num += 1
-            steps_since_condense += 1
-            steps_executed += 1
-            aname = ACTION_NAMES.get(act_id, f"ACTION{act_id}")
-            coord_str = f"@({act_data.get('x','?')},{act_data.get('y','?')})" if act_id == 6 and act_data else ""
-            plan_tag = f" [{action_idx+1}/{steps_planned}]" if steps_planned > 1 else ""
-            print(f"  Step {step_num:3d} | {aname}{coord_str:12s} | lvl {levels_done}/{win_levels} | {elapsed:.1f}s{plan_tag}")
-            if action_idx == 0:
-                if observation:
-                    print(f"           obs: {observation[:100]}")
-                if reasoning:
-                    print(f"           why: {reasoning[:100]}")
-                if raw_reasoning_saved:
-                    print(f"           raw: {raw_reasoning_saved[:100]}...")
-
-            prev_grid = grid
-            frame = env.step(action, data=act_data or None, reasoning=reasoning if action_idx == 0 else None)
-            if frame is None:
-                print("  [ERROR] env.step returned None")
-                terminal_hit = True
-                break
-
-            new_levels = frame.levels_completed if frame else levels_done
-            new_grid = frame.frame[-1].tolist() if frame.frame else grid
-            state_val = frame.state.value if frame and hasattr(frame.state, "value") else "?"
-            levels_done = new_levels
-            grid = new_grid
-            available = frame.available_actions
-
-            hist_entry = {
-                "step": step_num,
-                "action": act_id,
-                "data": act_data,
-                "state": state_val,
-                "levels": new_levels,
-                "observation": observation if action_idx == 0 else "",
-                "reasoning": reasoning if action_idx == 0 else "",
-            }
-            if raw_reasoning_saved and action_idx == 0:
-                hist_entry["raw_reasoning"] = raw_reasoning_saved
-            history.append(hist_entry)
-
-            # Invoke step callback (used by batch_runner for DB persistence)
-            if step_callback:
-                llm_resp = {"observation": observation, "reasoning": reasoning,
-                            "action": act_id, "data": act_data} if parsed else None
-                try:
-                    step_callback(
-                        session_id=session_id, step_num=step_num,
-                        action=act_id, data=act_data,
-                        grid=new_grid, llm_response=llm_resp,
-                        state=state_val, levels=new_levels,
-                    )
-                except Exception as cb_err:
-                    print(f"  [callback error] {cb_err}")
-
-            # Check for terminal state — break plan early
-            if frame.state in (GameState.WIN, GameState.GAME_OVER):
-                terminal_hit = True
-                break
-
-            # Check step budget
-            if step_num >= max_steps:
-                break
-
-        # Log single-agent turn (1 turn, possibly multiple steps)
-        if session_id:
-            from db import _log_turn as _log_turn_db
-            _log_turn_db(
-                session_id, turn_num, "single_agent",
-                goal=reasoning,
-                steps_planned=steps_planned, steps_executed=steps_executed,
-                step_start=turn_step_start, step_end=step_num,
-                llm_calls=1,
-                total_input_tokens=llm_result.input_tokens,
-                total_output_tokens=llm_result.output_tokens,
-                total_duration_ms=llm_result.duration_ms,
-                timestamp_start=turn_start_time,
-                timestamp_end=time.time(),
-            )
-
-    # Timed out
+    # Final check (max_steps exceeded)
     final_state = frame.state.value if frame and hasattr(frame.state, "value") else "TIMEOUT"
     print(f"\n  >>> Max steps reached ({max_steps}).  Final: {final_state} <<<\n")
     _post_game(arcade, game_id, history, final_state, step_num,
