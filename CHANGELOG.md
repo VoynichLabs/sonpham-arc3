@@ -5,6 +5,23 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.2.9] — feat: settings UX improvements (model cascade, local token cap, diff overlay, canvas section)
+*Author: Claude Sonnet 4.6 | 2026-03-13*
+
+### Added
+- **Model cascade for sibling selects** — Changing the primary model in multi-model scaffolds (Three-System, Two-System, Agent Spawn, World Model) now automatically updates sibling selects that haven't been explicitly customized. Sibling follows until the user manually changes it.
+- **Local model token cap** — When an lmstudio or ollama model is selected, the corresponding max tokens field is automatically capped at 1024. Applies on select change and on page load/restore.
+- **Persistent Canvas section** — Diff overlay controls (show changes, opacity, highlight color) moved from the Graphics subtab (now removed) into a permanent Canvas section always visible below scaffolding settings. No more tab-switching to adjust overlays.
+- **Diff overlay on by default** — `showChanges` checkbox now defaults to `checked` in HTML. New users see change highlighting immediately.
+
+### Fixed
+- **Opacity slider persistence** — Graphics settings (opacity, color, show-changes) now persist across page reloads via `arc_graphics` localStorage key. Previously the slider reset to 40% on every load.
+
+### Removed
+- **Graphics subtab** — Removed the dedicated Graphics tab from the right panel subtab bar. Controls are now in the always-visible Canvas section.
+
+---
+
 ## [1.2.8] — fix: OAuth beta header, CORS proxy, metadata identification
 *Author: Claude Opus 4.6 | 2026-03-12*
 

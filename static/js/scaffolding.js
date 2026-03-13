@@ -353,6 +353,17 @@ function _populateAllModelSelects() {
   const mainVal = document.getElementById('modelSelect')?.value || '';
   if (mainVal) syncModelToSubSelects(mainVal);
   updateAllByokKeys();
+
+  // Sync cascade last-vals so the first cascade after restore uses the
+  // correct previous value (not the empty-string set at listener-setup time).
+  for (const id of ['sf_ts_plannerModelSelect', 'sf_2s_plannerModelSelect',
+                     'sf_wm_agentModelSelect', 'sf_as_orchestratorModelSelect']) {
+    const el = document.getElementById(id);
+    if (el) el.dataset.cascadeLastVal = el.value;
+  }
+
+  // Apply local model token caps for any restored local model selections.
+  if (typeof applyAllLocalModelTokenCaps === 'function') applyAllLocalModelTokenCaps();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

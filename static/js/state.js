@@ -402,6 +402,7 @@ function loadScaffoldingFromStorage(schemaId) {
       _setVal('sf_2s_maxPlanLength', s.max_plan_length || 15);
     }
     updatePipelineOpacity();
+    applyAllLocalModelTokenCaps();
   } catch {}
 }
 
@@ -434,6 +435,65 @@ document.addEventListener('input', (e) => {
     saveScaffoldingToStorage();
   }
 });
+
+// ── Model cascade helper ───────────────────────────────────────────────────
+// When primary model select changes, copy its value to any sibling that was
+// tracking the old primary value (or was empty). Stores previous value on a
+// data attribute so the correct lastVal is available after loadModels() runs.
+function _cascadeModel(primaryId, siblingIds) {
+  const primary = document.getElementById(primaryId);
+  if (!primary) return;
+  primary.addEventListener('change', function() {
+    const prevVal = this.dataset.cascadeLastVal ?? '';
+    const newVal = this.value;
+    for (const id of siblingIds) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      if (el.value === prevVal || el.value === '' || el.value === 'Select a model...') {
+        el.value = newVal;
+        el.dataset.cascadeLastVal = newVal;
+      }
+    }
+    this.dataset.cascadeLastVal = newVal;
+    updateAllByokKeys();
+    saveScaffoldingToStorage();
+  });
+}
+
+// ── Local model token cap helper ──────────────────────────────────────────
+// When a local (lmstudio/ollama) model is selected, cap associated token
+// fields at 1024 if they are currently above it.
+function _applyLocalModelTokenCap(modelName, tokenFieldIds) {
+  const m = (modelsData || []).find(m => m.name === modelName);
+  if (!m) return;
+  if (m.provider !== 'lmstudio' && m.provider !== 'ollama') return;
+  for (const id of tokenFieldIds) {
+    const el = document.getElementById(id);
+    if (el && parseInt(el.value) > 1024) el.value = 1024;
+  }
+}
+
+// Apply token caps for all currently-visible model selects (called after restore).
+function applyAllLocalModelTokenCaps() {
+  const capMap = [
+    ['modelSelect',                   ['maxTokensLimit']],
+    ['sf_rlm_modelSelect',            ['sf_rlm_maxTokens']],
+    ['sf_rlm_subModelSelect',         ['sf_rlm_subMaxTokens']],
+    ['sf_ts_plannerModelSelect',      ['sf_ts_plannerMaxTokens']],
+    ['sf_ts_monitorModelSelect',      ['sf_ts_monitorMaxTokens']],
+    ['sf_ts_wmModelSelect',           ['sf_ts_wmMaxTokens']],
+    ['sf_2s_plannerModelSelect',      ['sf_2s_plannerMaxTokens']],
+    ['sf_2s_monitorModelSelect',      ['sf_2s_monitorMaxTokens']],
+    ['sf_as_orchestratorModelSelect', ['sf_as_orchestratorMaxTokens']],
+    ['sf_as_subagentModelSelect',     ['sf_as_subagentMaxTokens']],
+    ['sf_wm_agentModelSelect',        ['sf_wm_agentMaxTokens']],
+    ['sf_wm_wmModelSelect',           ['sf_wm_wmMaxTokens']],
+  ];
+  for (const [selId, fieldIds] of capMap) {
+    const el = document.getElementById(selId);
+    if (el && el.value) _applyLocalModelTokenCap(el.value, fieldIds);
+  }
+}
 
 function attachSettingsListeners() {
   // compactContextPct ArrowUp/Down
@@ -484,6 +544,35 @@ function attachSettingsListeners() {
   ]) {
     const el = document.getElementById(selId);
     if (el) el.addEventListener('change', updateAllByokKeys);
+  }
+
+  // ── Model cascade: auto-populate sibling selects when primary changes ──
+  _cascadeModel('sf_ts_plannerModelSelect', ['sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect']);
+  _cascadeModel('sf_2s_plannerModelSelect', ['sf_2s_monitorModelSelect']);
+  _cascadeModel('sf_wm_agentModelSelect',   ['sf_wm_wmModelSelect']);
+  _cascadeModel('sf_as_orchestratorModelSelect', ['sf_as_subagentModelSelect']);
+
+  // ── Local model token cap: fire on every model select change ──
+  const _tokenCapMap = [
+    ['modelSelect',                   ['maxTokensLimit']],
+    ['sf_rlm_modelSelect',            ['sf_rlm_maxTokens']],
+    ['sf_rlm_subModelSelect',         ['sf_rlm_subMaxTokens']],
+    ['sf_ts_plannerModelSelect',      ['sf_ts_plannerMaxTokens']],
+    ['sf_ts_monitorModelSelect',      ['sf_ts_monitorMaxTokens']],
+    ['sf_ts_wmModelSelect',           ['sf_ts_wmMaxTokens']],
+    ['sf_2s_plannerModelSelect',      ['sf_2s_plannerMaxTokens']],
+    ['sf_2s_monitorModelSelect',      ['sf_2s_monitorMaxTokens']],
+    ['sf_as_orchestratorModelSelect', ['sf_as_orchestratorMaxTokens']],
+    ['sf_as_subagentModelSelect',     ['sf_as_subagentMaxTokens']],
+    ['sf_wm_agentModelSelect',        ['sf_wm_agentMaxTokens']],
+    ['sf_wm_wmModelSelect',           ['sf_wm_wmMaxTokens']],
+  ];
+  for (const [selId, fieldIds] of _tokenCapMap) {
+    const el = document.getElementById(selId);
+    if (el) el.addEventListener('change', function() {
+      _applyLocalModelTokenCap(this.value, fieldIds);
+      saveScaffoldingToStorage();
+    });
   }
 
   // toolsMode radio — Pyodide download prompt
