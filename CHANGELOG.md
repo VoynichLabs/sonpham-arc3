@@ -5,6 +5,14 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.2.6] — Fix: restore dropped _humanCanvasClick function
+*Author: Claude Opus 4.6 | 2026-03-12*
+
+### Fixed
+- **`static/js/human-input.js`** — `_humanCanvasClick()` (the click-to-play handler for ACTION6 games) was referenced by `_setupHumanCanvasClick()` but the function itself was dropped during the Phase 1 split of `human.js`. Restored from master. Without this, `initApp` crashed with `ReferenceError: _humanCanvasClick is not defined`.
+
+---
+
 ## [1.2.5] — Clean up incomplete Phase 1 module split: remove dead files and duplicate functions
 *Author: Claude Opus 4.6 | 2026-03-12*
 
