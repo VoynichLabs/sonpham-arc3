@@ -82,11 +82,12 @@ function updateAllByokKeys() {
     const label = PROVIDER_LABELS[provider] || provider;
     const saved = savedValues[provider] || localStorage.getItem(`byok_key_${provider}`) || '';
     html += `<div style="margin-bottom:8px;">`;
-    html += `<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">${label} API Key</div>`;
+    const labelSuffix = provider === 'anthropic' ? 'API Key / Token' : 'API Key';
+    html += `<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">${label} ${labelSuffix}</div>`;
     const placeholder = provider === 'anthropic'
       ? 'Paste API key (sk-ant-api...) or Claude Code token (sk-ant-oat...)...'
       : `Paste API key for ${label} here...`;
-    html += `<input type="password" class="text-input" data-byok-provider="${provider}" value="${saved.replace(/"/g, '&quot;')}" placeholder="${placeholder}" style="margin-bottom:4px;">`;
+    html += `<input type="text" class="text-input" data-byok-provider="${provider}" value="${saved.replace(/"/g, '&quot;')}" placeholder="${placeholder}" style="margin-bottom:4px;font-size:10px;font-family:monospace;">`;
     if (provider === 'anthropic') {
       html += `<div style="font-size:9px;color:var(--text-dim);margin-bottom:4px;">No API key? Run <code style="background:var(--bg-secondary);padding:1px 4px;border-radius:3px;">claude setup-token</code> in your terminal to generate a free OAuth token from your Claude Pro/Max subscription.</div>`;
     }
@@ -117,6 +118,35 @@ function updateAllByokKeys() {
   // Auto-open Model Keys section
   const sec = document.getElementById('secKeys');
   if (sec && !sec.classList.contains('open')) sec.classList.add('open');
+}
+
+// ── Sync main model to all scaffold sub-selects ──
+// When the main modelSelect changes, propagate to any sub-select that is still
+// at the default empty value ("Select a model...") or that matched the previous
+// main selection. This way the user only picks the model once unless they
+// explicitly choose a different one for a specific sub-select.
+let _prevMainModel = '';
+const _SUB_SELECT_IDS = [
+  'compactModelSelectTop', 'interruptModelSelect',
+  'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
+  'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
+  'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect',
+  'sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect',
+];
+
+function syncModelToSubSelects(newModel) {
+  for (const id of _SUB_SELECT_IDS) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const cur = el.value;
+    // Sync if sub-select is empty or was following the previous main model
+    if (!cur || cur === _prevMainModel) {
+      if ([...el.options].some(o => o.value === newModel)) {
+        el.value = newModel;
+      }
+    }
+  }
+  _prevMainModel = newModel;
 }
 
 function updateModelCaps() {

@@ -322,6 +322,9 @@ async function loadModels() {
   } catch {}
 
   updateModelCaps();
+  // Sync main model to sub-selects on initial load
+  const mainVal = document.getElementById('modelSelect')?.value || '';
+  if (mainVal) syncModelToSubSelects(mainVal);
   updateAllByokKeys();
 }
 

@@ -16,11 +16,15 @@ def _is_oauth_token(key: str) -> bool:
     return key.startswith("sk-ant-oat")
 
 
+_UA = "sonpham-arc3/1.2.8 (ARC Prize research; https://three.arcprize.org; https://arc.markbarney.net; https://arc3.sonpham.net; contact mark@markbarney.net)"
+
+
 def _anthropic_auth_headers(api_key: str) -> dict:
     """Build auth headers — Bearer for OAuth tokens, x-api-key for API keys."""
-    base = {"anthropic-version": "2023-06-01", "content-type": "application/json"}
+    base = {"anthropic-version": "2023-06-01", "content-type": "application/json", "User-Agent": _UA}
     if _is_oauth_token(api_key):
         base["Authorization"] = f"Bearer {api_key}"
+        base["anthropic-beta"] = "oauth-2025-04-20"
     else:
         base["x-api-key"] = api_key
     return base
@@ -45,6 +49,7 @@ def _call_anthropic(model_name: str, prompt: str, image_b64: str | None = None, 
             "model": model_name, "system": SYSTEM_MSG,
             "messages": [{"role": "user", "content": content_blocks}],
             "temperature": 0.3, "max_tokens": max_tokens,
+            "metadata": {"user_id": "arc-prize-research"},
         },
         timeout=90.0,
     )

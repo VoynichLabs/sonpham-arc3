@@ -446,11 +446,12 @@ function attachSettingsListeners() {
     });
   }
 
-  // modelSelect change
+  // modelSelect change — also sync to all scaffold sub-selects
   const modelSel = document.getElementById('modelSelect');
   if (modelSel) {
     modelSel.addEventListener('change', function() {
       updateModelCaps();
+      syncModelToSubSelects(this.value);
       updateAllByokKeys();
       const model = this.value;
       const isPuter = modelsData.some(m => m.name === model && m.provider === 'puter');
