@@ -413,8 +413,8 @@ def _unit_color(unit):
 
 # ── Display ────────────────────────────────────────────────────────────────────
 
-class Mw01Display(RenderableUserDisplay):
-    def __init__(self, game: "Mw01"):
+class Mw04Display(RenderableUserDisplay):
+    def __init__(self, game: "Mw04"):
         self.game = game
 
     def render_interface(self, frame: np.ndarray) -> np.ndarray:
@@ -571,9 +571,9 @@ class Mw01Display(RenderableUserDisplay):
 
 # ── Game class ─────────────────────────────────────────────────────────────────
 
-class Mw01(ARCBaseGame):
+class Mw04(ARCBaseGame):
     def __init__(self):
-        self.display = Mw01Display(self)
+        self.display = Mw04Display(self)
 
         # Mutable state (reset in on_set_level)
         self.units         = []
@@ -589,7 +589,7 @@ class Mw01(ARCBaseGame):
         self.hold_counter  = 0
 
         super().__init__(
-            "mw",
+            "mw04",
             levels,
             Camera(0, 0, CW, CH, BLACK, BLACK, [self.display]),
             False,
