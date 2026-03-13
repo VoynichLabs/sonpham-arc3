@@ -34,6 +34,9 @@ function getSelectedModel() {
   if (activeScaffoldingType === 'agent_spawn') {
     return document.getElementById('sf_as_orchestratorModelSelect')?.value || '';
   }
+  if (activeScaffoldingType === 'world_model') {
+    return document.getElementById('sf_wm_agentModelSelect')?.value || '';
+  }
   return document.getElementById('modelSelect')?.value || '';
 }
 
