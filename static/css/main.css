@@ -652,6 +652,17 @@
     text-decoration: none !important; }
   .top-nav .nav-link:hover { color: var(--text); background: var(--border); }
   .top-nav .nav-link.active { color: var(--accent); background: #58a6ff18; }
+  /* Cross-page nav switch button (Observatory ⟷ Arena) */
+  .nav-switch-btn { display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; padding: 4px 14px; border-radius: 6px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-dim); text-decoration: none; cursor: pointer;
+    transition: all 0.15s; font-family: inherit; font-weight: 500; white-space: nowrap; }
+  .nav-switch-btn:hover { color: var(--text); border-color: var(--accent); background: var(--surface2); }
+  .logo-with-sub { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  .logo-sub-link { font-size: 9px; color: var(--text-dim); text-decoration: none;
+    opacity: 0.4; transition: opacity 0.15s; letter-spacing: 0.3px; }
+  .logo-sub-link:hover { opacity: 1; color: var(--accent); }
 
   .session-tab-bar { display: flex; align-items: center; gap: 4px; padding: 6px 10px;
     background: var(--bg); border-bottom: 1px solid var(--border); flex-shrink: 0;
@@ -1020,11 +1031,15 @@
   .lb-row:hover { background: var(--surface2, var(--surface)); }
   .lb-row td { padding: 6px 8px; border-bottom: 1px solid var(--border); }
 
-  .lb-game-name { font-weight: 700; color: var(--accent); }
+  .lb-game-name { font-weight: 700; color: var(--accent); white-space: nowrap; }
+  .lb-ver { color: var(--text-dim); font-size: 10px; font-weight: 400; margin-left: 2px; }
+  .lb-td-levels { text-align: center; font-weight: 600; color: var(--text); }
+  .lb-td-steps { text-align: center; color: var(--text); }
+  .lb-td-date { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
+  .lb-td-duration { color: var(--text-dim); font-size: 10px; white-space: nowrap; }
   .lb-empty { color: var(--text-dim); text-align: center; font-style: italic; }
   .lb-loading { text-align: center; color: var(--text-dim); padding: 30px; }
 
-  .lb-winner { font-weight: 700; }
   .lb-model { font-size: 10px; color: var(--text-dim); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lb-author { font-size: 10px; color: var(--text-dim); max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

@@ -5,7 +5,7 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
-## [1.3.1] — fix: resume error + browse sessions table redesign
+## [1.3.1] — fix: resume error + browse sessions & leaderboard table redesign
 *Author: Claude Opus 4.6 | 2026-03-14*
 
 ### Fixed
@@ -15,7 +15,8 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 ### Changed
 - **Browse Sessions redesigned as tables** — Human / AI / My Sessions columns now render as proper `<table>` elements with sticky headers. Columns: Timestamp, Game (with version like "td05 v5"), Result, Level, Steps, Duration, Actions.
 - **Action buttons** — Replay (play icon), Resume (for unfinished), Copy ID (clipboard icon with checkmark feedback), Delete (for local sessions). More compact than the old full-text buttons.
-- **`game_version` in sessions API** — `/api/sessions` now returns the `game_version` field so the browse table can show which version a session was played on.
+- **Leaderboard redesigned** — Both main and drill-down tables now show Levels and Steps prominently. Columns: Game (with version), Result, Lv, Steps, Model/Time/By, Date. Sorted by highest levels first, then fewest steps.
+- **`game_version` in sessions & leaderboard APIs** — `/api/sessions` and `/api/leaderboard` now return the `game_version` field to show which version a session was played on.
 
 ---
 
@@ -26,7 +27,9 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 - **ARC Arena page** (`/arena`) — New standalone page for watching AI agents compete head-to-head in strategy games.
 - **Three-column layout** — Left panel (Agent A settings/logs), center (game canvas + scrubber), right panel (Agent B settings/logs). Side panels transition from settings mode (pre-match) to observatory mode (reasoning logs during match).
 - **Snake Battle game** — First AI vs AI game: two snakes on a 20x20 grid compete for food. Simultaneous moves, wall/body collisions, fully deterministic with seeded PRNG.
-- **Three AI strategies** — Greedy (chase food), Aggressive (hunt when longer, feed when shorter), Cautious (flood-fill space analysis to avoid traps).
+- **Fischer Random Chess (Chess960)** — Full chess engine in JS: legal move generation, check/checkmate/stalemate detection, en passant, promotion. Fischer Random starting positions from seed. Two AI strategies using minimax with alpha-beta pruning (Tactician depth 3, Positional depth 2). Unicode piece rendering on ARC3-colored checkerboard. Turn-based match runner with alternating white/black moves.
+- **Per-game strategy selects** — Strategy dropdowns dynamically populate based on the selected game (snake strategies vs chess strategies).
+- **Three snake AI strategies** — Greedy (chase food), Aggressive (hunt when longer, feed when shorter), Cautious (flood-fill space analysis to avoid traps).
 - **Personality bars** — Visual indicator of each strategy's aggression, caution, and greed traits.
 - **Match scrubber** — Scrubbing the timeline renders the game state AND auto-scrolls both reasoning logs to the matching turn with highlighting.
 - **Keyboard shortcuts** — Space (play/pause), arrows (step), Home/End (jump), Escape (back to setup).
