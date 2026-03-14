@@ -101,30 +101,7 @@
           <p>Select a game, configure your agents, and start the match</p>
         </div>
         <div class="game-card-row" id="gameCardRow">
-          <!-- Snake Battle -->
-          <div class="arena-game-card active" data-game="snake" onclick="selectGameCard(this, 'snake')">
-            <canvas class="arena-game-preview" id="preview-snake"></canvas>
-            <div class="arena-game-meta">
-              <div class="arena-game-title">Snake Battle</div>
-              <div class="arena-game-desc">Two AI snakes compete for food. Eat to grow, avoid walls and each other.</div>
-              <div class="arena-game-tags">
-                <span class="arena-tag">Strategy</span>
-                <span class="arena-tag">2-Player</span>
-              </div>
-            </div>
-          </div>
-          <!-- Fischer Random Chess -->
-          <div class="arena-game-card" data-game="chess960" onclick="selectGameCard(this, 'chess960')">
-            <canvas class="arena-game-preview" id="preview-chess960"></canvas>
-            <div class="arena-game-meta">
-              <div class="arena-game-title">Fischer Random Chess</div>
-              <div class="arena-game-desc">Chess960 — back rank pieces shuffled randomly. Full chess with unique openings every game.</div>
-              <div class="arena-game-tags">
-                <span class="arena-tag">Chess</span>
-                <span class="arena-tag">Turn-based</span>
-              </div>
-            </div>
-          </div>
+          <!-- Populated dynamically by buildGameCards() -->
         </div>
         <div class="match-config">
           <div class="config-row">

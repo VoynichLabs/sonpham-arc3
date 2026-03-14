@@ -819,6 +819,10 @@ class SessionState {
     this._originalSettings = null;  // { model, scaffolding_type }
     // Upload tracking
     this._lastUploadedStep = 0;  // last step successfully uploaded to server
+    // Game version tracking
+    this.gameVersion = '';        // version directory for the game (e.g. '00000014')
+    // Memory snapshots for inspection
+    this.memorySnapshots = [];    // [{step_num, agent_type, agent_id, memory, timestamp}]
   }
   get avgCallDuration() {
     if (!this.callDurations.length) return 5000; // default 5s

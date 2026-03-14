@@ -30,13 +30,14 @@ function switchSubTab(tab) {
   if (tab === 'reasoning' || tab === 'timeline') tab = 'settings';
   document.querySelectorAll('.subtab-bar button').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.subtab-pane').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
-  const tabMap = { settings: 'subtabSettings', prompts: 'subtabPrompts', graphics: 'subtabGraphics' };
+  const tabMap = { settings: 'subtabSettings', prompts: 'subtabPrompts', graphics: 'subtabGraphics', memory: 'subtabMemory' };
   const buttons = document.querySelectorAll('.subtab-bar button');
-  const idx = { settings: 0, prompts: 1, graphics: 2 }[tab] ?? 0;
+  const idx = { settings: 0, prompts: 1, graphics: 2, memory: 3 }[tab] ?? 0;
   if (buttons[idx]) buttons[idx].classList.add('active');
   const pane = document.getElementById(tabMap[tab]);
   if (pane) { pane.classList.add('active'); pane.style.display = 'flex'; }
   if (tab === 'prompts') renderPromptsTab();
+  if (tab === 'memory') _renderMemoryInspector();
 }
 
 function toggleAdBanner() {} // legacy no-op

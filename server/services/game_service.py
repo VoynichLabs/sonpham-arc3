@@ -92,6 +92,11 @@ def start(data: dict, get_arcade_fn=None, env_state_dict_fn=None,
     state["session_id"] = session_id
     state["change_map"] = {"changes": [], "change_count": 0, "change_map_text": "(initial)"}
     
+    # Resolve game version directory for this game
+    from server.helpers import get_game_version
+    game_version = get_game_version(game_id)
+    state["game_version"] = game_version
+
     # Persist to SQLite if enabled
     if feature_enabled_fn and feature_enabled_fn("session_db") and _db_insert_session_fn:
         user = get_current_user_fn() if get_current_user_fn else None
@@ -100,7 +105,10 @@ def start(data: dict, get_arcade_fn=None, env_state_dict_fn=None,
             session_id, game_id, mode,
             user_id=user["id"] if user else None
         )
-    
+        # Store game version on session record
+        from db import _db_update_session
+        _db_update_session(session_id, game_version=game_version)
+
     return state, 200
 
 
