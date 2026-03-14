@@ -1,7 +1,8 @@
 /* Author: Claude Opus 4.6
-   Date: 2026-03-14 09:30
+   Date: 2026-03-14 16:00
    PURPOSE: Styles for ARC Arena — Agent vs Agent page. Three-column layout with
    side panels (agent settings/logs) and center panel (game selection/match canvas).
+   Game selection uses categorized grid layout with responsive auto-fill columns.
    Reuses CSS variables from main.css for theme consistency.
    SRP/DRY check: Pass — arena-specific styles only, no overlap with main.css components */
 
@@ -145,7 +146,7 @@
 /* ── Game Selection Area (pre-match) ──────────────────────────────────────── */
 .game-select-area {
   flex: 1; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; padding: 32px 24px; overflow-y: auto;
+  padding: 32px 24px; overflow-y: auto;
 }
 .game-select-area.hidden { display: none; }
 
@@ -160,14 +161,27 @@
 }
 
 .game-card-row {
-  display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
-  margin-bottom: 28px; max-width: 100%;
+  display: flex; flex-direction: column; gap: 28px;
+  margin-bottom: 28px; width: 100%; max-width: 1200px;
+}
+
+/* Category group */
+.game-category { display: flex; flex-direction: column; gap: 14px; margin-bottom: 8px; }
+.game-category-label {
+  font-size: 18px; font-weight: 700; color: var(--text);
+  letter-spacing: 0.3px;
+  padding-bottom: 8px; border-bottom: 2px solid var(--border);
+}
+.game-category-grid {
+  display: flex; flex-wrap: wrap;
+  gap: 12px;
 }
 
 .arena-game-card {
   background: var(--surface); border: 2px solid var(--border); border-radius: 12px;
   padding: 16px; cursor: pointer; transition: all 0.2s;
-  display: flex; align-items: center; gap: 16px; max-width: 480px; width: 100%;
+  display: flex; align-items: center; gap: 16px;
+  width: 340px; flex-shrink: 0;
 }
 .arena-game-card:hover { border-color: var(--text-dim); }
 .arena-game-card.active { border-color: var(--accent); background: var(--surface2); }
