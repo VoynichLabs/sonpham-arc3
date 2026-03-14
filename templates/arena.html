@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>((t)=>{if(t)document.documentElement.setAttribute('data-theme',t)})(localStorage.getItem('arc-theme'))</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARC Arena</title>
+<link rel="stylesheet" href="/static/css/main.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/arena.css?v={{ static_v }}">
+</head>
+<body>
+<div class="arena-container">
+  <!-- ── Top Nav ──────────────────────────────────────────────────────────── -->
+  <div class="arena-top-nav">
+    <span class="app-title">
+      <!-- Logo pixel art:  XXXX          XXXX
+                          XOOX -- -- -- XOOX
+                          XOOX -- -- -- XOOX
+                          XXXX          XXXX
+           X = border squares, O = solid inner square, both filled same color.
+           Ping-pong pulse: left bright → connectors wave right → right bright → connectors wave left → repeat -->
+      <svg class="arena-logo" viewBox="0 0 53 16" width="64" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- Left block: border (X) at 0.5 opacity, inner (O) at full — both solid -->
+        <rect x="0" y="0" width="16" height="16" rx="1.5" fill="var(--accent)">
+          <animate attributeName="opacity" values="0.55;0.55;0.1;0.1;0.55" keyTimes="0;0.2;0.45;0.8;1" dur="3s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="4" y="4" width="8" height="8" rx="1" fill="var(--accent)">
+          <animate attributeName="opacity" values="1;1;0.15;0.15;1" keyTimes="0;0.2;0.45;0.8;1" dur="3s" repeatCount="indefinite"/>
+        </rect>
+        <!-- Connector dots: wave left→right then right→left -->
+        <circle cx="20" cy="8" r="1.5" fill="var(--accent)">
+          <animate attributeName="opacity" values="0.5;0.12;0.12;0.12;0.5" keyTimes="0;0.15;0.45;0.85;1" dur="3s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="26.5" cy="8" r="1.5" fill="var(--accent)">
+          <animate attributeName="opacity" values="0.12;0.5;0.12;0.5;0.12" keyTimes="0;0.25;0.45;0.75;1" dur="3s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="33" cy="8" r="1.5" fill="var(--accent)">
+          <animate attributeName="opacity" values="0.12;0.12;0.5;0.12;0.12" keyTimes="0;0.35;0.5;0.65;1" dur="3s" repeatCount="indefinite"/>
+        </circle>
+        <!-- Right block: border (X) + inner (O), offset animation -->
+        <rect x="37" y="0" width="16" height="16" rx="1.5" fill="var(--accent)">
+          <animate attributeName="opacity" values="0.1;0.1;0.55;0.55;0.1" keyTimes="0;0.2;0.45;0.8;1" dur="3s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="41" y="4" width="8" height="8" rx="1" fill="var(--accent)">
+          <animate attributeName="opacity" values="0.15;0.15;1;1;0.15" keyTimes="0;0.2;0.45;0.8;1" dur="3s" repeatCount="indefinite"/>
+        </rect>
+      </svg>
+      <span class="app-title-text">ARC Arena<a class="logo-sub-link" href="/obs">&#8594; to Observatory</a></span>
+    </span>
+    <span style="flex:1"></span>
+    <a class="nav-switch-btn" href="/obs">&#8592; to Observatory</a>
+    <button id="themeToggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-size:16px;padding:4px 8px;border-radius:6px;line-height:1;" title="Toggle light/dark mode"></button>
+  </div>
+
+  <!-- ── Three-Column Layout (persistent) ─────────────────────────────────── -->
+  <div class="arena-layout">
+
+    <!-- ── Left Panel: Agent A ──────────────────────────────────────────────── -->
+    <div class="arena-side-panel" id="panelA">
+      <div class="agent-header">
+        <div class="agent-avatar agent-avatar-a">A</div>
+        <div class="agent-info">
+          <div class="agent-name">Agent A</div>
+        </div>
+        <div class="agent-score-box">
+          <div class="agent-score-label">Score</div>
+          <div class="agent-score-val score-a" id="sbScoreA">0</div>
+        </div>
+      </div>
+
+      <!-- Settings mode (pre-match) -->
+      <div class="agent-settings" id="settingsA">
+        <div class="setting-section">
+          <div class="setting-label">Strategy</div>
+          <select class="setting-select" id="stratA">
+            <option value="greedy" selected>Greedy</option>
+            <option value="aggressive">Aggressive</option>
+            <option value="cautious">Cautious</option>
+          </select>
+          <div class="setting-desc" id="stratDescA">Chases food directly</div>
+        </div>
+        <div class="setting-section">
+          <div class="setting-label">Personality</div>
+          <div class="agent-personality-preview" id="personalityA">
+            <div class="personality-bar">
+              <span class="personality-stat"><span class="stat-label">Aggression</span><span class="stat-bar"><span class="stat-fill" style="width:20%"></span></span></span>
+              <span class="personality-stat"><span class="stat-label">Caution</span><span class="stat-bar"><span class="stat-fill" style="width:40%"></span></span></span>
+              <span class="personality-stat"><span class="stat-label">Greed</span><span class="stat-bar"><span class="stat-fill" style="width:90%"></span></span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Observatory mode (during match) -->
+      <div class="agent-log" id="logA"></div>
+    </div>
+
+    <!-- ── Center Panel ─────────────────────────────────────────────────────── -->
+    <div class="arena-center" id="centerPanel">
+
+      <!-- Pre-match: Game Selection -->
+      <div class="game-select-area" id="gameSelectArea">
+        <div class="game-select-header">
+          <h2>Choose a Game</h2>
+          <p>Select a game, configure your agents, and start the match</p>
+        </div>
+        <div class="game-card-row" id="gameCardRow">
+          <!-- Snake Battle -->
+          <div class="arena-game-card active" data-game="snake" onclick="selectGameCard(this, 'snake')">
+            <canvas class="arena-game-preview" id="preview-snake"></canvas>
+            <div class="arena-game-meta">
+              <div class="arena-game-title">Snake Battle</div>
+              <div class="arena-game-desc">Two AI snakes compete for food. Eat to grow, avoid walls and each other.</div>
+              <div class="arena-game-tags">
+                <span class="arena-tag">Strategy</span>
+                <span class="arena-tag">2-Player</span>
+              </div>
+            </div>
+          </div>
+          <!-- Fischer Random Chess -->
+          <div class="arena-game-card" data-game="chess960" onclick="selectGameCard(this, 'chess960')">
+            <canvas class="arena-game-preview" id="preview-chess960"></canvas>
+            <div class="arena-game-meta">
+              <div class="arena-game-title">Fischer Random Chess</div>
+              <div class="arena-game-desc">Chess960 — back rank pieces shuffled randomly. Full chess with unique openings every game.</div>
+              <div class="arena-game-tags">
+                <span class="arena-tag">Chess</span>
+                <span class="arena-tag">Turn-based</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="match-config">
+          <div class="config-row">
+            <label>Seed</label>
+            <input type="number" id="cfgSeed" value="42" min="1">
+          </div>
+          <div class="config-row">
+            <label>Max Turns</label>
+            <input type="number" id="cfgMaxTurns" value="200" min="10" max="1000">
+          </div>
+          <button class="config-start-btn" onclick="startMatch()">Start Match</button>
+        </div>
+      </div>
+
+      <!-- During match: Canvas + Controls -->
+      <div class="match-area" id="matchArea">
+        <div class="arena-topbar">
+          <span class="game-title" id="arenaGameTitle">Snake Battle</span>
+          <span class="turn-info" id="turnInfo">Turn 0 / 0</span>
+          <span class="match-status ready" id="matchStatus">Ready</span>
+        </div>
+
+        <div class="arena-canvas-area">
+          <canvas id="arenaCanvas" width="512" height="512"></canvas>
+          <div class="winner-overlay" id="winnerOverlay">
+            <div class="winner-text" id="winnerText"></div>
+            <div class="winner-sub" id="winnerSub"></div>
+          </div>
+        </div>
+
+        <div class="arena-scoreboard">
+          <div class="sb-agent">
+            <div class="sb-dot sb-dot-a"></div>
+            <span class="sb-name">Agent A</span>
+            <span class="sb-score score-a" id="sbScoreAMatch">0</span>
+          </div>
+          <div class="sb-vs">vs</div>
+          <div class="sb-agent">
+            <span class="sb-score score-b" id="sbScoreBMatch">0</span>
+            <span class="sb-name">Agent B</span>
+            <div class="sb-dot sb-dot-b"></div>
+          </div>
+        </div>
+
+        <div class="arena-scrubber-wrap">
+          <label id="scrubLabel">Turn 0</label>
+          <input type="range" id="arenaScrubber" min="0" max="0" value="0">
+        </div>
+
+        <div class="arena-transport">
+          <button class="btn" onclick="backToSetup()" title="Back to setup">Back</button>
+          <button class="btn" onclick="arenaStepBack()" title="Step back (&#8592;)">&#9664;</button>
+          <button class="btn btn-primary" id="arenaPlayBtn" onclick="arenaPlayPause()">Play</button>
+          <button class="btn" onclick="arenaStepForward()" title="Step forward (&#8594;)">&#9654;</button>
+          <button class="btn" onclick="restartMatch()" title="Rematch with new settings">Rematch</button>
+          <select id="arenaSpeed" title="Playback speed">
+            <option value="500">0.5x</option>
+            <option value="200" selected>1x</option>
+            <option value="100">2x</option>
+            <option value="50">4x</option>
+            <option value="10">Max</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Right Panel: Agent B ─────────────────────────────────────────────── -->
+    <div class="arena-side-panel" id="panelB">
+      <div class="agent-header">
+        <div class="agent-avatar agent-avatar-b">B</div>
+        <div class="agent-info">
+          <div class="agent-name">Agent B</div>
+        </div>
+        <div class="agent-score-box">
+          <div class="agent-score-label">Score</div>
+          <div class="agent-score-val score-b" id="sbScoreB">0</div>
+        </div>
+      </div>
+
+      <!-- Settings mode (pre-match) -->
+      <div class="agent-settings" id="settingsB">
+        <div class="setting-section">
+          <div class="setting-label">Strategy</div>
+          <select class="setting-select" id="stratB">
+            <option value="greedy">Greedy</option>
+            <option value="aggressive" selected>Aggressive</option>
+            <option value="cautious">Cautious</option>
+          </select>
+          <div class="setting-desc" id="stratDescB">Hunts when longer, feeds when shorter</div>
+        </div>
+        <div class="setting-section">
+          <div class="setting-label">Personality</div>
+          <div class="agent-personality-preview" id="personalityB">
+            <div class="personality-bar">
+              <span class="personality-stat"><span class="stat-label">Aggression</span><span class="stat-bar"><span class="stat-fill" style="width:80%"></span></span></span>
+              <span class="personality-stat"><span class="stat-label">Caution</span><span class="stat-bar"><span class="stat-fill" style="width:30%"></span></span></span>
+              <span class="personality-stat"><span class="stat-label">Greed</span><span class="stat-bar"><span class="stat-fill" style="width:50%"></span></span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Observatory mode (during match) -->
+      <div class="agent-log" id="logB"></div>
+    </div>
+
+  </div>
+</div>
+
+<script src="/static/js/arena.js?v={{ static_v }}"></script>
+</body>
+</html>

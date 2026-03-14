@@ -1,0 +1,320 @@
+/* Author: Claude Opus 4.6
+   Date: 2026-03-14 09:30
+   PURPOSE: Styles for ARC Arena — Agent vs Agent page. Three-column layout with
+   side panels (agent settings/logs) and center panel (game selection/match canvas).
+   Reuses CSS variables from main.css for theme consistency.
+   SRP/DRY check: Pass — arena-specific styles only, no overlap with main.css components */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Layout Shell
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Arena color theme: warm amber instead of Observatory blue */
+.arena-container {
+  --accent: #e09540;
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+}
+[data-theme="light"] .arena-container {
+  --accent: #a06a18;
+}
+
+/* ── Top Nav ──────────────────────────────────────────────────────────────── */
+.arena-top-nav {
+  display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.arena-top-nav .app-title {
+  display: flex; align-items: center; gap: 8px; font-weight: 700;
+  font-size: 18px; color: var(--accent); white-space: nowrap;
+  letter-spacing: 0.5px; text-transform: uppercase;
+}
+.arena-top-nav .app-title-text {
+  display: flex; flex-direction: column; line-height: 1.1;
+}
+.arena-top-nav .nav-link {
+  color: var(--text-dim); text-decoration: none; font-size: 12px;
+  padding: 4px 10px; border-radius: 6px; transition: all 0.15s;
+}
+.arena-top-nav .nav-link:hover { color: var(--text); background: var(--border); }
+.arena-top-nav .nav-link.active { color: var(--accent); }
+.arena-badge {
+  font-size: 9px; font-weight: 600; letter-spacing: 1.5px;
+  color: var(--text-dim); opacity: 0.6; margin-top: 2px;
+}
+.arena-logo { flex-shrink: 0; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Three-Column Layout (persistent across selection & match views)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.arena-layout {
+  flex: 1; display: flex; overflow: hidden; min-height: 0;
+}
+
+/* ── Side Panels (Agent A left, Agent B right) ────────────────────────────── */
+.arena-side-panel {
+  width: 300px; flex-shrink: 0; display: flex; flex-direction: column;
+  background: var(--surface); overflow: hidden;
+}
+#panelA { border-right: 1px solid var(--border); }
+#panelB { border-left: 1px solid var(--border); }
+
+.agent-header {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.agent-avatar {
+  width: 36px; height: 36px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-weight: 700;
+  font-size: 16px; color: #000; flex-shrink: 0;
+}
+.agent-avatar-a { background: var(--accent); }
+.agent-avatar-b { background: var(--red); }
+.agent-info { flex: 1; min-width: 0; }
+.agent-name { font-weight: 600; font-size: 14px; }
+.agent-score-box { text-align: center; flex-shrink: 0; }
+.agent-score-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.agent-score-val { font-size: 24px; font-weight: 700; line-height: 1; }
+.score-a { color: var(--accent); }
+.score-b { color: var(--red); }
+
+/* ── Agent Settings (pre-match) ───────────────────────────────────────────── */
+.agent-settings {
+  flex: 1; overflow-y: auto; padding: 16px 14px;
+}
+.setting-section { margin-bottom: 20px; }
+.setting-label {
+  font-size: 10px; font-weight: 600; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;
+}
+.setting-select {
+  width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 13px; padding: 8px 10px; font-family: inherit;
+  cursor: pointer;
+}
+.setting-select:hover { border-color: var(--accent); }
+.setting-desc {
+  font-size: 11px; color: var(--text-dim); margin-top: 6px;
+  padding: 8px 10px; background: var(--bg); border-radius: 6px;
+  border-left: 2px solid var(--border); line-height: 1.5;
+}
+
+/* Personality bars */
+.personality-bar { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.personality-stat { display: flex; align-items: center; gap: 8px; }
+.stat-label { font-size: 10px; color: var(--text-dim); width: 70px; flex-shrink: 0; }
+.stat-bar {
+  flex: 1; height: 6px; background: var(--bg); border-radius: 3px;
+  overflow: hidden; border: 1px solid var(--border);
+}
+.stat-fill { display: block; height: 100%; border-radius: 3px; transition: width 0.3s; }
+#panelA .stat-fill { background: var(--accent); }
+#panelB .stat-fill { background: var(--red); }
+
+/* ── Agent Log (during match — hidden pre-match) ─────────────────────────── */
+.agent-log {
+  flex: 1; overflow-y: auto; padding: 8px; display: none;
+}
+.agent-log.visible { display: block; }
+
+.log-entry {
+  padding: 8px 10px; margin-bottom: 4px; border-radius: 6px;
+  font-size: 11px; line-height: 1.5; background: var(--bg);
+  border: 1px solid transparent; transition: border-color 0.15s;
+  cursor: pointer;
+}
+.log-entry:hover { border-color: var(--border); }
+.log-entry.active { border-color: var(--accent); background: var(--surface2); }
+.log-entry-turn {
+  font-size: 10px; font-weight: 600; color: var(--text-dim); margin-bottom: 2px;
+}
+.log-entry-move { font-weight: 700; margin-bottom: 2px; }
+.log-entry-reasoning {
+  color: var(--text-dim); white-space: pre-wrap; font-size: 10px; line-height: 1.4;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Center Panel
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.arena-center {
+  flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+}
+
+/* ── Game Selection Area (pre-match) ──────────────────────────────────────── */
+.game-select-area {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 32px 24px; overflow-y: auto;
+}
+.game-select-area.hidden { display: none; }
+
+.game-select-header {
+  text-align: center; margin-bottom: 28px;
+}
+.game-select-header h2 {
+  font-size: 22px; font-weight: 700; color: var(--text); margin-bottom: 6px;
+}
+.game-select-header p {
+  font-size: 13px; color: var(--text-dim);
+}
+
+.game-card-row {
+  display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+  margin-bottom: 28px; max-width: 100%;
+}
+
+.arena-game-card {
+  background: var(--surface); border: 2px solid var(--border); border-radius: 12px;
+  padding: 16px; cursor: pointer; transition: all 0.2s;
+  display: flex; align-items: center; gap: 16px; max-width: 480px; width: 100%;
+}
+.arena-game-card:hover { border-color: var(--text-dim); }
+.arena-game-card.active { border-color: var(--accent); background: var(--surface2); }
+
+.arena-game-preview {
+  width: 120px; height: 120px; border-radius: 8px; flex-shrink: 0;
+  image-rendering: pixelated; border: 1px solid var(--border);
+}
+.arena-game-meta { flex: 1; min-width: 0; }
+.arena-game-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.arena-game-desc { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-bottom: 8px; }
+.arena-game-tags { display: flex; gap: 6px; }
+.arena-tag {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  border: 1px solid var(--border); color: var(--text-dim);
+}
+
+.match-config {
+  display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+  justify-content: center;
+}
+.match-config .config-row {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.match-config .config-row label {
+  font-size: 10px; color: var(--text-dim); text-transform: uppercase;
+  letter-spacing: 0.5px; font-weight: 600;
+}
+.match-config .config-row input {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px; font-family: inherit; font-size: 13px;
+  width: 100px;
+}
+.config-start-btn {
+  padding: 10px 32px; background: #1f6feb; border: none; border-radius: 8px;
+  color: #fff; font-family: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: background 0.15s; white-space: nowrap;
+}
+.config-start-btn:hover { background: #388bfd; }
+
+/* ── Match Area (during match — hidden pre-match) ─────────────────────────── */
+.match-area {
+  flex: 1; display: none; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.match-area.visible { display: flex; }
+
+.arena-topbar {
+  display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.arena-topbar .game-title { font-weight: 700; font-size: 14px; }
+.arena-topbar .turn-info { font-size: 12px; color: var(--text-dim); }
+.arena-topbar .match-status {
+  padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+  margin-left: auto;
+}
+.match-status.ready { background: #30363d; color: var(--text-dim); }
+.match-status.playing { background: #3fb95033; color: var(--green); }
+.match-status.win-a { background: #1f6feb33; color: var(--accent); }
+.match-status.win-b { background: #f8514933; color: var(--red); }
+.match-status.draw { background: #bc8cff33; color: var(--purple); }
+
+.arena-canvas-area {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 12px; overflow: hidden; position: relative; min-height: 0;
+}
+#arenaCanvas {
+  image-rendering: pixelated; border: 2px solid var(--border); border-radius: 4px;
+  max-width: 100%; max-height: 100%;
+}
+
+.arena-scoreboard {
+  display: flex; align-items: center; justify-content: center; gap: 20px;
+  padding: 6px 16px; background: var(--surface); border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.sb-agent { display: flex; align-items: center; gap: 8px; }
+.sb-dot { width: 10px; height: 10px; border-radius: 50%; }
+.sb-dot-a { background: var(--accent); }
+.sb-dot-b { background: var(--red); }
+.sb-name { font-size: 12px; font-weight: 600; }
+.sb-score { font-size: 20px; font-weight: 700; }
+.sb-vs { font-size: 13px; color: var(--text-dim); font-weight: 600; }
+
+.arena-scrubber-wrap {
+  padding: 6px 16px; flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+}
+.arena-scrubber-wrap label {
+  font-size: 11px; color: var(--text-dim); white-space: nowrap; min-width: 60px;
+}
+#arenaScrubber {
+  flex: 1; height: 6px; -webkit-appearance: none; appearance: none;
+  background: var(--border); border-radius: 3px; outline: none; cursor: pointer;
+}
+#arenaScrubber::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); cursor: pointer; border: 2px solid var(--bg);
+}
+#arenaScrubber::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); cursor: pointer; border: 2px solid var(--bg);
+}
+
+.arena-transport {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px 16px; background: var(--surface); border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.arena-transport .btn {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  padding: 5px 12px; border-radius: 6px; cursor: pointer; font-family: inherit;
+  font-size: 12px; transition: all 0.15s; white-space: nowrap;
+}
+.arena-transport .btn:hover { background: var(--border); border-color: var(--accent); }
+.arena-transport .btn-primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.arena-transport .btn-primary:hover { background: #388bfd; }
+.arena-transport select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 11px; padding: 4px 6px; font-family: inherit;
+}
+
+/* ── Winner Overlay ───────────────────────────────────────────────────────── */
+.winner-overlay {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.75);
+  border-radius: 4px; z-index: 10; opacity: 0; pointer-events: none;
+  transition: opacity 0.3s;
+}
+.winner-overlay.show { opacity: 1; pointer-events: auto; }
+.winner-text { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+.winner-sub { font-size: 14px; color: var(--text-dim); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Responsive
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 1000px) {
+  .arena-side-panel { width: 220px; }
+}
+@media (max-width: 750px) {
+  .arena-layout { flex-direction: column; }
+  .arena-side-panel {
+    width: 100%; max-height: 160px; flex-shrink: 0;
+    border-right: none !important; border-left: none !important;
+  }
+  #panelA { border-bottom: 1px solid var(--border); }
+  #panelB { border-top: 1px solid var(--border); order: 3; }
+  .arena-center { order: 2; }
+}

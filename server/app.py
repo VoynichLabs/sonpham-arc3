@@ -203,6 +203,12 @@ def arena():
 
 
 @app.route("/")
+def root_redirect():
+    from flask import redirect
+    return redirect("/obs#human", code=302)
+
+
+@app.route("/obs")
 @bot_protection
 def index():
     mode = get_mode()
