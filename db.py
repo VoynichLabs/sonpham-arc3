@@ -71,7 +71,8 @@ def _init_db():
             branch_at_step INTEGER,
             mode TEXT DEFAULT 'local',
             live_mode INTEGER DEFAULT 0,
-            live_fps INTEGER
+            live_fps INTEGER,
+            game_version TEXT
         );
 
         -- Game actions (replaces session_steps)
@@ -131,6 +132,19 @@ def _init_db():
             FOREIGN KEY (call_id) REFERENCES llm_calls(id)
         );
         CREATE INDEX IF NOT EXISTS idx_tool_exec_session ON tool_executions(session_id);
+
+        -- Agent memory snapshots (per-step memory state for inspection)
+        CREATE TABLE IF NOT EXISTS agent_memory_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            step_num INTEGER NOT NULL,
+            agent_type TEXT DEFAULT 'orchestrator',
+            agent_id TEXT,
+            memory_json TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_snap_session ON agent_memory_snapshots(session_id);
 
         -- Comments
         CREATE TABLE IF NOT EXISTS comments (
@@ -271,6 +285,12 @@ def _migrate_schema(conn):
         try:
             conn.execute("ALTER TABLE sessions ADD COLUMN live_fps INTEGER")
             log.info("Migrated sessions: added live_fps")
+        except Exception:
+            pass
+    if "game_version" not in sess_cols and sess_cols:
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN game_version TEXT")
+            log.info("Migrated sessions: added game_version")
         except Exception:
             pass
 
@@ -516,6 +536,14 @@ from db_exports import (
     SESSIONS_DIR,
 )
 
+# Memory Snapshots
+from db_memory import (
+    save_memory_snapshot,
+    get_session_memory_snapshots,
+    get_memory_at_step,
+    bulk_save_memory_snapshots,
+)
+
 # Deprecated (backward compat)
 from db_deprecated import (
     _log_turn,
@@ -541,6 +569,9 @@ __all__ = [
     # Exports
     '_export_session_to_file', '_read_session_from_file', '_list_file_sessions',
     'SESSIONS_DIR',
+    # Memory Snapshots
+    'save_memory_snapshot', 'get_session_memory_snapshots',
+    'get_memory_at_step', 'bulk_save_memory_snapshots',
     # Deprecated
     '_log_turn', '_get_session_turns',
     # Globals
