@@ -94,6 +94,11 @@ async function fetchJSON(url, body, signal) {
     body: body ? JSON.stringify(body) : undefined,
     signal: signal || undefined,
   });
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    const text = (await r.text()).slice(0, 120);
+    throw new Error(`Server returned ${r.status}: ${text}`);
+  }
   return r.json();
 }
 
@@ -223,6 +228,7 @@ async function startGame(gameId) {
     curSession.createdAt = Date.now() / 1000;
     curSession.callDurations = [];
     curSession.tabLabel = '';
+    curSession.gameVersion = data.game_version || '';
     sessions.set(data.session_id, curSession);
     activeSessionId = data.session_id;
     // Update Pyodide ownership to match the new session ID
@@ -233,6 +239,7 @@ async function startGame(gameId) {
     s.gameId = gameShortName(gameId);
     s.status = data.state || 'NOT_FINISHED';
     s.createdAt = Date.now() / 1000;
+    s.gameVersion = data.game_version || '';
     registerSession(data.session_id, s);
   } else {
     // Active session has moves — create a new tab
@@ -242,6 +249,7 @@ async function startGame(gameId) {
     s.gameId = gameShortName(gameId);
     s.status = data.state || 'NOT_FINISHED';
     s.createdAt = Date.now() / 1000;
+    s.gameVersion = data.game_version || '';
     sessions.set(data.session_id, s);
     activeSessionId = data.session_id;
     attachSessionView(data.session_id);

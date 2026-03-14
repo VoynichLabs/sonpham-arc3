@@ -5,6 +5,36 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.3.1] — fix: resume error + browse sessions table redesign
+*Author: Claude Opus 4.6 | 2026-03-14*
+
+### Fixed
+- **Resume returning HTML 500** — `session_service.resume()` now wraps game reconstruction in try/except so errors return JSON instead of Flask's default HTML error page (which caused "Unexpected token '<'" parse error).
+- **`fetchJSON` resilience** — Now checks Content-Type header; throws a readable error if server returns non-JSON (e.g., HTML error pages) instead of a cryptic JSON parse failure.
+
+### Changed
+- **Browse Sessions redesigned as tables** — Human / AI / My Sessions columns now render as proper `<table>` elements with sticky headers. Columns: Timestamp, Game (with version like "td05 v5"), Result, Level, Steps, Duration, Actions.
+- **Action buttons** — Replay (play icon), Resume (for unfinished), Copy ID (clipboard icon with checkmark feedback), Delete (for local sessions). More compact than the old full-text buttons.
+- **`game_version` in sessions API** — `/api/sessions` now returns the `game_version` field so the browse table can show which version a session was played on.
+
+---
+
+## [1.3.0] — feat: ARC Arena — Agent vs Agent page
+*Author: Claude Opus 4.6 | 2026-03-14*
+
+### Added
+- **ARC Arena page** (`/arena`) — New standalone page for watching AI agents compete head-to-head in strategy games.
+- **Three-column layout** — Left panel (Agent A settings/logs), center (game canvas + scrubber), right panel (Agent B settings/logs). Side panels transition from settings mode (pre-match) to observatory mode (reasoning logs during match).
+- **Snake Battle game** — First AI vs AI game: two snakes on a 20x20 grid compete for food. Simultaneous moves, wall/body collisions, fully deterministic with seeded PRNG.
+- **Three AI strategies** — Greedy (chase food), Aggressive (hunt when longer, feed when shorter), Cautious (flood-fill space analysis to avoid traps).
+- **Personality bars** — Visual indicator of each strategy's aggression, caution, and greed traits.
+- **Match scrubber** — Scrubbing the timeline renders the game state AND auto-scrolls both reasoning logs to the matching turn with highlighting.
+- **Keyboard shortcuts** — Space (play/pause), arrows (step), Home/End (jump), Escape (back to setup).
+- **Arena logo** — Two blocks pulsing alternately to convey turn-by-turn action.
+- **Nav link** — "ARC Arena" link added to the main ARC Observatory top nav.
+
+---
+
 ## [1.2.9] — feat: settings UX improvements (model cascade, local token cap, diff overlay, canvas section)
 *Author: Claude Sonnet 4.6 | 2026-03-13*
 

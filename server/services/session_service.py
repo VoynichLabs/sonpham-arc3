@@ -11,8 +11,9 @@ import time
 
 from db_auth import get_user_sessions, claim_sessions
 from db import _get_db, _compress_grid, _decompress_grid
+from db_memory import get_session_memory_snapshots, bulk_save_memory_snapshots
 from session_manager import (
-    game_sessions, session_grids, session_snapshots, session_lock, 
+    game_sessions, session_grids, session_snapshots, session_lock,
     session_step_counts, _reconstruct_session, _action_dict_from_row, _try_recover_session
 )
 
@@ -72,8 +73,9 @@ def import_session(sess: dict, steps: list, user_id: str = None, mode: str = "on
         conn.execute(
             """INSERT INTO sessions (id, game_id, model, mode, created_at, result, steps, levels,
                                      parent_session_id, branch_at_step, scaffolding_json,
-                                     user_id, player_type, duration_seconds, live_mode, live_fps)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     user_id, player_type, duration_seconds, live_mode, live_fps,
+                                     game_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  result = excluded.result, steps = excluded.steps, levels = excluded.levels,
                  model = COALESCE(excluded.model, sessions.model),
@@ -82,7 +84,8 @@ def import_session(sess: dict, steps: list, user_id: str = None, mode: str = "on
                  player_type = COALESCE(excluded.player_type, sessions.player_type),
                  duration_seconds = COALESCE(excluded.duration_seconds, sessions.duration_seconds),
                  live_mode = COALESCE(excluded.live_mode, sessions.live_mode),
-                 live_fps = COALESCE(excluded.live_fps, sessions.live_fps)""",
+                 live_fps = COALESCE(excluded.live_fps, sessions.live_fps),
+                 game_version = COALESCE(excluded.game_version, sessions.game_version)""",
             (sess["id"], sess["game_id"], sess.get("model", ""),
              mode, sess.get("created_at", time.time()),
              sess.get("result", "NOT_FINISHED"), sess.get("steps", 0),
@@ -90,7 +93,8 @@ def import_session(sess: dict, steps: list, user_id: str = None, mode: str = "on
              sess.get("branch_at_step"), scaffolding_json, user_id,
              sess.get("player_type", "agent"), sess.get("duration_seconds"),
              1 if sess.get("live_mode") else 0,
-             sess.get("live_fps")),
+             sess.get("live_fps"),
+             sess.get("game_version")),
         )
         log.info(f"[import] session={sess['id'][:30]} steps={len(steps)}")
         
@@ -177,9 +181,17 @@ def import_session(sess: dict, steps: list, user_id: str = None, mode: str = "on
         
         conn.commit()
         conn.close()
+
+        # Import memory snapshots if provided
+        memory_snaps = sess.get("memory_snapshots") or []
+        snaps_imported = 0
+        if memory_snaps:
+            snaps_imported = bulk_save_memory_snapshots(sess["id"], memory_snaps)
+
         return {
             "status": "ok", "session_id": sess["id"],
-            "steps_imported": len(steps), "calls_imported": calls_imported
+            "steps_imported": len(steps), "calls_imported": calls_imported,
+            "memory_snapshots_imported": snaps_imported,
         }, ""
     except Exception as e:
         log.warning(f"Session import failed: {e}")
@@ -188,28 +200,32 @@ def import_session(sess: dict, steps: list, user_id: str = None, mode: str = "on
 
 def resume(session_id: str, *, get_arcade_fn, env_state_dict_fn, format_action_row_fn) -> tuple[dict, str]:
     """Resume an unfinished session. Replays all steps and returns live state.
-    
+
+    Includes LLM call data attached to steps for reasoning log reconstruction,
+    memory snapshots for inspection, and game version info.
+
     Args:
         session_id: session ID to resume
         get_arcade_fn: callable returning arcade instance
         env_state_dict_fn: callable(env, frame_data=None) returning state dict
         format_action_row_fn: callable(row_dict) formatting action for response
-    
+
     Returns:
         (state_dict, error_msg)
     """
     try:
         conn = _get_db()
         sess = conn.execute(
-            "SELECT game_id, model, parent_session_id, branch_at_step FROM sessions WHERE id = ?",
+            "SELECT game_id, model, parent_session_id, branch_at_step, game_version, scaffolding_json FROM sessions WHERE id = ?",
             (session_id,),
         ).fetchone()
         if sess:
             sess = dict(sess)
-        
+
         parent_rows = []
         own_rows = []
-        
+        llm_calls = []
+
         if sess:
             if sess.get("parent_session_id") and sess.get("branch_at_step") is not None:
                 parent_rows = conn.execute(
@@ -220,40 +236,126 @@ def resume(session_id: str, *, get_arcade_fn, env_state_dict_fn, format_action_r
                 "SELECT * FROM session_actions WHERE session_id = ? ORDER BY step_num",
                 (session_id,),
             ).fetchall()
+            # Fetch LLM calls for this session to reconstruct reasoning
+            llm_calls = conn.execute(
+                "SELECT * FROM llm_calls WHERE session_id = ? ORDER BY timestamp",
+                (session_id,),
+            ).fetchall()
+            # Also fetch parent LLM calls if branched
+            if sess.get("parent_session_id"):
+                parent_calls = conn.execute(
+                    "SELECT * FROM llm_calls WHERE session_id = ? ORDER BY timestamp",
+                    (sess["parent_session_id"],),
+                ).fetchall()
+                llm_calls = list(parent_calls) + list(llm_calls)
         conn.close()
-        
+
         if not sess:
             return {}, "Session not found"
     except Exception as e:
         return {}, f"DB error: {e}"
-    
+
     all_rows = list(parent_rows) + list(own_rows)
     actions = [_action_dict_from_row(dict(r)) for r in all_rows]
-    
-    env, state, per_step_states = _reconstruct_session(
-        sess["game_id"], actions, capture_per_step=True,
-        get_arcade_fn=get_arcade_fn,
-        env_state_dict_fn=env_state_dict_fn,
-    )
-    
+    total_steps = len(actions)
+
+    try:
+        env, state, per_step_states = _reconstruct_session(
+            sess["game_id"], actions, capture_per_step=True,
+            get_arcade_fn=get_arcade_fn,
+            env_state_dict_fn=env_state_dict_fn,
+        )
+    except Exception as e:
+        return {}, f"Failed to reconstruct session: {e}"
+
     with session_lock:
         game_sessions[session_id] = env
         session_grids[session_id] = state.get("grid", [])
         session_snapshots[session_id] = []
         session_step_counts[session_id] = len(actions)
-    
+
     state["session_id"] = session_id
     state["change_map"] = {"changes": [], "change_count": 0, "change_map_text": "(resumed)"}
-    state["resumed_step_count"] = len(actions)
-    
+    state["resumed_step_count"] = total_steps
+    state["total_steps"] = total_steps
+
     step_list = [format_action_row_fn(dict(r)) for r in all_rows]
+
+    # Build step_num → llm_call mapping for reasoning reconstruction
+    calls_by_step = {}
+    for c in llm_calls:
+        cd = dict(c)
+        sn = cd.get("step_num")
+        if sn is not None:
+            if sn not in calls_by_step:
+                calls_by_step[sn] = []
+            calls_by_step[sn].append(cd)
+
     for i, s in enumerate(step_list):
         if i < len(per_step_states):
             s["result_state"] = per_step_states[i]["state"]
             s["levels_completed"] = per_step_states[i]["levels_completed"]
+
+        # Attach LLM response data from llm_calls table if not already present
+        sn = s.get("step_num")
+        if sn is not None and sn in calls_by_step and not s.get("llm_response"):
+            calls = calls_by_step[sn]
+            primary = calls[0]  # First call at this step is the primary
+            # Parse output_json to reconstruct llm_response
+            output = None
+            if primary.get("output_json"):
+                try:
+                    output = json.loads(primary["output_json"])
+                except Exception:
+                    output = primary["output_json"]
+
+            # Build llm_response compatible with client-side rendering
+            llm_resp = {
+                "parsed": {
+                    "observation": f"[{primary.get('agent_type', 'agent')}] {output if isinstance(output, str) else ''}",
+                    "reasoning": output if isinstance(output, str) else json.dumps(output)[:500] if output else "",
+                    "action": s.get("action", 0),
+                },
+                "model": primary.get("model", ""),
+                "agent_type": primary.get("agent_type", "executor"),
+                "usage": {
+                    "input_tokens": primary.get("input_tokens", 0),
+                    "output_tokens": primary.get("output_tokens", 0),
+                },
+                "call_duration_ms": primary.get("duration_ms", 0),
+            }
+            # If there's thinking data, include it
+            if primary.get("thinking_json"):
+                try:
+                    llm_resp["thinking"] = json.loads(primary["thinking_json"])
+                except Exception:
+                    llm_resp["thinking"] = primary["thinking_json"]
+
+            # Attach sub-calls if multiple calls at same step
+            if len(calls) > 1:
+                llm_resp["sub_calls"] = [
+                    {
+                        "type": sc.get("agent_type", "sub"),
+                        "agent_id": sc.get("agent_id"),
+                        "model": sc.get("model", ""),
+                        "duration_ms": sc.get("duration_ms", 0),
+                        "input_tokens": sc.get("input_tokens", 0),
+                        "output_tokens": sc.get("output_tokens", 0),
+                    }
+                    for sc in calls[1:]
+                ]
+
+            s["llm_response"] = llm_resp
+
     state["steps"] = step_list
     state["model"] = sess["model"] or ""
-    
+    state["game_version"] = sess.get("game_version") or ""
+
+    # Include memory snapshots for inspection
+    memory_snapshots = get_session_memory_snapshots(session_id)
+    if memory_snapshots:
+        state["memory_snapshots"] = memory_snapshots
+
     return state, ""
 
 

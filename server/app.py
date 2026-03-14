@@ -197,6 +197,11 @@ def game_ab():
     return render_template("ab01.html")
 
 
+@app.route("/arena")
+def arena():
+    return render_template("arena.html", static_v=_STATIC_VERSION)
+
+
 @app.route("/")
 @bot_protection
 def index():
@@ -1107,7 +1112,7 @@ def list_sessions():
         _sessions_query = (
             "SELECT s.id, s.game_id, s.model, s.mode, s.created_at, s.result, s.steps, s.levels, "
             "s.parent_session_id, s.branch_at_step, s.total_cost, s.player_type, s.duration_seconds, "
-            "s.live_mode, s.live_fps, "
+            "s.live_mode, s.live_fps, s.game_version, "
             "(SELECT MAX(st.timestamp) - MIN(st.timestamp) FROM session_actions st WHERE st.session_id = s.id) AS duration "
             "FROM sessions s "
         )
@@ -1291,6 +1296,39 @@ def get_session_step(session_id, step_num):
         return jsonify(d)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MEMORY SNAPSHOTS — agent memory inspection API
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/sessions/<session_id>/memory")
+@bot_protection
+def session_memory(session_id):
+    """Return all memory snapshots for a session."""
+    from db_memory import get_session_memory_snapshots
+    snapshots = get_session_memory_snapshots(session_id)
+    return jsonify({"snapshots": snapshots})
+
+
+@app.route("/api/sessions/<session_id>/memory/<int:step_num>")
+@bot_protection
+def session_memory_at_step(session_id, step_num):
+    """Return memory snapshots at a specific step."""
+    from db_memory import get_memory_at_step
+    snapshots = get_memory_at_step(session_id, step_num)
+    return jsonify({"snapshots": snapshots})
+
+
+@app.route("/api/sessions/<session_id>/memory", methods=["POST"])
+@bot_protection
+def save_session_memory(session_id):
+    """Save memory snapshots for a session (bulk)."""
+    from db_memory import bulk_save_memory_snapshots
+    payload = request.get_json(force=True)
+    snapshots = payload.get("snapshots", [])
+    count = bulk_save_memory_snapshots(session_id, snapshots)
+    return jsonify({"status": "ok", "saved": count})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
