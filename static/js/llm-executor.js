@@ -98,7 +98,7 @@ async function executePlan(plan, resp, entry, expected, ss) {
 
     const _histObs = i === 0 ? (resp?.parsed?.observation || '') : '';
     const _histReason = i === 0 ? (resp?.parsed?.reasoning || '') : '';
-    _cur.moveHistory.push({ step: _cur.stepCount, action: step.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: _histObs, reasoning: _histReason });
+    _cur.moveHistory.push({ step: _cur.stepCount, action: step.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: _histObs, reasoning: _histReason, llm_response: i === 0 ? resp : null });
     recordStepForPersistence(step.action, step.data || {}, data.grid, data.change_map, i === 0 ? resp : null, _ss, { levels_completed: data.levels_completed, result_state: data.state });
     if (isActive()) { updateUI(data); updateUndoBtn(); }
     completed++;
@@ -289,7 +289,7 @@ async function executeOneAction(resp) {
   // Guard: session changed during step execution
   if (!sessions.has(_actionSessionId)) { console.log('[executeOneAction] session closed, discarding'); return null; }
   if (data.error) { undoStack.pop(); stepCount--; alert(data.error); return null; }
-  moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: p.observation || '', reasoning: p.reasoning || '' });
+  moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: p.observation || '', reasoning: p.reasoning || '', llm_response: resp || null });
   recordStepForPersistence(p.action, p.data || {}, data.grid, data.change_map, resp, null, { levels_completed: data.levels_completed, result_state: data.state });
   updateUI(data);
   updateUndoBtn();

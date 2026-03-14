@@ -117,6 +117,7 @@ async function resumeSession(sid) {
         turnId: _turnId,
         observation: llm?.parsed?.observation || '',
         reasoning: llm?.parsed?.reasoning || '',
+        llm_response: llm || null,
       });
       // Rebuild sessionStepsBuffer
       sessionStepsBuffer.push({
@@ -390,6 +391,7 @@ async function branchFromStep(stepNum) {
         turnId: _turnId,
         observation: llm?.parsed?.observation || '',
         reasoning: llm?.parsed?.reasoning || '',
+        llm_response: llm || null,
       });
       sessionStepsBuffer.push({
         step_num: s.step_num,
@@ -511,6 +513,7 @@ async function branchHere() {
         turnId: _turnId,
         observation: llm?.parsed?.observation || '',
         reasoning: llm?.parsed?.reasoning || '',
+        llm_response: llm || null,
       });
       sessionStepsBuffer.push({
         step_num: s.step_num, action: s.action, data: s.data || {},

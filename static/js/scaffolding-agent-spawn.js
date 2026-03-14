@@ -54,6 +54,14 @@ async function _asExecuteOneStep(actionId, actionData, reasoning, agentType, _cu
   const changeMap = computeChangeMapJS(prevGrid, newGrid);
   _cur.currentChangeMap = changeMap;
 
+  // Build LLM metadata object (used for both moveHistory + persistence)
+  const _stepLlm = {
+    parsed: { observation: `[${agentType}] ${reasoning || ''}`, reasoning: reasoning || '', action: actionId, data: actionData || {} },
+    model: llmMeta?.model || '', scaffolding: 'agent_spawn',
+    usage: llmMeta?.usage || null,
+    call_duration_ms: llmMeta?.call_duration_ms || null,
+  };
+
   // Push to move history
   _cur.moveHistory.push({
     step: _cur.stepCount, action: actionId,
@@ -62,15 +70,10 @@ async function _asExecuteOneStep(actionId, actionData, reasoning, agentType, _cu
     turnId: currentTurnId,
     observation: `[${agentType}] ${reasoning || ''}`,
     reasoning: reasoning || '',
+    llm_response: _stepLlm,
   });
 
-  // Record for persistence — include subagent LLM metadata so reasoning is available on resume
-  const _stepLlm = {
-    parsed: { observation: `[${agentType}] ${reasoning || ''}`, reasoning: reasoning || '', action: actionId, data: actionData || {} },
-    model: llmMeta?.model || '', scaffolding: 'agent_spawn',
-    usage: llmMeta?.usage || null,
-    call_duration_ms: llmMeta?.call_duration_ms || null,
-  };
+  // Record for persistence
   recordStepForPersistence(actionId, actionData || {}, data.grid, changeMap, _stepLlm, _cur,
     { levels_completed: data.levels_completed, result_state: data.state });
 
