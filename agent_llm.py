@@ -62,14 +62,21 @@ def _call_openai_compatible(url: str, api_key: str, model: str, messages: list,
 
 def _call_anthropic(model: str, messages: list, system: str,
                     temperature: float, max_tokens: int) -> dict:
-    """Call Anthropic API (Claude)."""
+    """Call Anthropic API (Claude). Supports both API keys and OAuth tokens."""
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    is_oauth = api_key.startswith("sk-ant-oat")
+    auth_headers = (
+        {"Authorization": f"Bearer {api_key}", "anthropic-beta": "oauth-2025-04-20"}
+        if is_oauth
+        else {"x-api-key": api_key}
+    )
     resp = httpx.post(
         "https://api.anthropic.com/v1/messages",
         headers={
-            "x-api-key": api_key,
+            **auth_headers,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
+            "User-Agent": "sonpham-arc3/1.2.8 (ARC Prize research; https://three.arcprize.org; https://arc.markbarney.net; https://arc3.sonpham.net; contact mark@markbarney.net)",
         },
         json={
             "model": model,
@@ -77,6 +84,7 @@ def _call_anthropic(model: str, messages: list, system: str,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "metadata": {"user_id": "arc-prize-research"},
         },
         timeout=90.0,
     )

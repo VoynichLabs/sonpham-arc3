@@ -6,7 +6,7 @@ This file governs how AI agents (Claude Code, Cursor, Copilot, etc.) work in thi
 
 ## Before you touch any code
 
-1. **Read the plan doc for the current task** in `docs/`. If one does not exist, create it and get it approved before writing any code. Plan doc naming: `docs/{YYYY-MM-DD}-{goal}-plan.md`.
+1. **Read the plan doc for the current task** in `docs/`. If one does not exist, create it and get it approved before writing any code. Plan doc naming: `docs/{DD-Mon-YYYY}-{goal}-plan.md`.
 2. **Read the relevant source files** before suggesting or making changes. Do not modify code you have not read.
 3. **Search for existing utilities** before adding new ones. Grep and glob before writing anything new.
 4. **For unfamiliar or recently updated libraries**, fetch documentation before coding. Ask the user to provide a URL if needed.

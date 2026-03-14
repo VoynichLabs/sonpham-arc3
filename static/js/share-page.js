@@ -444,8 +444,8 @@ function _OLD_buildReasoningGroupHTML(g, gi, options) {
     var totalTok = inputTok + outputTok;
     if (totalTok) {
       var costStr = '';
-      if (typeof TOKEN_PRICES !== 'undefined' && TOKEN_PRICES[llm.model || '']) {
-        var prices = TOKEN_PRICES[llm.model || ''];
+      var prices = typeof _getModelPricing === 'function' ? _getModelPricing(llm.model || '') : null;
+      if (prices) {
         var cost = (inputTok * prices[0] + outputTok * prices[1]) / 1000000;
         costStr = ' \u00b7 $' + cost.toFixed(4);
       }

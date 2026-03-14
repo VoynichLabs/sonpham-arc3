@@ -5,6 +5,57 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.2.9] — feat: settings UX improvements (model cascade, local token cap, diff overlay, canvas section)
+*Author: Claude Sonnet 4.6 | 2026-03-13*
+
+### Added
+- **Model cascade for sibling selects** — Changing the primary model in multi-model scaffolds (Three-System, Two-System, Agent Spawn, World Model) now automatically updates sibling selects that haven't been explicitly customized. Sibling follows until the user manually changes it.
+- **Local model token cap** — When an lmstudio or ollama model is selected, the corresponding max tokens field is automatically capped at 1024. Applies on select change and on page load/restore.
+- **Persistent Canvas section** — Diff overlay controls (show changes, opacity, highlight color) moved from the Graphics subtab (now removed) into a permanent Canvas section always visible below scaffolding settings. No more tab-switching to adjust overlays.
+- **Diff overlay on by default** — `showChanges` checkbox now defaults to `checked` in HTML. New users see change highlighting immediately.
+
+### Fixed
+- **Opacity slider persistence** — Graphics settings (opacity, color, show-changes) now persist across page reloads via `arc_graphics` localStorage key. Previously the slider reset to 40% on every load.
+
+### Removed
+- **Graphics subtab** — Removed the dedicated Graphics tab from the right panel subtab bar. Controls are now in the always-visible Canvas section.
+
+---
+
+## [1.2.8] — fix: OAuth beta header, CORS proxy, metadata identification
+*Author: Claude Opus 4.6 | 2026-03-12*
+
+### Fixed
+- **OAuth `anthropic-beta: oauth-2025-04-20` header** — OAuth tokens (`sk-ant-oat*`) require this beta header to be accepted by Anthropic's API. Without it, all OAuth calls returned 401 "OAuth authentication is currently not supported." Added to all three Anthropic call paths: proxy (`server/app.py`), server-side provider (`llm_providers_anthropic.py`), and CLI/batch runner (`agent_llm.py`).
+- **CORS proxy for OAuth tokens** — Browser-side OAuth calls can't go direct to `api.anthropic.com` (Bearer auth triggers CORS preflight that Anthropic blocks). Added `/api/llm/anthropic-proxy` server route; client-side code in `scaffolding.js` detects `sk-ant-oat` tokens and routes through the proxy automatically.
+
+### Added
+- **Request identification metadata** — All Anthropic API calls now include `User-Agent: sonpham-arc3/1.2.8 (ARC Prize research; ...)` with links to three.arcprize.org, arc.markbarney.net, and arc3.sonpham.net, plus contact email. Also sends `metadata.user_id: arc-prize-research` in the request body.
+- **Model select auto-sync** — When the main model dropdown changes, all scaffold sub-selects (RLM, Three-System, Two-System, Agent Spawn) that haven't been explicitly customized are automatically set to match. No more filling in every dropdown manually.
+- **Visible BYOK key input** — Anthropic key field changed from `type="password"` to `type="text"` with monospace font so tokens are visible and verifiable. Label updated to "API Key / Token".
+
+---
+
+## [1.2.7] — feat: Claude Code OAuth tokens, Opus 4.6, model list reorder, BYOK fix
+*Author: Claude Opus 4.6 | 2026-03-12*
+
+### Added
+- **Claude Code OAuth token support** — The app now accepts `sk-ant-oat*` OAuth tokens (from `claude setup-token`) in addition to standard `sk-ant-api*` API keys. OAuth tokens are sent as `Authorization: Bearer` instead of `x-api-key`, matching the Anthropic OAuth spec.
+  - **`server/services/auth_service.py`** — Relaxed prefix validation to accept both `sk-ant-api*` and `sk-ant-oat*`.
+  - **`llm_providers_anthropic.py`** — Added `_is_oauth_token()` helper and `_anthropic_auth_headers()` to route Bearer vs x-api-key based on token type.
+  - **`static/js/scaffolding.js`** — Client-side Anthropic calls detect `sk-ant-oat` prefix and switch to Bearer auth headers.
+  - **`agent_llm.py`** — CLI/batch runner path updated with the same OAuth token detection.
+- **Claude Opus 4.6** added to model registry (`claude-opus-4-6`, $15/$75 per 1M tok, 200k context, image+reasoning+tools).
+- **BYOK UI hint for Anthropic** — When an Anthropic model is selected, the key input shows a hint: run `claude setup-token` to get a free OAuth token from your Claude Pro/Max subscription.
+
+### Changed
+- **Model list reordered** — LM Studio (local) and Anthropic models now appear first in the dropdown. Previously Gemini was first.
+
+### Fixed
+- **BYOK key persistence** — API keys entered in the Model Keys UI were lost on page refresh because the dynamically-rendered `<input>` elements had no event listeners to save to `localStorage`. Added `input` listeners in `static/js/ui-models.js` for both `data-byok-provider` and `data-byok-extra` fields.
+
+---
+
 ## [1.2.6] — Fix: restore dropped _humanCanvasClick function
 *Author: Claude Opus 4.6 | 2026-03-12*
 

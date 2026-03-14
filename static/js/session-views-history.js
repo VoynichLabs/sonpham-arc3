@@ -16,7 +16,7 @@
 // - renderRestoredReasoning() (from session-persistence.js)
 // - closeReplay(), replayData, document.getElementById('replayScrubber') (from session-replay.js)
 // - closeReplay(), enterObsMode() (from observatory.js)
-// - TOKEN_PRICES, switchScaffolding(), loadModels(), SCAFFOLDING_SCHEMAS, activeScaffoldingType (from llm.js / scaffolding.js)
+// - _getModelPricing(), switchScaffolding(), loadModels(), SCAFFOLDING_SCHEMAS, activeScaffoldingType (from tokens.js / scaffolding.js)
 // - initLiveScrubber(), liveScrubUpdate() (from ui.js)
 // - _rebuildTimelineFromSteps() (from session.js)
 // - autoUploadSession() (from session-sync.js)
@@ -146,7 +146,7 @@ async function resumeSession(sid) {
         sessionTotalTokens.input += inputTok;
         sessionTotalTokens.output += outputTok;
         const model = llm.model || data.model || '';
-        const prices = TOKEN_PRICES[model] || null;
+        const prices = _getModelPricing(model);
         if (prices) {
           sessionTotalTokens.cost += (inputTok * prices[0] + outputTok * prices[1]) / 1_000_000;
         }
@@ -416,7 +416,7 @@ async function branchFromStep(stepNum) {
         sessionTotalTokens.input += inputTok;
         sessionTotalTokens.output += outputTok;
         const model = llm.model || '';
-        const prices = TOKEN_PRICES[model] || null;
+        const prices = _getModelPricing(model);
         if (prices) {
           sessionTotalTokens.cost += (inputTok * prices[0] + outputTok * prices[1]) / 1_000_000;
         }
@@ -530,7 +530,7 @@ async function branchHere() {
         const outTok = llm.usage.output_tokens || llm.usage.completion_tokens || 0;
         sessionTotalTokens.input += inTok;
         sessionTotalTokens.output += outTok;
-        const prices = TOKEN_PRICES[llm.model || ''] || null;
+        const prices = _getModelPricing(llm.model || '');
         if (prices) sessionTotalTokens.cost += (inTok * prices[0] + outTok * prices[1]) / 1_000_000;
       }
     }

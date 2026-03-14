@@ -464,7 +464,7 @@
       <!-- ── Right panel ───────────────────────────────────────────── -->
       <div class="right-panel">
 
-          <!-- Tab bar: Agent Setting | Prompts | Graphics -->
+          <!-- Tab bar: Agent Settings | Prompts | Graphics -->
           <div class="subtab-bar">
             <button class="active" onclick="switchSubTab('settings')">Agent Settings</button>
             <button onclick="switchSubTab('prompts')">Prompts</button>
@@ -478,8 +478,6 @@
             <div class="settings-columns" id="settingsColumns">
               <!-- Populated dynamically by renderScaffoldingSettings() -->
             </div>
-
-            <!-- Transport bar moved to canvas panel -->
           </div>
 
           <!-- ── Prompts subtab ── -->
@@ -490,10 +488,10 @@
           </div>
 
           <!-- ── Graphics subtab ── -->
-          <div class="subtab-pane" id="subtabGraphics" style="padding:14px;">
+          <div class="subtab-pane" id="subtabGraphics" style="display:none;padding:14px;">
             <div class="opt-row">
               <span class="opt-label">Diff overlay</span>
-              <label class="toggle"><input type="checkbox" id="showChanges"><span class="slider"></span></label>
+              <label class="toggle"><input type="checkbox" id="showChanges" checked><span class="slider"></span></label>
             </div>
             <div class="opt-row">
               <span class="opt-label">Opacity</span>

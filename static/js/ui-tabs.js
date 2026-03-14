@@ -32,7 +32,7 @@ function switchSubTab(tab) {
   document.querySelectorAll('.subtab-pane').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
   const tabMap = { settings: 'subtabSettings', prompts: 'subtabPrompts', graphics: 'subtabGraphics' };
   const buttons = document.querySelectorAll('.subtab-bar button');
-  const idx = { settings: 0, prompts: 1, graphics: 2 }[tab] || 0;
+  const idx = { settings: 0, prompts: 1, graphics: 2 }[tab] ?? 0;
   if (buttons[idx]) buttons[idx].classList.add('active');
   const pane = document.getElementById(tabMap[tab]);
   if (pane) { pane.classList.add('active'); pane.style.display = 'flex'; }

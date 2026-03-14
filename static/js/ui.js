@@ -21,12 +21,42 @@
 // GRAPHICS LISTENERS (grid rendering functions extracted to ui-grid.js)
 // ═══════════════════════════════════════════════════════════════════════════
 
+function saveGraphicsToStorage() {
+  try {
+    const opacity = document.getElementById('changeOpacity')?.value ?? '40';
+    const color = document.getElementById('changeColor')?.value ?? '#ff0000';
+    const show = document.getElementById('showChanges')?.checked ?? true;
+    localStorage.setItem('arc_graphics', JSON.stringify({ opacity, color, show }));
+  } catch {}
+}
+
+function loadGraphicsFromStorage() {
+  try {
+    const raw = localStorage.getItem('arc_graphics');
+    if (!raw) return;
+    const g = JSON.parse(raw);
+    const opacityEl = document.getElementById('changeOpacity');
+    const opacityValEl = document.getElementById('changeOpacityVal');
+    const colorEl = document.getElementById('changeColor');
+    const showEl = document.getElementById('showChanges');
+    if (opacityEl && g.opacity != null) {
+      opacityEl.value = g.opacity;
+      if (opacityValEl) opacityValEl.textContent = g.opacity + '%';
+    }
+    if (colorEl && g.color) colorEl.value = g.color;
+    if (showEl && g.show != null) showEl.checked = !!g.show;
+  } catch {}
+}
+
 document.getElementById('changeOpacity').addEventListener('input', (e) => {
   document.getElementById('changeOpacityVal').textContent = e.target.value + '%';
+  saveGraphicsToStorage();
   redrawGrid();
 });
-document.getElementById('showChanges').addEventListener('change', redrawGrid);
-document.getElementById('changeColor').addEventListener('input', redrawGrid);
+document.getElementById('showChanges').addEventListener('change', () => { saveGraphicsToStorage(); redrawGrid(); });
+document.getElementById('changeColor').addEventListener('input', () => { saveGraphicsToStorage(); redrawGrid(); });
+
+loadGraphicsFromStorage();
 
 function showTransportDesc(text) {
   document.getElementById('transportDesc').textContent = text;

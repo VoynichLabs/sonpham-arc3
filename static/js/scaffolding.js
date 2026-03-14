@@ -47,6 +47,7 @@ async function saveArcApiKey() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function _populateSubModelSelect(sel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, savedVal) {
+  sel.innerHTML = '';
   for (const prov of providerOrder) {
     const models = groups[prov];
     if (!models?.length) continue;
@@ -349,7 +350,21 @@ function _populateAllModelSelects() {
   } catch {}
 
   updateModelCaps();
+  // Sync main model to sub-selects on initial load
+  const mainVal = document.getElementById('modelSelect')?.value || '';
+  if (mainVal) syncModelToSubSelects(mainVal);
   updateAllByokKeys();
+
+  // Sync cascade last-vals so the first cascade after restore uses the
+  // correct previous value (not the empty-string set at listener-setup time).
+  for (const id of ['sf_ts_plannerModelSelect', 'sf_2s_plannerModelSelect',
+                     'sf_wm_agentModelSelect', 'sf_as_orchestratorModelSelect']) {
+    const el = document.getElementById(id);
+    if (el) el.dataset.cascadeLastVal = el.value;
+  }
+
+  // Apply local model token caps for any restored local model selections.
+  if (typeof applyAllLocalModelTokenCaps === 'function') applyAllLocalModelTokenCaps();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -401,6 +416,7 @@ async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'of
 }
 
 async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel = 'off', onChunk = null } = {}) {
+  callLLM._lastTruncated = false;
   const modelInfo = getModelInfo(model);
   const provider = modelInfo?.provider;
   const apiModel = modelInfo?.api_model || model;
@@ -479,8 +495,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
       const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('') || '';
       const gUsage = data.usageMetadata;
       callLLM._lastUsage = gUsage ? { input_tokens: gUsage.promptTokenCount || 0, output_tokens: gUsage.candidatesTokenCount || 0 } : null;
-      if (fr === 'MAX_TOKENS') return { text, truncated: true };
-      if (fr === 'MALFORMED_FUNCTION_CALL') return { text, malformed: true, finishMessage: data.candidates?.[0]?.finishMessage || '' };
+      if (fr === 'MAX_TOKENS') callLLM._lastTruncated = true;
       return text;
     }
   }
@@ -508,15 +523,40 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
   if (provider === 'anthropic') {
     const systemMsg = messages.find(m => m.role === 'system');
     const chatMsgs = messages.filter(m => m.role !== 'system');
+    // Pre-flight: estimate tokens and warn if likely to exceed context window
+    const modelCtx = getModelInfo(model)?.context_window || 200000;
+    const allText = messages.map(m => m.content).join('');
+    const estTokens = estimateTokens(allText);
+    if (estTokens > modelCtx * 0.95) {
+      throw new Error(`Prompt too long (~${Math.round(estTokens/1000)}K tokens) for ${model} (${Math.round(modelCtx/1000)}K limit). Enable Compact Context or reduce history.`);
+    }
     const body = { model: apiModel, max_tokens: maxTokens, messages: chatMsgs.map(m => ({ role: m.role, content: m.content })) };
     if (systemMsg) body.system = systemMsg.content;
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify(body),
-    });
+    const isOAuth = key.startsWith('sk-ant-oat');
+    let resp;
+    if (isOAuth) {
+      // OAuth tokens can't go direct (CORS preflight fails) — proxy through server
+      body.api_key = key;
+      resp = await fetch('/api/llm/anthropic-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } else {
+      resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify(body),
+      });
+    }
     const data = await resp.json();
-    if (!resp.ok || data.error) throw new Error(`${resp.status} ${data.error?.message || JSON.stringify(data.error || resp.statusText)}`);
+    if (!resp.ok || data.error) {
+      const errMsg = data.error?.message || JSON.stringify(data.error || resp.statusText);
+      if (resp.status === 400 && errMsg.includes('too long')) {
+        throw new Error(`Prompt too long for ${model}. Enable Compact Context in settings or reduce history length.`);
+      }
+      throw new Error(`${resp.status} ${errMsg}`);
+    }
     callLLM._lastUsage = data.usage ? { input_tokens: data.usage.input_tokens || 0, output_tokens: data.usage.output_tokens || 0 } : null;
     return data.content?.map(c => c.text).filter(Boolean).join('') || '';
   }
@@ -557,7 +597,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
     const msg = data.choices?.[0]?.message || {};
     // GLM-series models return thinking tokens in reasoning_content; content may be null
     const text = msg.content || msg.reasoning_content || '';
-    if (data.choices?.[0]?.finish_reason === 'length') return { text, truncated: true };
+    if (data.choices?.[0]?.finish_reason === 'length') callLLM._lastTruncated = true;
     return text;
   }
 
@@ -583,6 +623,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
   throw new Error(`Unsupported provider: ${provider || 'unknown'}. Configure an API key or use Puter.js.`);
 }
 callLLM._lastUsage = null;
+callLLM._lastTruncated = false;
 
 // ── [Section extracted to scaffolding-rlm.js continued] ────────────────
 
