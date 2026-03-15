@@ -1,5 +1,5 @@
 // Author: Claude Opus 4.6
-// Date: 2026-03-16 00:30
+// Date: 2026-03-16 03:00
 // PURPOSE: ARC Arena — Agent vs Agent game engine, AI strategies, match runner,
 //   and UI controller. Manages the three-column layout with side panels (agent
 //   settings → observatory logs) and center panel (game selection → match canvas).
@@ -3749,72 +3749,32 @@ document.addEventListener('keydown', e => {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Side Tab Switching + Harness/Code Mode
+   Agent Mode (Harness default)
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/** Switch arena side tab — shows the matching harness section or code mode */
-function switchArenaTab(agent, tab) {
-  const bar = document.getElementById(`subtabBar${agent}`);
-  if (!bar) return;
+function getAgentMode(agent) {
+  return localStorage.getItem(`arc_arena_${agent.toLowerCase()}_mode`) || 'harness';
+}
 
-  // Deactivate all buttons
-  bar.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-  // Activate clicked button
-  const btn = bar.querySelector(`button[data-tab="${tab}"]`);
-  if (btn) btn.classList.add('active');
-
+function toggleAgentMode(agent) {
+  const current = getAgentMode(agent);
+  const next = current === 'harness' ? 'code' : 'harness';
   const codeDiv = document.getElementById(`codeMode${agent}`);
   const harnessDiv = document.getElementById(`harnessMode${agent}`);
-  const container = document.getElementById(`harnessSettings${agent}`);
-
-  if (tab === 'code') {
-    // Show code mode, hide harness
+  if (next === 'code') {
     if (harnessDiv) harnessDiv.style.display = 'none';
     if (codeDiv) codeDiv.style.display = '';
-    localStorage.setItem(`arc_arena_${agent.toLowerCase()}_mode`, 'code');
   } else {
-    // Show harness, hide code
     if (codeDiv) codeDiv.style.display = 'none';
     if (harnessDiv) harnessDiv.style.display = '';
-    localStorage.setItem(`arc_arena_${agent.toLowerCase()}_mode`, 'harness');
-
-    // Ensure harness is rendered
+    const container = document.getElementById(`harnessSettings${agent}`);
     if (container && !container.dataset.rendered) {
       const savedType = localStorage.getItem(`arc_arena_${agent.toLowerCase()}_scaffolding_type`) || 'linear';
       renderArenaHarness(agent, savedType);
       container.dataset.rendered = '1';
     }
-
-    // Scroll to the matching section
-    if (container) {
-      const sectionMap = { input: 'Input', reasoning: 'Reasoning', keys: 'Model Keys' };
-      const label = sectionMap[tab];
-      if (label) {
-        // Find the section by its label text and scroll to it
-        const sections = container.querySelectorAll('.opt-section');
-        for (const sec of sections) {
-          const header = sec.querySelector('.opt-header span');
-          if (header && header.textContent.trim() === label) {
-            sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            // Open it if closed
-            if (!sec.classList.contains('open')) sec.classList.add('open');
-            break;
-          }
-        }
-      }
-    }
   }
-}
-
-function getAgentMode(agent) {
-  const mode = localStorage.getItem(`arc_arena_${agent.toLowerCase()}_mode`);
-  return mode || 'harness';
-}
-
-/** Legacy alias for any remaining references */
-function toggleAgentMode(agent) {
-  const mode = getAgentMode(agent) === 'harness' ? 'code' : 'harness';
-  switchArenaTab(agent, mode === 'code' ? 'code' : 'input');
+  localStorage.setItem(`arc_arena_${agent.toLowerCase()}_mode`, next);
 }
 
 
@@ -4337,6 +4297,11 @@ function switchArenaMode(mode, skipHash) {
   }
 }
 
+const _AR_GAME_ICONS = {
+  snake: '\u{1F40D}', tron: '\u26A1', connect4: '\u{1F534}', chess960: '\u265A',
+  othello: '\u26AB', go9: '\u26AA', gomoku: '\u2B24', artillery: '\u{1F4A3}', poker: '\u{1F0CF}',
+};
+
 function arBuildGameList() {
   const container = document.getElementById('arGameList');
   container.innerHTML = '';
@@ -4358,17 +4323,37 @@ function arBuildGameList() {
       const item = document.createElement('div');
       item.className = 'ar-game-item' + (AR.selectedGame === game.id ? ' active' : '');
       item.dataset.game = game.id;
+      const icon = _AR_GAME_ICONS[game.id] || '\u{1F3AE}';
+      const tagsHtml = (game.tags || []).map(t => `<span class="ar-game-item-tag">${escHtml(t)}</span>`).join('');
       item.innerHTML =
-        `<div class="ar-game-item-name">${escHtml(game.title)}</div>` +
+        `<div class="ar-game-item-icon">${icon}</div>` +
+        `<div class="ar-game-item-meta">` +
+          `<div class="ar-game-item-name">${escHtml(game.title)}</div>` +
+          `<div class="ar-game-item-desc">${escHtml(game.desc || '')}</div>` +
+          (tagsHtml ? `<div class="ar-game-item-tags">${tagsHtml}</div>` : '') +
+        `</div>` +
         `<div class="ar-game-item-btns">` +
-          `<button class="ar-btn ar-btn-sm ar-btn-community" onclick="arSelectGame('${game.id}','community');event.stopPropagation();" title="Community Auto Research">C</button>` +
-          `<button class="ar-btn ar-btn-sm ar-btn-local" onclick="arShowLocalDialog('${game.id}');event.stopPropagation();" title="Local Auto Research">L</button>` +
+          `<button class="ar-btn ar-btn-xs ar-btn-community" onclick="arSelectGame('${game.id}','community');event.stopPropagation();" title="Community Auto Research">C</button>` +
+          `<button class="ar-btn ar-btn-xs ar-btn-local" onclick="arShowLocalDialog('${game.id}');event.stopPropagation();" title="Local Auto Research">L</button>` +
         `</div>`;
       item.addEventListener('click', () => arSelectGame(game.id, 'community'));
       catDiv.appendChild(item);
     }
     container.appendChild(catDiv);
   }
+}
+
+function arRestoreLiveTournament() {
+  const center = document.getElementById('arCenter');
+  if (!center || document.getElementById('arLiveGames')) return;
+  center.innerHTML =
+    `<div class="ar-section-header"><span>Live Tournament</span></div>` +
+    `<div class="ar-live-games" id="arLiveGames">` +
+      `<div class="ar-live-cell"><canvas id="arLive0" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo0"></div></div>` +
+      `<div class="ar-live-cell"><canvas id="arLive1" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo1"></div></div>` +
+      `<div class="ar-live-cell"><canvas id="arLive2" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo2"></div></div>` +
+      `<div class="ar-live-cell"><canvas id="arLive3" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo3"></div></div>` +
+    `</div>`;
 }
 
 async function arSelectGame(gameId, mode) {
@@ -4387,6 +4372,9 @@ async function arSelectGame(gameId, mode) {
     document.getElementById('arStatusText').textContent = `${game ? game.title : gameId} — Local Research`;
     return;
   }
+
+  // Restore Live Tournament canvases if arCenter was overwritten (e.g. after local/human play)
+  arRestoreLiveTournament();
 
   // Community mode: fetch research data from server
   document.getElementById('arStatusText').textContent = `Loading ${game ? game.title : gameId}...`;

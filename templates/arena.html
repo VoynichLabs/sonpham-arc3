@@ -66,28 +66,17 @@ const FEATURES = {{ features | tojson }};
         </div>
       </div>
 
-      <!-- Settings + side tabs -->
-      <div class="arena-panel-body" id="settingsA">
-        <div class="arena-panel-content" id="panelContentA">
-          <!-- Harness mode (default) -->
-          <div id="harnessModeA">
-            <div id="harnessSettingsA" class="harness-settings-container"></div>
-          </div>
-          <!-- Code mode: hidden by default -->
-          <div id="codeModeA" style="display:none;">
-            <div class="setting-section" style="padding:14px;">
-              <div class="setting-label">Strategy</div>
-              <select class="setting-select" id="stratA"><option value="greedy" selected>Greedy</option></select>
-              <div class="setting-desc" id="stratDescA">Chases food directly</div>
-            </div>
-          </div>
+      <!-- Harness settings (default) -->
+      <div class="agent-settings" id="settingsA">
+        <div id="harnessModeA">
+          <div id="harnessSettingsA" class="harness-settings-container"></div>
         </div>
-        <div class="arena-subtab-bar arena-subtab-right" id="subtabBarA">
-          <button class="active" data-tab="input" onclick="switchArenaTab('A','input')">Input</button>
-          <button data-tab="reasoning" onclick="switchArenaTab('A','reasoning')">Reasoning</button>
-          <button data-tab="keys" onclick="switchArenaTab('A','keys')">Keys</button>
-          <div class="arena-subtab-spacer"></div>
-          <button data-tab="code" onclick="switchArenaTab('A','code')" class="arena-subtab-mode">Code AI</button>
+        <div id="codeModeA" style="display:none;">
+          <div class="setting-section" style="padding:14px;">
+            <div class="setting-label">Strategy</div>
+            <select class="setting-select" id="stratA"><option value="greedy" selected>Greedy</option></select>
+            <div class="setting-desc" id="stratDescA">Chases food directly</div>
+          </div>
         </div>
       </div>
 
@@ -187,27 +176,16 @@ const FEATURES = {{ features | tojson }};
         </div>
       </div>
 
-      <!-- Settings + side tabs -->
-      <div class="arena-panel-body" id="settingsB">
-        <div class="arena-subtab-bar arena-subtab-left" id="subtabBarB">
-          <button class="active" data-tab="input" onclick="switchArenaTab('B','input')">Input</button>
-          <button data-tab="reasoning" onclick="switchArenaTab('B','reasoning')">Reasoning</button>
-          <button data-tab="keys" onclick="switchArenaTab('B','keys')">Keys</button>
-          <div class="arena-subtab-spacer"></div>
-          <button data-tab="code" onclick="switchArenaTab('B','code')" class="arena-subtab-mode">Code AI</button>
+      <!-- Harness settings (default) -->
+      <div class="agent-settings" id="settingsB">
+        <div id="harnessModeB">
+          <div id="harnessSettingsB" class="harness-settings-container"></div>
         </div>
-        <div class="arena-panel-content" id="panelContentB">
-          <!-- Harness mode (default) -->
-          <div id="harnessModeB">
-            <div id="harnessSettingsB" class="harness-settings-container"></div>
-          </div>
-          <!-- Code mode: hidden by default -->
-          <div id="codeModeB" style="display:none;">
-            <div class="setting-section" style="padding:14px;">
-              <div class="setting-label">Strategy</div>
-              <select class="setting-select" id="stratB"><option value="greedy">Greedy</option></select>
-              <div class="setting-desc" id="stratDescB">Chases food directly</div>
-            </div>
+        <div id="codeModeB" style="display:none;">
+          <div class="setting-section" style="padding:14px;">
+            <div class="setting-label">Strategy</div>
+            <select class="setting-select" id="stratB"><option value="greedy">Greedy</option></select>
+            <div class="setting-desc" id="stratDescB">Chases food directly</div>
           </div>
         </div>
       </div>
@@ -221,11 +199,10 @@ const FEATURES = {{ features | tojson }};
   <!-- ══ Auto Research View (hidden by default) ═══════════════════════════ -->
   <div class="ar-layout" id="arResearchView" style="display:none;">
 
-    <!-- Left: Game List -->
-    <div class="ar-game-list" id="arGameList"></div>
-
-    <!-- Center: Research Content -->
-    <div class="ar-center" id="arCenter">
+    <!-- Left: Game List + Program MD + Strategy Discussion -->
+    <div class="ar-left-col" id="arLeftCol">
+      <!-- Game List -->
+      <div class="ar-game-list" id="arGameList"></div>
 
       <!-- Program.md viewer -->
       <div class="ar-program-area" id="arProgramArea">
@@ -252,56 +229,55 @@ const FEATURES = {{ features | tojson }};
         </div>
       </div>
 
-      <!-- Leaderboard + Discussion split -->
-      <div class="ar-bottom-split">
-        <!-- Leaderboard -->
-        <div class="ar-leaderboard-area" id="arLeaderboardArea">
-          <div class="ar-section-header">
-            <span>Leaderboard</span>
-            <span class="ar-stat-badge" id="arAgentCount">0 agents</span>
-          </div>
-          <div class="ar-leaderboard-table-wrap">
-            <table class="ar-table" id="arLeaderboardTable">
-              <thead>
-                <tr>
-                  <th>#</th><th>Agent</th><th>ELO</th><th>W/L/D</th>
-                  <th>Games</th><th>By</th><th></th>
-                </tr>
-              </thead>
-              <tbody id="arLeaderboardBody"></tbody>
-            </table>
-          </div>
+      <!-- Strategy Discussion -->
+      <div class="ar-discussion-area" id="arDiscussionArea">
+        <div class="ar-section-header">
+          <span>Strategy Discussion</span>
         </div>
-
-        <!-- Discussion -->
-        <div class="ar-discussion-area" id="arDiscussionArea">
-          <div class="ar-section-header">
-            <span>Strategy Discussion</span>
-          </div>
-          <div class="ar-comments-list" id="arCommentsList"></div>
-          <div class="ar-comment-input">
-            <textarea id="arCommentText" placeholder="Discuss strategies..." rows="2"></textarea>
-            <button class="ar-btn ar-btn-primary" onclick="arPostComment()">Post</button>
-          </div>
-          <div class="ar-contribute-section">
-            <div class="ar-section-header"><span>Contribute Evolution</span></div>
-            <div class="ar-contribute-row">
-              <select class="ar-small-select" id="arContributeModel"></select>
-              <input type="password" id="arContributeKey" placeholder="API key" class="ar-input ar-input-sm">
-            </div>
+        <div class="ar-comments-list" id="arCommentsList"></div>
+        <div class="ar-comment-input">
+          <textarea id="arCommentText" placeholder="Discuss strategies..." rows="2"></textarea>
+          <button class="ar-btn ar-btn-primary" onclick="arPostComment()">Post</button>
+        </div>
+        <div class="ar-contribute-section">
+          <div class="ar-section-header"><span>Contribute Evolution</span></div>
+          <div class="ar-contribute-row">
+            <select class="ar-small-select" id="arContributeModel"></select>
+            <input type="password" id="arContributeKey" placeholder="API key" class="ar-input ar-input-sm">
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Right: Live Games + Compact Leaderboard -->
-    <div class="ar-right-col" id="arRightCol">
+    <!-- Center: Live Tournament (wider) -->
+    <div class="ar-center" id="arCenter">
       <div class="ar-section-header"><span>Live Tournament</span></div>
       <div class="ar-live-games" id="arLiveGames">
-        <div class="ar-live-cell"><canvas id="arLive0" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo0"></div></div>
-        <div class="ar-live-cell"><canvas id="arLive1" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo1"></div></div>
-        <div class="ar-live-cell"><canvas id="arLive2" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo2"></div></div>
-        <div class="ar-live-cell"><canvas id="arLive3" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo3"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive0" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo0"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive1" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo1"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive2" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo2"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive3" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo3"></div></div>
+      </div>
+    </div>
+
+    <!-- Right: Leaderboard + Recent Games -->
+    <div class="ar-right-col" id="arRightCol">
+      <div class="ar-leaderboard-area" id="arLeaderboardArea">
+        <div class="ar-section-header">
+          <span>Leaderboard</span>
+          <span class="ar-stat-badge" id="arAgentCount">0 agents</span>
+        </div>
+        <div class="ar-leaderboard-table-wrap">
+          <table class="ar-table" id="arLeaderboardTable">
+            <thead>
+              <tr>
+                <th>#</th><th>Agent</th><th>ELO</th><th>W/L/D</th>
+                <th>Games</th><th>By</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="arLeaderboardBody"></tbody>
+          </table>
+        </div>
       </div>
       <div class="ar-section-header" style="margin-top:8px"><span>Recent Games</span></div>
       <div class="ar-recent-games" id="arRecentGames">
