@@ -1,13 +1,14 @@
-// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-11 13:47
+// Author: Claude Opus 4.6 (1M context)
+// Date: 2026-03-15 16:00
 // PURPOSE: Core scaffolding infrastructure for ARC-AGI-3 web UI. Handles API mode
 //   switching (local vs official), model discovery (loadModels + LM Studio via direct browser fetch),
 //   model select population, BYOK key management, LLM call routing (callLLM → _callLLMInner
 //   for Puter.js, Gemini, Anthropic, OpenAI, Cloudflare, Groq, Mistral, HuggingFace, LM Studio),
-//   prompt template loading (getPrompt), and RLE compression (compressRowJS). Phase 5 extracted
-//   scaffolding-specific logic into scaffolding-rlm.js, scaffolding-three-system.js,
-//   scaffolding-agent-spawn.js, and scaffolding-linear.js. Phase 3 extracted JSON parsing
-//   to utils/json-parsing.js.
+//   prompt template loading (getPrompt), RLE compression (compressRowJS), lexical grid encoding
+//   (gridToLexical + ARC3_LEXICAL_MAP), and Anthropic prompt caching via cache_control.
+//   Phase 5 extracted scaffolding-specific logic into scaffolding-rlm.js,
+//   scaffolding-three-system.js, scaffolding-agent-spawn.js, and scaffolding-linear.js.
+//   Phase 3 extracted JSON parsing to utils/json-parsing.js.
 // SRP/DRY check: Pass — scaffolding types in separate files; JSON parsing in json-parsing.js;
 //   tokens in utils/tokens.js; this file is the shared LLM call infrastructure
 // ═══════════════════════════════════════════════════════════════════════════
@@ -349,6 +350,27 @@ function _populateAllModelSelects() {
     }
   } catch {}
 
+  // Populate RGB model selects if they exist
+  for (const rgbSelId of ['sf_rgb_analyzerModelSelect']) {
+    const rgbSel = document.getElementById(rgbSelId);
+    if (!rgbSel) continue;
+    const rgbSaved = rgbSel.value;
+    rgbSel.innerHTML = '<option value="">Select a model...</option>';
+    _populateSubModelSelect(rgbSel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, rgbSaved);
+  }
+  // Restore RGB model selections from saved settings
+  try {
+    const rgbRaw = localStorage.getItem('arc_scaffolding_rgb');
+    if (rgbRaw) {
+      const rgbS = JSON.parse(rgbRaw);
+      const rgbMap = { sf_rgb_analyzerModelSelect: rgbS.model };
+      for (const [id, val] of Object.entries(rgbMap)) {
+        const el = document.getElementById(id);
+        if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
+      }
+    }
+  } catch {}
+
   updateModelCaps();
   // Sync main model to sub-selects on initial load
   const mainVal = document.getElementById('modelSelect')?.value || '';
@@ -392,6 +414,17 @@ function compressRowJS(row) {
   }
   parts.push(count > 1 ? `${cur}x${count}` : `${cur}`);
   return parts.join(' ');
+}
+
+// ── Lexical Grid Encoding (LexicalColorPalette16-inspired) ──
+// Maps ARC3 color indices 0-15 to single mnemonic characters.
+// Produces a 64×64 character grid that preserves spatial layout.
+const ARC3_LEXICAL_MAP = ['.','1','2','3','4','K','M','m','R','B','b','Y','O','r','G','P'];
+const ARC3_LEXICAL_LEGEND = '.=White 1=LightGray 2=Gray 3=DarkGray 4=VeryDarkGray K=Black M=Magenta m=LightMagenta R=Red B=Blue b=LightBlue Y=Yellow O=Orange r=Maroon G=Green P=Purple';
+
+function gridToLexical(grid) {
+  if (!grid || !grid.length) return '';
+  return grid.map(row => row.map(c => ARC3_LEXICAL_MAP[c] ?? '?').join('')).join('\n');
 }
 
 // ── [Section extracted to scaffolding-rlm.js] ───────────────────────────
@@ -519,7 +552,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
     return data.choices?.[0]?.message?.content || '';
   }
 
-  // ── Anthropic ──
+  // ── Anthropic (with prompt caching) ──
   if (provider === 'anthropic') {
     const systemMsg = messages.find(m => m.role === 'system');
     const chatMsgs = messages.filter(m => m.role !== 'system');
@@ -531,7 +564,11 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
       throw new Error(`Prompt too long (~${Math.round(estTokens/1000)}K tokens) for ${model} (${Math.round(modelCtx/1000)}K limit). Enable Compact Context or reduce history.`);
     }
     const body = { model: apiModel, max_tokens: maxTokens, messages: chatMsgs.map(m => ({ role: m.role, content: m.content })) };
-    if (systemMsg) body.system = systemMsg.content;
+    // Prompt caching: send system as structured content block with cache_control.
+    // Anthropic caches the system prefix across calls — saves ~90% on repeated tokens.
+    if (systemMsg) {
+      body.system = [{ type: 'text', text: systemMsg.content, cache_control: { type: 'ephemeral' } }];
+    }
     const isOAuth = key.startsWith('sk-ant-oat');
     let resp;
     if (isOAuth) {
@@ -557,7 +594,15 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
       }
       throw new Error(`${resp.status} ${errMsg}`);
     }
-    callLLM._lastUsage = data.usage ? { input_tokens: data.usage.input_tokens || 0, output_tokens: data.usage.output_tokens || 0 } : null;
+    callLLM._lastUsage = data.usage ? {
+      input_tokens: data.usage.input_tokens || 0,
+      output_tokens: data.usage.output_tokens || 0,
+      cache_creation_input_tokens: data.usage.cache_creation_input_tokens || 0,
+      cache_read_input_tokens: data.usage.cache_read_input_tokens || 0,
+    } : null;
+    if (data.usage?.cache_read_input_tokens > 0) {
+      console.log(`[Anthropic] Cache hit: ${data.usage.cache_read_input_tokens} tokens read from cache`);
+    }
     return data.content?.map(c => c.text).filter(Boolean).join('') || '';
   }
 

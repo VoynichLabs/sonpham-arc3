@@ -1,5 +1,5 @@
 // Author: Claude Opus 4.6
-// Date: 2026-03-16 01:00
+// Date: 2026-03-16 03:00
 // PURPOSE: Arena Auto Research — in-browser evolution + tournament engine.
 //   Phase 2: headless match runner, per-game state adapters, live tournament canvases.
 //   Phase 4: human vs AI play mode — keyboard/click input, timed moves, result submission.
@@ -1033,7 +1033,7 @@ async function arStartLocal(gameId, config) {
   arUpdateLocalDashboard();
 
   // Store up to 4 recent matches for live canvases
-  LocalResearch.liveMatches = seedResults.filter(r => r.history).slice(-4);
+  LocalResearch.liveMatches = seedResults.filter(r => r.history).slice(-8);
   arRenderLiveCanvases();
 
   // Main loop
@@ -1056,7 +1056,7 @@ async function arStartLocal(gameId, config) {
     arLog('info', `Tournament: ${results.length} games played`);
 
     // Update live canvases with recent matches
-    LocalResearch.liveMatches = results.filter(r => r.history).slice(-4);
+    LocalResearch.liveMatches = results.filter(r => r.history).slice(-8);
     arRenderLiveCanvases();
 
     // Update UI
@@ -1388,7 +1388,7 @@ function arRenderLiveCanvases() {
   LocalResearch.liveTimers = [];
 
   const matches = LocalResearch.liveMatches;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 8; i++) {
     const canvas = document.getElementById(`arLive${i}`);
     const info = document.getElementById(`arLiveInfo${i}`);
     if (!canvas || !info) continue;

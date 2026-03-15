@@ -1,5 +1,5 @@
 // Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-12 17:30 EDT
+// Date: 2026-03-15 14:00
 // PURPOSE: Plan execution orchestration (Phase 22 extraction)
 // Extracted from llm.js: executePlan(), executeOneAction(), stepOnce()
 // These functions coordinate multi-step and single-step game action execution.
@@ -115,6 +115,12 @@ async function executePlan(plan, resp, entry, expected, ss) {
       event: 'act', agent: _obsAgent, action: ACTION_NAMES[step.action] || `A${step.action}`,
       grid: data.grid || null,
     });
+
+    // ── RGB: update game log with post-step state ──
+    if (resp?.scaffolding === 'rgb' && typeof rgbPostStep === 'function') {
+      const _sid = _ss?.id || _cur.sessionId || activeSessionId;
+      rgbPostStep(_sid, _cur.stepCount, ACTION_NAMES[step.action] || `ACTION${step.action}`, data);
+    }
 
     // ── Three-system: record observation and run monitor client-side ──
     if (resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system') {
@@ -291,6 +297,10 @@ async function executeOneAction(resp) {
   if (data.error) { undoStack.pop(); stepCount--; alert(data.error); return null; }
   moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: p.observation || '', reasoning: p.reasoning || '', llm_response: resp || null });
   recordStepForPersistence(p.action, p.data || {}, data.grid, data.change_map, resp, null, { levels_completed: data.levels_completed, result_state: data.state });
+  // RGB: update game log with post-step state
+  if (resp?.scaffolding === 'rgb' && typeof rgbPostStep === 'function') {
+    rgbPostStep(_actionSessionId, stepCount, ACTION_NAMES[p.action] || `ACTION${p.action}`, data);
+  }
   updateUI(data);
   updateUndoBtn();
 

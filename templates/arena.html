@@ -41,11 +41,9 @@ const FEATURES = {{ features | tojson }};
       </svg>
       <span class="app-title-text">ARC Arena<a class="logo-sub-link to-obs" href="/obs">&#8594; to Observatory</a></span>
     </span>
+    <a class="nav-link active" id="modeBtnResearch" href="#autoresearch" onclick="switchArenaMode('research');return false;">Auto Research</a>
+    <a class="nav-link" id="modeBtnMatch" href="#matchup" onclick="switchArenaMode('match');return false;">Create Match-up</a>
     <span style="flex:1"></span>
-    <div class="arena-mode-switcher">
-      <button class="arena-mode-btn active" id="modeBtnMatch" onclick="switchArenaMode('match')">Create Match-up</button>
-      <button class="arena-mode-btn" id="modeBtnResearch" onclick="switchArenaMode('research')">Auto Research</button>
-    </div>
     <a class="nav-switch-btn to-obs" href="/obs">&#8592; to Observatory</a>
     <button id="themeToggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-size:16px;padding:4px 8px;border-radius:6px;line-height:1;" title="Toggle light/dark mode"></button>
   </div>
@@ -199,21 +197,19 @@ const FEATURES = {{ features | tojson }};
   <!-- ══ Auto Research View (hidden by default) ═══════════════════════════ -->
   <div class="ar-layout" id="arResearchView" style="display:none;">
 
-    <!-- Left: Game List + Program MD + Strategy Discussion -->
+    <!-- Col 1: Game List -->
     <div class="ar-left-col" id="arLeftCol">
-      <!-- Game List -->
       <div class="ar-game-list" id="arGameList"></div>
+    </div>
 
-      <!-- Program.md viewer -->
+    <!-- Col 2: Program MD (2/3) + Strategy Discussion (1/3) -->
+    <div class="ar-center" id="arCenter">
+      <!-- Program.md viewer/editor — 2/3 height -->
       <div class="ar-program-area" id="arProgramArea">
         <div class="ar-section-header">
           <span>program.md</span>
           <div class="ar-program-controls">
-            <select class="ar-small-select" id="arProgramMode">
-              <option value="rendered">Rendered</option>
-              <option value="raw">Raw</option>
-              <option value="edit">Edit</option>
-            </select>
+            <button class="ar-btn ar-btn-xs" id="arProgramEditBtn" onclick="arToggleEdit()">Edit</button>
             <select class="ar-small-select" id="arProgramVersion"></select>
           </div>
         </div>
@@ -221,47 +217,35 @@ const FEATURES = {{ features | tojson }};
           <div class="ar-no-data">Select a game to view its evolution program</div>
         </div>
         <div class="ar-program-edit" id="arProgramEdit" style="display:none;">
+          <div class="ar-program-diff" id="arProgramDiff"></div>
           <textarea id="arProgramTextarea" placeholder="Write program.md content..."></textarea>
           <div class="ar-program-edit-actions">
             <input type="text" id="arProgramSummary" placeholder="Change summary..." class="ar-input">
-            <button class="ar-btn ar-btn-primary" onclick="arProposeProgram()">Propose Change (10s vote)</button>
+            <button class="ar-btn ar-btn-accept" onclick="arProposeProgram()">Accept Changes</button>
+            <button class="ar-btn ar-btn-xs" onclick="arCancelEdit()">Cancel</button>
           </div>
         </div>
       </div>
 
-      <!-- Strategy Discussion -->
+      <!-- Strategy Discussion — 1/3 height -->
       <div class="ar-discussion-area" id="arDiscussionArea">
         <div class="ar-section-header">
           <span>Strategy Discussion</span>
+          <div class="ar-contribute-inline">
+            <select class="ar-small-select" id="arContributeModel" title="Model"></select>
+            <input type="password" id="arContributeKey" placeholder="API key" class="ar-input ar-input-sm" title="BYOK key">
+          </div>
         </div>
         <div class="ar-comments-list" id="arCommentsList"></div>
         <div class="ar-comment-input">
           <textarea id="arCommentText" placeholder="Discuss strategies..." rows="2"></textarea>
           <button class="ar-btn ar-btn-primary" onclick="arPostComment()">Post</button>
         </div>
-        <div class="ar-contribute-section">
-          <div class="ar-section-header"><span>Contribute Evolution</span></div>
-          <div class="ar-contribute-row">
-            <select class="ar-small-select" id="arContributeModel"></select>
-            <input type="password" id="arContributeKey" placeholder="API key" class="ar-input ar-input-sm">
-          </div>
-        </div>
       </div>
     </div>
 
-    <!-- Center: Live Tournament (wider) -->
-    <div class="ar-center" id="arCenter">
-      <div class="ar-section-header"><span>Live Tournament</span></div>
-      <div class="ar-live-games" id="arLiveGames">
-        <div class="ar-live-cell"><canvas id="arLive0" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo0"></div></div>
-        <div class="ar-live-cell"><canvas id="arLive1" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo1"></div></div>
-        <div class="ar-live-cell"><canvas id="arLive2" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo2"></div></div>
-        <div class="ar-live-cell"><canvas id="arLive3" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo3"></div></div>
-      </div>
-    </div>
-
-    <!-- Right: Leaderboard + Recent Games -->
-    <div class="ar-right-col" id="arRightCol">
+    <!-- Col 3: Leaderboard + Recent Games (narrow) -->
+    <div class="ar-mid-col" id="arMidCol">
       <div class="ar-leaderboard-area" id="arLeaderboardArea">
         <div class="ar-section-header">
           <span>Leaderboard</span>
@@ -279,9 +263,24 @@ const FEATURES = {{ features | tojson }};
           </table>
         </div>
       </div>
-      <div class="ar-section-header" style="margin-top:8px"><span>Recent Games</span></div>
+      <div class="ar-section-header"><span>Recent Games</span></div>
       <div class="ar-recent-games" id="arRecentGames">
         <div class="ar-no-data">No games yet</div>
+      </div>
+    </div>
+
+    <!-- Col 4: Live Tournament (25%) — fills with as many games as space allows -->
+    <div class="ar-right-col" id="arRightCol">
+      <div class="ar-section-header"><span>Live Tournament</span></div>
+      <div class="ar-live-games" id="arLiveGames">
+        <div class="ar-live-cell"><canvas id="arLive0" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo0"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive1" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo1"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive2" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo2"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive3" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo3"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive4" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo4"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive5" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo5"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive6" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo6"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive7" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo7"></div></div>
       </div>
     </div>
   </div>
@@ -425,8 +424,8 @@ const _ARENA_HASH_MAP = { matchup: 'match', autoresearch: 'research' };
 const _ARENA_VIEW_TO_HASH = { match: 'matchup', research: 'autoresearch' };
 function _arenaRouteFromHash() {
   const h = location.hash.replace('#', '');
-  const mode = _ARENA_HASH_MAP[h];
-  if (mode && typeof switchArenaMode === 'function') switchArenaMode(mode, true);
+  const mode = _ARENA_HASH_MAP[h] || 'research'; // default to Auto Research
+  if (typeof switchArenaMode === 'function') switchArenaMode(mode, true);
 }
 window.addEventListener('hashchange', _arenaRouteFromHash);
 // Route on load (after DOMContentLoaded, handled in arena.js init)

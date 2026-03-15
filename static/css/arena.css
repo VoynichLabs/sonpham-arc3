@@ -4,8 +4,9 @@
    side panels (agent settings/logs) and center panel (game selection/match canvas).
    Supports Code mode (built-in AI strategies) and Harness mode (LLM scaffolding).
    Includes arena observatory overlay for per-agent observability.
-   Auto Research: three-column layout — left (card game list, program.md, discussion),
-   center (live tournament with larger canvases), right (leaderboard, recent games).
+   Auto Research: three-column layout — left (game list with canvas thumbnails),
+   center (program.md editor with diff, strategy discussion, model/key),
+   right (leaderboard, recent games, live tournament at 25% width).
    Local config dialog, human vs AI play dialog.
    SRP/DRY check: Pass — arena-specific styles only, no overlap with main.css components */
 
@@ -631,72 +632,64 @@
    Mode Switcher
    ═══════════════════════════════════════════════════════════════════════════ */
 
-.arena-mode-switcher {
-  display: flex; gap: 2px; background: var(--bg); border: 1px solid var(--border);
-  border-radius: 8px; padding: 2px; margin-right: auto;
+/* Arena top-nav reuses .nav-link from main.css for mode links */
+.arena-top-nav .nav-link, .arena-top-nav .nav-link:visited {
+  font-size: 12px; color: var(--text-dim); cursor: pointer;
+  padding: 5px 12px; border-radius: 4px; transition: all 0.15s; font-weight: 500;
+  text-decoration: none !important;
 }
-.arena-mode-btn {
-  padding: 5px 16px; border: none; border-radius: 6px; cursor: pointer;
-  font-family: inherit; font-size: 12px; font-weight: 600;
-  background: transparent; color: var(--text-dim); transition: all 0.15s;
-}
-.arena-mode-btn:hover { color: var(--text); }
-.arena-mode-btn.active { background: var(--accent); color: #000; }
+.arena-top-nav .nav-link:hover { color: var(--text); background: var(--border); }
+.arena-top-nav .nav-link.active { color: var(--accent); background: rgba(224, 149, 64, 0.1); }
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Auto Research Layout
+   Auto Research Layout — 4 columns
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .ar-layout {
   flex: 1; display: flex; overflow: hidden; min-height: 0;
 }
 
-/* ── Left Column: Game List + Program MD + Discussion ── */
+/* ── Col 1: Game List ── */
 .ar-left-col {
-  width: 340px; flex-shrink: 0; display: flex; flex-direction: column;
+  width: 260px; flex-shrink: 0; display: flex; flex-direction: column;
   background: var(--surface); border-right: 1px solid var(--border);
   overflow-y: auto;
 }
 
 .ar-game-list {
-  flex-shrink: 0; padding: 8px;
+  flex: 1; padding: 8px; overflow-y: auto;
 }
-.ar-game-cat { margin-bottom: 4px; }
+.ar-game-cat { margin-bottom: 8px; }
 .ar-game-cat-label {
   font-size: 10px; font-weight: 700; color: var(--text-dim);
   text-transform: uppercase; letter-spacing: 0.8px;
-  padding: 8px 4px 4px; border-bottom: 1px solid var(--border);
+  padding: 6px 4px 4px; border-bottom: 1px solid var(--border);
 }
-/* Card-style game items */
+/* Card-style game items with canvas thumbnails */
 .ar-game-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px; margin: 4px 0; cursor: pointer;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 8px; margin: 6px 0; cursor: pointer;
+  background: var(--bg); border: 2px solid var(--border); border-radius: 10px;
   transition: all 0.15s;
 }
 .ar-game-item:hover { border-color: var(--text-dim); background: var(--surface2); }
-.ar-game-item.active { border-color: var(--accent); background: var(--accent); color: #000; }
-.ar-game-item.active .ar-game-item-name { color: #000; }
-.ar-game-item.active .ar-game-item-desc { color: rgba(0,0,0,0.6); }
-.ar-game-item-icon {
-  width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 18px; background: var(--surface); border: 1px solid var(--border);
+.ar-game-item.active { border-color: var(--accent); background: var(--surface2); }
+.ar-game-item.active .ar-game-item-name { color: var(--accent); }
+.ar-game-item-preview {
+  width: 64px; height: 64px; border-radius: 6px; flex-shrink: 0;
+  image-rendering: pixelated; border: 1px solid var(--border);
 }
-.ar-game-item.active .ar-game-item-icon { background: rgba(0,0,0,0.15); border-color: rgba(0,0,0,0.2); }
 .ar-game-item-meta { flex: 1; min-width: 0; }
-.ar-game-item-name { font-size: 13px; font-weight: 700; }
-.ar-game-item-desc { font-size: 10px; color: var(--text-dim); line-height: 1.3; margin-top: 2px; }
-.ar-game-item-tags { display: flex; gap: 4px; margin-top: 4px; }
+.ar-game-item-name { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+.ar-game-item-desc { font-size: 10px; color: var(--text-dim); line-height: 1.3; }
+.ar-game-item-tags { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
 .ar-game-item-tag {
   font-size: 9px; padding: 1px 6px; border-radius: 8px;
   border: 1px solid var(--border); color: var(--text-dim);
 }
-.ar-game-item.active .ar-game-item-tag { border-color: rgba(0,0,0,0.3); color: rgba(0,0,0,0.6); }
-.ar-game-item-btns { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; }
 
-/* ── Center: Live Tournament (wider) ── */
+/* ── Col 2: Program MD (2/3) + Discussion (1/3) ── */
 .ar-center {
   flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
 }
@@ -713,66 +706,93 @@
   color: var(--accent); font-weight: 600;
 }
 
-/* Program.md area (now in left column) */
+/* Program.md — takes 2/3 of center height */
 .ar-program-area {
-  flex: 0 0 auto; max-height: 40%; display: flex; flex-direction: column;
-  overflow: hidden; border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  flex: 2; display: flex; flex-direction: column;
+  overflow: hidden; border-bottom: 1px solid var(--border);
+  min-height: 0;
 }
-.ar-program-controls { display: flex; gap: 4px; }
+.ar-program-controls { display: flex; gap: 6px; align-items: center; }
 .ar-program-view {
-  flex: 1; overflow-y: auto; padding: 8px 10px; font-size: 11px;
-  line-height: 1.5; color: var(--text);
+  flex: 1; overflow-y: auto; padding: 12px 16px; font-size: 13px;
+  line-height: 1.7; color: var(--text);
 }
 .ar-program-edit {
-  flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
+  flex: 1; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px;
+  overflow: hidden;
 }
 .ar-program-edit textarea {
   flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border);
-  border-radius: 6px; padding: 8px; font-family: inherit; font-size: 11px;
-  resize: none; min-height: 80px;
+  border-radius: 6px; padding: 10px; font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px; resize: none; min-height: 100px;
 }
 .ar-program-edit-actions {
-  display: flex; gap: 6px; align-items: center;
+  display: flex; gap: 6px; align-items: center; flex-shrink: 0;
 }
-.ar-markdown h2 { font-size: 13px; color: var(--accent); margin: 6px 0 3px; }
-.ar-markdown h3 { font-size: 12px; color: var(--accent); margin: 5px 0 2px; }
-.ar-markdown h4 { font-size: 11px; color: var(--text); margin: 3px 0 2px; }
-.ar-markdown code { background: var(--bg); padding: 1px 4px; border-radius: 3px; font-size: 10px; }
-.ar-markdown li { margin-left: 14px; }
+/* Diff view */
+.ar-program-diff {
+  flex: 0 0 auto; max-height: 40%; overflow-y: auto;
+  padding: 8px 12px; font-size: 11px; font-family: 'Consolas', 'Monaco', monospace;
+  line-height: 1.5; background: var(--bg); border-radius: 6px;
+  border: 1px solid var(--border); margin-bottom: 4px;
+  display: none;
+}
+.ar-diff-add { color: #4FCC30; background: rgba(79, 204, 48, 0.08); }
+.ar-diff-del { color: #F93C31; background: rgba(249, 60, 49, 0.08); text-decoration: line-through; }
+.ar-diff-ctx { color: var(--text-dim); }
+.ar-btn-accept {
+  background: #4FCC30; border: 1px solid #4FCC30; color: #000;
+  padding: 5px 14px; border-radius: 6px; cursor: pointer; font-family: inherit;
+  font-size: 12px; font-weight: 600; transition: all 0.15s; white-space: nowrap;
+}
+.ar-btn-accept:hover { background: #3db825; }
+
+.ar-markdown h1 { font-size: 18px; color: var(--text); margin: 10px 0 6px; font-weight: 700; }
+.ar-markdown h2 { font-size: 15px; color: var(--accent); margin: 8px 0 4px; }
+.ar-markdown h3 { font-size: 13px; color: var(--accent); margin: 6px 0 3px; }
+.ar-markdown h4 { font-size: 12px; color: var(--text); margin: 4px 0 2px; }
+.ar-markdown code { background: var(--bg); padding: 2px 5px; border-radius: 3px; font-size: 12px; }
+.ar-markdown pre { background: var(--bg); padding: 10px; border-radius: 6px; overflow-x: auto; border: 1px solid var(--border); margin: 6px 0; }
+.ar-markdown pre code { padding: 0; background: none; }
+.ar-markdown li { margin-left: 16px; margin-bottom: 2px; }
+.ar-markdown ul { margin: 4px 0; }
+.ar-markdown p { margin: 4px 0; }
+.ar-markdown strong { color: var(--text); }
+.ar-markdown blockquote { border-left: 3px solid var(--accent); padding-left: 10px; color: var(--text-dim); margin: 6px 0; }
 .ar-vote-banner {
   padding: 6px 10px; margin-top: 8px; background: #ffaa0020;
   border: 1px solid #ffaa0044; border-radius: 6px;
   font-size: 11px; color: #ffaa00; font-weight: 600;
 }
 
-/* Discussion area (now in left column) */
+/* Discussion — takes 1/3 of center height */
 .ar-discussion-area {
-  flex: 1; display: flex; flex-direction: column; overflow: hidden;
-  min-height: 120px;
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden; min-height: 0;
 }
 .ar-comments-list {
-  flex: 1; overflow-y: auto; padding: 6px 8px;
+  flex: 1; overflow-y: auto; padding: 6px 10px;
 }
 .ar-comment-input {
-  display: flex; gap: 4px; padding: 6px 8px; border-top: 1px solid var(--border);
-  background: var(--surface);
+  display: flex; gap: 4px; padding: 6px 10px; border-top: 1px solid var(--border);
+  background: var(--surface); flex-shrink: 0;
 }
 .ar-comment-input textarea {
   flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border);
-  border-radius: 4px; padding: 6px 8px; font-family: inherit; font-size: 11px;
+  border-radius: 4px; padding: 6px 8px; font-family: inherit; font-size: 12px;
   resize: none;
 }
-.ar-contribute-section {
-  border-top: 1px solid var(--border); padding: 0;
+/* Model + key inline in discussion header */
+.ar-contribute-inline {
+  display: flex; gap: 4px; align-items: center;
 }
-.ar-contribute-row {
-  display: flex; gap: 4px; padding: 6px 8px;
-}
+.ar-contribute-inline .ar-small-select { font-size: 10px; padding: 2px 4px; max-width: 140px; }
+.ar-contribute-inline .ar-input-sm { font-size: 10px; padding: 2px 6px; width: 100px; }
 
-/* ── Right Column: Leaderboard + Recent Games ── */
-.ar-right-col {
-  width: 360px; flex-shrink: 0; display: flex; flex-direction: column;
+/* ── Col 3: Leaderboard + Recent Games (narrow ~10%) ── */
+.ar-mid-col {
+  width: 10%; min-width: 200px; max-width: 320px;
+  flex-shrink: 0; display: flex; flex-direction: column;
   background: var(--surface); border-left: 1px solid var(--border);
   overflow: hidden;
 }
@@ -782,27 +802,8 @@
 .ar-leaderboard-table-wrap {
   flex: 1; overflow-y: auto;
 }
-
-/* Live Tournament (now center, bigger) */
-.ar-live-games {
-  flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px;
-  align-content: start;
-}
-.ar-live-cell {
-  display: flex; flex-direction: column; align-items: center;
-  background: var(--bg); border-radius: 6px; padding: 6px;
-  border: 1px solid var(--border);
-}
-.ar-live-cell canvas {
-  width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 4px;
-}
-.ar-live-info {
-  font-size: 10px; color: var(--text-dim); text-align: center;
-  margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  width: 100%;
-}
 .ar-recent-games {
-  flex: 1; overflow-y: auto; padding: 4px 8px;
+  flex: 0 0 auto; max-height: 180px; overflow-y: auto; padding: 4px 8px;
 }
 .ar-recent-game {
   display: flex; align-items: center; gap: 4px; padding: 3px 0;
@@ -812,6 +813,32 @@
 .ar-rg-result { color: var(--accent); font-weight: 600; flex-shrink: 0; }
 .ar-rg-result.ar-draw { color: var(--text-dim); }
 .ar-rg-turns { color: var(--text-dim); flex-shrink: 0; }
+
+/* ── Col 4: Live Tournament (25%) ── */
+.ar-right-col {
+  flex: 0 0 25%; display: flex; flex-direction: column;
+  background: var(--surface); border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+.ar-live-games {
+  flex: 1; display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px; padding: 6px;
+  align-content: start; overflow-y: auto;
+}
+.ar-live-cell {
+  display: flex; flex-direction: column; align-items: center;
+  background: var(--bg); border-radius: 4px; padding: 4px;
+  border: 1px solid var(--border);
+}
+.ar-live-cell canvas {
+  width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 3px;
+}
+.ar-live-info {
+  font-size: 9px; color: var(--text-dim); text-align: center;
+  margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  width: 100%;
+}
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1010,21 +1037,25 @@
 
 @media (max-width: 1400px) {
   .arena-side-panel { width: 360px; }
-  .ar-left-col { width: 280px; }
-  .ar-right-col { width: 300px; }
+  .ar-left-col { width: 220px; }
+  .ar-mid-col { min-width: 180px; }
+  .ar-right-col { min-width: 180px; }
 }
 @media (max-width: 1100px) {
   .arena-side-panel { width: 300px; }
   .arena-obs-panel { width: 320px; }
-  .ar-left-col { width: 240px; }
-  .ar-right-col { width: 260px; }
+  .ar-left-col { width: 180px; }
+  .ar-game-item-desc, .ar-game-item-tags { display: none; }
+  .ar-game-item-preview { width: 48px; height: 48px; }
+  .ar-mid-col { min-width: 160px; }
+  .ar-right-col { min-width: 160px; width: 20%; }
 }
 @media (max-width: 900px) {
   .arena-side-panel { width: 260px; }
   .arena-obs-panel { width: 280px; }
-  .ar-left-col { width: 200px; }
-  .ar-right-col { width: 220px; }
-  .ar-game-item-desc, .ar-game-item-tags { display: none; }
+  .ar-left-col { width: 160px; }
+  .ar-mid-col { display: none; }
+  .ar-right-col { width: 25%; min-width: 150px; }
 }
 @media (max-width: 750px) {
   .arena-layout { flex-direction: column; }
@@ -1038,6 +1069,7 @@
   .arena-obs-body { flex-direction: column; }
   .arena-obs-panel { width: 100%; max-height: 200px; border: none !important; border-bottom: 1px solid var(--border) !important; }
   .ar-layout { flex-direction: column; }
-  .ar-left-col, .ar-right-col { width: 100%; max-height: 250px; }
+  .ar-left-col, .ar-right-col, .ar-mid-col { width: 100%; max-height: 250px; }
+  .ar-mid-col { display: flex; }
   .ar-live-games { grid-template-columns: 1fr 1fr 1fr 1fr; }
 }

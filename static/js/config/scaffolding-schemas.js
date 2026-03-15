@@ -1,5 +1,5 @@
 // Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-11 13:47
+// Date: 2026-03-15 14:00
 // PURPOSE: Scaffolding configuration schemas for ARC-AGI-3 web UI. Defines
 //   SCAFFOLDING_SCHEMAS — the declarative field definitions (toggles, selects,
 //   sliders, model selects) for each scaffolding type (linear, rlm, three_system,
@@ -580,6 +580,60 @@ const SCAFFOLDING_SCHEMAS = {
           fields: [
             { type: 'number-input', id: 'sf_wm_maxIter', label: 'Max iterations', default: 10, min: 1, max: 100, width: '55px' },
             { type: 'number-input', id: 'sf_wm_outputTrunc', label: 'Output truncation (chars)', default: 5000, min: 100, max: 50000, width: '75px' },
+          ]
+        }]
+      },
+      {
+        id: 'secKeys', label: 'Model Keys', open: true,
+        customHtml: function() { return '<div id="byokKeysContainer"></div>'; }
+      }
+    ]
+  },
+
+  rgb: {
+    id: 'rgb',
+    name: 'RGB (Read-Grep-Bash)',
+    description: 'Analyzer reads game log with Read/Grep/Bash tools, outputs batched action plans. Based on alexisfox7/RGB-Agent.',
+    pipeline: [
+      { id: 'analyzer', label: 'Analyzer', color: 'var(--accent)', settingsRef: 'analyzer_model' },
+      { id: 'read', label: 'Read', color: 'var(--green)', settingsRef: null },
+      { id: 'grep', label: 'Grep', color: 'var(--cyan)', settingsRef: null },
+      { id: 'bash', label: 'Bash', color: 'var(--yellow)', settingsRef: null },
+      { id: 'queue', label: 'Action Queue', color: 'var(--purple)', settingsRef: null },
+    ],
+    edges: [
+      { from: 'analyzer', to: 'read', label: 'tool call' },
+      { from: 'analyzer', to: 'grep', label: 'tool call' },
+      { from: 'analyzer', to: 'bash', label: 'tool call' },
+      { from: 'read', to: 'analyzer', label: 'result' },
+      { from: 'grep', to: 'analyzer', label: 'result' },
+      { from: 'bash', to: 'analyzer', label: 'result' },
+      { from: 'analyzer', to: 'queue', label: '[ACTIONS]' },
+    ],
+    sections: [
+      {
+        id: 'sf_rgb_secAnalyzer', label: 'Analyzer Model', open: true,
+        groups: [{
+          subHeader: 'Analyzer',
+          fields: [
+            { type: 'model-select', id: 'sf_rgb_analyzerModelSelect', capsId: 'sf_rgb_analyzerModelCaps' },
+            { type: 'grid-2col', marginBottom: '8px', children: [
+              { type: 'quadswitch', id: 'sf_rgb_analyzerThinking', name: 'sf_rgb_analyzerThinking', label: 'Thinking',
+                options: [{v:'off',l:'Off'},{v:'low',l:'Low',checked:true},{v:'med',l:'Med'},{v:'high',l:'High'}],
+                hint: 'Thinking token budget' },
+              { type: 'number-spin', id: 'sf_rgb_analyzerMaxTokens', label: 'Max tokens',
+                default: 16384, min: 1024, max: 65536, step: 1024, spinFn: null, inline: true },
+            ]},
+          ]
+        }]
+      },
+      {
+        id: 'sf_rgb_secParams', label: 'Parameters', open: true,
+        groups: [{
+          subHeader: 'Analysis',
+          fields: [
+            { type: 'number-input', id: 'sf_rgb_planSize', label: 'Plan size (actions per batch)', default: 5, min: 1, max: 20, width: '55px' },
+            { type: 'number-input', id: 'sf_rgb_maxToolIter', label: 'Max tool iterations', default: 15, min: 1, max: 30, width: '55px' },
           ]
         }]
       },

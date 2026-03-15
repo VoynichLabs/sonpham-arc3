@@ -628,9 +628,15 @@
             <h3>Reasoning Log</h3>
             <div id="obsReasoningContent"></div>
           </div>
-          <div class="obs-memory-panel">
-            <h3>Agent Memory</h3>
-            <div id="obsMemoryContent"></div>
+          <div class="obs-right-panels">
+            <div class="obs-memory-panel">
+              <h3>Agent Memory</h3>
+              <div id="obsMemoryContent"></div>
+            </div>
+            <div class="obs-files-panel" id="obsFilesPanel">
+              <h3>Files</h3>
+              <div id="obsFilesContent" class="obs-files-content"></div>
+            </div>
           </div>
         </div>
         <div class="obs-transport">
@@ -692,6 +698,7 @@ window.PROMPTS = {{ prompts | tojson }};
 <script src="/static/js/scaffolding-agent-spawn.js?v={{ static_v }}"></script>
 <script src="/static/js/scaffolding-world-model.js?v={{ static_v }}"></script>
 <script src="/static/js/scaffolding-linear.js?v={{ static_v }}"></script>
+<script src="/static/js/scaffolding-rgb.js?v={{ static_v }}"></script>
 <script src="/static/js/session-storage.js?v={{ static_v }}"></script>
 <script src="/static/js/session-replay.js?v={{ static_v }}"></script>
 <script src="/static/js/session-persistence.js?v={{ static_v }}"></script>

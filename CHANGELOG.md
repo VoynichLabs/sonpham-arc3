@@ -5,6 +5,32 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.7.2] — feat: Arena Auto Research layout overhaul
+*Author: Claude Opus 4.6 | 2026-03-16*
+
+### Changed
+- **Auto Research layout**: Three-column restructure — left (game list with ARC-style canvas thumbnails), center (program.md viewer/editor with live diff, strategy discussion, model/API key), right (leaderboard + recent games + live tournament at 25% width).
+- **Game list**: Cards now show rendered game previews using each game's `preview()` function instead of emoji icons. Removed C/L (Community/Local) buttons — community mode is default.
+- **Program.md editor**: Edit button toggles inline editor with live green diff highlighting. Accept Changes button submits as a proposal. Cancel reverts to rendered view.
+- **Default program.md**: Snake game shows a built-in default program when server has no program yet, with strategy guidelines and agent interface docs.
+- **Auto-select snake**: Switching to Auto Research mode auto-selects snake (first enabled game) and loads community data immediately.
+- **Markdown rendering**: Improved parser handles code blocks (```), blockquotes, nested lists, headings h1-h4, and inline code.
+
+## [1.7.1] — feat: Prompt Caching + Lexical Grid Encoding (Linear scaffolding)
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Added
+- **Anthropic prompt caching** — Linear and Linear w/ Interrupt scaffoldings now send the system prompt (ARC description, color palette, agent priors, task format) as a structured content block with `cache_control: {type: 'ephemeral'}`. Cached input tokens cost 10% vs 100% at Anthropic and are served faster. Cache hits logged to console.
+- **Lexical grid encoding** — Replaced RLE grid compression with LexicalColorPalette16-inspired single-character encoding. Each ARC3 color maps to a mnemonic character (`.`=White, `K`=Black, `R`=Red, `B`=Blue, `G`=Green, etc.). The 64×64 grid is now a readable character map that preserves spatial layout, helping LLMs reason about 2D positions.
+- **System/user message split** — `buildClientPrompt()` now returns `{system, user}` instead of a single string. Static content goes in the system message (cacheable), dynamic content (state, history, grid) goes in the user message. All providers handle this correctly.
+
+### Changed
+- Anthropic usage tracking now includes `cache_creation_input_tokens` and `cache_read_input_tokens` fields.
+- Grid section header changed from "GRID (RLE, colors 0-15)" to "GRID (64×64 lexical)".
+- Color palette prompt now includes the lexical legend mapping.
+
+---
+
 ## [1.7.0] — feat: Arena Auto Research (Phase 4 — Human vs AI Play)
 *Author: Claude Opus 4.6 | 2026-03-15*
 

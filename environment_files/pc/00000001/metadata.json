@@ -1,7 +1,7 @@
 {
   "game_id": "pc01",
   "title": "Parallel Clone",
-  "default_fps": 5,
+  "default_fps": 60,
   "baseline_actions": [],
   "tags": [],
   "local_dir": "pc",

@@ -1,11 +1,12 @@
-// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-11 13:47
+// Author: Claude Opus 4.6 (1M context)
+// Date: 2026-03-15 16:00
 // PURPOSE: LLM call orchestration for ARC-AGI-3 web UI. Handles screenshot capture,
 //   autoplay loop (single-agent, planning, RLM, three-system, agent-spawn scaffoldings),
 //   plan execution with monitor/interrupt checks, tool use (Python REPL via Pyodide),
-//   compact context generation, and reasoning panel rendering. Coordinates between
-//   scaffolding-*.js modules, ui.js, state.js, and session.js. Modified in Phases 1 & 3
-//   to extract formatting utils and token helpers to separate modules.
+//   compact context generation, and reasoning panel rendering. Linear path now passes
+//   system+user messages (from buildClientPrompt {system, user}) enabling Anthropic
+//   prompt caching. Coordinates between scaffolding-*.js modules, ui.js, state.js,
+//   and session.js. Modified in Phases 1 & 3 to extract formatting utils and token helpers.
 // SRP/DRY check: Pass — formatting in utils/formatting.js, tokens in utils/tokens.js,
 //   scaffolding logic split into scaffolding-*.js in Phase 5
 // ═══════════════════════════════════════════════════════════════════════════
@@ -203,8 +204,21 @@ async function askLLM(ss) {
           resp = { error: e.message, model };
         }
         if (resp) resp._clientSide = true;
+      } else if (_scaffType === 'rgb') {
+        // RGB harness: Analyzer with Read/Grep/Bash tools + action queue
+        try {
+          resp = await askLLMRgb(_cur, model, modelInfo, _waitEl, isActive, historyForLLM, compactBlock, _snap);
+        } catch (e) {
+          console.error('[askLLM] RGB client-side error:', e);
+          resp = { error: e.message, model };
+        }
+        if (resp) resp._clientSide = true;
       } else {
-      const prompt = buildClientPrompt(_cur.currentState, historyForLLM, _cur.currentChangeMap, inputSettings, _snap?.tools_mode || getToolsMode(), compactBlock, _snap?.planning_mode || getPlanningMode());
+      const promptObj = buildClientPrompt(_cur.currentState, historyForLLM, _cur.currentChangeMap, inputSettings, _snap?.tools_mode || getToolsMode(), compactBlock, _snap?.planning_mode || getPlanningMode());
+      // buildClientPrompt returns {system, user} for provider-aware message splitting
+      const _sysMsg = promptObj.system;
+      const _usrMsg = promptObj.user;
+      const _linearMsgs = [{role: 'system', content: _sysMsg}, {role: 'user', content: _usrMsg}];
       window._lastLLMGrid = _cur.currentState.grid;
       window._lastLLMPrevGrid = _ss ? _ss.previousGrid : previousGrid;
       let rawContent;
@@ -229,7 +243,7 @@ async function askLLM(ss) {
           }
         } : null;
         rawContent = await callLLM(
-          [{role: 'user', content: prompt}], model,
+          _linearMsgs, model,
           { maxTokens: _snap?.max_tokens || getMaxTokens(), onChunk: _onChunk }
         );
         // Handle Gemini MALFORMED_FUNCTION_CALL recovery
@@ -241,14 +255,15 @@ async function askLLM(ss) {
             const code = codeMatch[1].trim();
             const output = await runPyodide(code, window._lastLLMGrid || [[]], window._lastLLMPrevGrid || null, _callSessionId);
             rawContent = await callLLM([
-              {role: 'user', content: prompt},
+              {role: 'system', content: _sysMsg},
+              {role: 'user', content: _usrMsg},
               {role: 'assistant', content: '```python\n' + code + '\n```'},
               {role: 'user', content: '[Code output]:\n' + output + '\n\nBased on this analysis, provide your answer as JSON only. No code.'},
             ], model, { maxTokens: getMaxTokens() });
           } else {
             console.warn('Gemini MALFORMED_FUNCTION_CALL — retrying without tools');
             rawContent = await callLLM(
-              [{role: 'user', content: prompt + '\n\nIMPORTANT: Do NOT use code or function calls. Respond with plain JSON only.'}],
+              [{role: 'system', content: _sysMsg}, {role: 'user', content: _usrMsg + '\n\nIMPORTANT: Do NOT use code or function calls. Respond with plain JSON only.'}],
               model, { maxTokens: getMaxTokens() }
             );
           }
@@ -291,7 +306,7 @@ async function askLLM(ss) {
             }
             let retryRaw;
             try {
-              retryRaw = await callLLM([{role: 'user', content: prompt + '\n\n' + nudge}], model, { maxTokens: _snap?.max_tokens || getMaxTokens() });
+              retryRaw = await callLLM([{role: 'system', content: _sysMsg}, {role: 'user', content: _usrMsg + '\n\n' + nudge}], model, { maxTokens: _snap?.max_tokens || getMaxTokens() });
             } catch (e) { console.warn('[askLLM] Parse retry error:', e.message); continue; }
             if (!sessions.has(_callSessionId)) return null;
             if (retryRaw && typeof retryRaw === 'object' && retryRaw.truncated) retryRaw = retryRaw.text;
@@ -335,7 +350,7 @@ async function askLLM(ss) {
         }
       }
       // Always set prompt_length for token estimation (even on error)
-      if (resp) { resp.prompt_length = prompt.length; resp._clientSide = true; }
+      if (resp) { resp.prompt_length = (_sysMsg.length + _usrMsg.length); resp._clientSide = true; }
       } // end inner else (non-RLM client-side)
     }
 

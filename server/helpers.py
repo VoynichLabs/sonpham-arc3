@@ -27,7 +27,7 @@ FEATURES = {
     "pyodide_game":  {"staging": True,   "prod": True},
 }
 
-HIDDEN_GAMES = ["ab", "fd", "fy", "pt", "sh"]
+HIDDEN_GAMES = ["ab", "fd", "fy", "mr", "mw", "pt", "sh"]
 
 
 def get_mode() -> str:

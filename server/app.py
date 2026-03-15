@@ -371,6 +371,12 @@ def arena_program_apply(game_id, version_id):
     return jsonify({"applied": applied})
 
 
+@app.route("/api/arena/heartbeat/status")
+def arena_heartbeat_status():
+    from server.arena_heartbeat import get_heartbeat_status
+    return jsonify(get_heartbeat_status())
+
+
 @app.route("/api/arena/human-play/<game_id>", methods=["POST"])
 def arena_human_play(game_id):
     data = request.get_json(force=True)
@@ -1872,6 +1878,17 @@ def batch_status(batch_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ARENA HEARTBEAT — start background thread for server-side evolution
+# ═══════════════════════════════════════════════════════════════════════════
+
+try:
+    from server.arena_heartbeat import start_arena_heartbeat
+    start_arena_heartbeat()
+except Exception as _hb_err:
+    print(f"[arena] Heartbeat start failed (non-fatal): {_hb_err}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

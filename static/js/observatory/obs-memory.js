@@ -1,13 +1,9 @@
-/**
- * obs-memory.js — Observatory Memory Panel
- *
- * Derives agent memory state by replaying moveHistory entries.
- * No memory is stored per-step — it's reconstructed from llm_response data.
- *
- * Supports: Linear, RLM, Three-System/Two-System, Agent Spawn scaffoldings.
- *
- * Requires: observatory.js globals (moveHistory, getActiveSession, sessions)
- */
+// Author: Mark Barney + Claude Opus 4.6
+// Date: 2026-03-15 14:00
+// PURPOSE: Observatory Memory Panel + Files Panel. Derives agent memory state by
+//   replaying moveHistory entries. Also renders the Files panel for RGB harness
+//   (game prompt log). Supports: Linear, RLM, Three-System/Two-System, Agent Spawn, RGB.
+// SRP/DRY check: Pass — memory tracking and files rendering colocated as observatory panels
 
 // ── MemoryStateTracker ──────────────────────────────────────────
 
@@ -321,6 +317,9 @@ function obsMemoryScrub(idx) {
   const snapshot = tracker.replayTo(hist, idx);
   renderMemoryPanel(snapshot);
   _memLastIdx = idx;
+
+  // Update Files panel (RGB game log at this step)
+  obsFilesRenderAtStep(idx);
 }
 
 /** Called when a new step is added during live autoplay (incremental) */
@@ -329,6 +328,9 @@ function obsMemoryLiveStep(entry, idx) {
   tracker.processStep(entry, idx);
   renderMemoryPanel(tracker.getSnapshot());
   _memLastIdx = idx;
+
+  // Update Files panel live
+  obsFilesRenderLive();
 }
 
 /** Called on enterObsMode — replay all existing steps */
@@ -338,7 +340,75 @@ function obsMemoryInit() {
   if ((!hist || !hist.length) && getActiveSession()) hist = getActiveSession().moveHistory || [];
   if (!hist || !hist.length) {
     renderMemoryPanel(null);
+    obsFilesRenderLive();
     return;
   }
   obsMemoryScrub(hist.length - 1);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FILES PANEL — Renders the RGB game log (or empty for other scaffoldings)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Render Files panel with current live game log */
+function obsFilesRenderLive() {
+  const panel = document.getElementById('obsFilesContent');
+  if (!panel) return;
+
+  // Find RGB state for active session
+  const sid = activeSessionId || (getActiveSession()?.id);
+  if (!sid || typeof _rgbSessions === 'undefined' || !_rgbSessions.has(sid)) {
+    panel.innerHTML = '<div class="obs-files-empty">No files — active with RGB harness only</div>';
+    return;
+  }
+
+  const rgb = _rgbSessions.get(sid);
+  const text = rgb.gameLog.text;
+  if (!text) {
+    panel.innerHTML = '<div class="obs-files-empty">Game log empty — waiting for first step...</div>';
+    return;
+  }
+
+  panel.innerHTML = _obsFilesHighlight(text);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+/** Render Files panel at a specific step (for scrubber) */
+function obsFilesRenderAtStep(stepIdx) {
+  const panel = document.getElementById('obsFilesContent');
+  if (!panel) return;
+
+  const sid = activeSessionId || (getActiveSession()?.id);
+  if (!sid || typeof _rgbSessions === 'undefined' || !_rgbSessions.has(sid)) {
+    panel.innerHTML = '<div class="obs-files-empty">No files — active with RGB harness only</div>';
+    return;
+  }
+
+  const rgb = _rgbSessions.get(sid);
+  const text = rgb.gameLog.getTextAtStep(stepIdx + 1); // steps are 1-indexed in the log
+  if (!text) {
+    panel.innerHTML = '<div class="obs-files-empty">No log data at this step</div>';
+    return;
+  }
+
+  panel.innerHTML = _obsFilesHighlight(text);
+}
+
+/** Apply syntax highlighting to game log text */
+function _obsFilesHighlight(text) {
+  // Escape HTML first
+  const d = document.createElement('div');
+  d.textContent = text;
+  let html = d.innerHTML;
+
+  // Highlight section markers
+  html = html.replace(/\[(INITIAL BOARD STATE|POST-ACTION BOARD STATE|STRATEGIC ANALYSIS[^\]]*)\]/g,
+    '<span class="file-section-marker">[$1]</span>');
+  // Highlight separator lines
+  html = html.replace(/^={40,}$/gm, '<span class="file-separator">$&</span>');
+  // Highlight score lines
+  html = html.replace(/^(Score: \d+.*)$/gm, '<span class="file-score-line">$1</span>');
+
+  return html;
 }

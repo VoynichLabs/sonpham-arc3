@@ -4313,8 +4313,11 @@ function switchArenaMode(mode, skipHash) {
     layout.style.display = 'none';
     researchView.style.display = 'flex';
     statusBar.style.display = 'flex';
+    arBuildGameList();
     if (!AR.selectedGame) {
-      arBuildGameList();
+      // Auto-select first game (snake) on initial load
+      const firstGame = ARENA_GAMES[0];
+      if (firstGame) arSelectGame(firstGame.id, 'community');
     }
   } else {
     researchBtn.classList.remove('active');
@@ -4325,11 +4328,6 @@ function switchArenaMode(mode, skipHash) {
     arStopPolling();
   }
 }
-
-const _AR_GAME_ICONS = {
-  snake: '\u{1F40D}', tron: '\u26A1', connect4: '\u{1F534}', chess960: '\u265A',
-  othello: '\u26AB', go9: '\u26AA', gomoku: '\u2B24', artillery: '\u{1F4A3}', poker: '\u{1F0CF}',
-};
 
 function arBuildGameList() {
   const container = document.getElementById('arGameList');
@@ -4352,37 +4350,32 @@ function arBuildGameList() {
       const item = document.createElement('div');
       item.className = 'ar-game-item' + (AR.selectedGame === game.id ? ' active' : '');
       item.dataset.game = game.id;
-      const icon = _AR_GAME_ICONS[game.id] || '\u{1F3AE}';
       const tagsHtml = (game.tags || []).map(t => `<span class="ar-game-item-tag">${escHtml(t)}</span>`).join('');
-      item.innerHTML =
-        `<div class="ar-game-item-icon">${icon}</div>` +
-        `<div class="ar-game-item-meta">` +
-          `<div class="ar-game-item-name">${escHtml(game.title)}</div>` +
-          `<div class="ar-game-item-desc">${escHtml(game.desc || '')}</div>` +
-          (tagsHtml ? `<div class="ar-game-item-tags">${tagsHtml}</div>` : '') +
-        `</div>` +
-        `<div class="ar-game-item-btns">` +
-          `<button class="ar-btn ar-btn-xs ar-btn-community" onclick="arSelectGame('${game.id}','community');event.stopPropagation();" title="Community Auto Research">C</button>` +
-          `<button class="ar-btn ar-btn-xs ar-btn-local" onclick="arShowLocalDialog('${game.id}');event.stopPropagation();" title="Local Auto Research">L</button>` +
-        `</div>`;
+
+      // Canvas thumbnail — rendered with the game's preview function
+      const canvas = document.createElement('canvas');
+      canvas.className = 'ar-game-item-preview';
+      canvas.width = 64; canvas.height = 64;
+      item.appendChild(canvas);
+
+      const meta = document.createElement('div');
+      meta.className = 'ar-game-item-meta';
+      meta.innerHTML =
+        `<div class="ar-game-item-name">${escHtml(game.title)}</div>` +
+        `<div class="ar-game-item-desc">${escHtml(game.desc || '')}</div>` +
+        (tagsHtml ? `<div class="ar-game-item-tags">${tagsHtml}</div>` : '');
+      item.appendChild(meta);
+
       item.addEventListener('click', () => arSelectGame(game.id, 'community'));
       catDiv.appendChild(item);
+
+      // Render preview using the game's preview function (ARC-style grid)
+      if (game.preview) {
+        try { game.preview(canvas, game.config); } catch (e) { /* skip */ }
+      }
     }
     container.appendChild(catDiv);
   }
-}
-
-function arRestoreLiveTournament() {
-  const center = document.getElementById('arCenter');
-  if (!center || document.getElementById('arLiveGames')) return;
-  center.innerHTML =
-    `<div class="ar-section-header"><span>Live Tournament</span></div>` +
-    `<div class="ar-live-games" id="arLiveGames">` +
-      `<div class="ar-live-cell"><canvas id="arLive0" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo0"></div></div>` +
-      `<div class="ar-live-cell"><canvas id="arLive1" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo1"></div></div>` +
-      `<div class="ar-live-cell"><canvas id="arLive2" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo2"></div></div>` +
-      `<div class="ar-live-cell"><canvas id="arLive3" width="280" height="280"></canvas><div class="ar-live-info" id="arLiveInfo3"></div></div>` +
-    `</div>`;
 }
 
 async function arSelectGame(gameId, mode) {
@@ -4401,9 +4394,6 @@ async function arSelectGame(gameId, mode) {
     document.getElementById('arStatusText').textContent = `${game ? game.title : gameId} — Local Research`;
     return;
   }
-
-  // Restore Live Tournament canvases if arCenter was overwritten (e.g. after local/human play)
-  arRestoreLiveTournament();
 
   // Community mode: fetch research data from server
   document.getElementById('arStatusText').textContent = `Loading ${game ? game.title : gameId}...`;
@@ -4443,45 +4433,164 @@ function arRenderResearch(gameId, data) {
   arLoadRecentGames(gameId);
 }
 
+// Default program.md for snake (shown when server has no program yet)
+const _AR_DEFAULT_PROGRAM = `# Snake Battle — Evolution Program
+
+## Objective
+Evolve agents that consistently win Snake Battle matches against diverse opponents.
+
+## Game Rules
+- 20x20 grid, two snakes, one food at a time
+- Eat food to grow, avoid walls and opponent
+- Colliding with walls, self, or opponent = death
+- Last snake alive wins; if both die same turn = draw
+
+## Strategy Guidelines
+- **Food control**: Prioritize safe paths to food over shortest paths
+- **Space control**: Avoid corners; prefer center and open areas
+- **Opponent awareness**: Track enemy position and cut off their escape routes
+- **Lookahead**: Evaluate multiple moves ahead before committing
+
+## Agent Interface
+\`\`\`javascript
+function getMove(state) {
+  // state.grid, state.mySnake, state.enemySnake, state.food, state.turn, state.memory
+  return 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
+}
+\`\`\`
+`;
+
+// Store original program content for diffing
+let _arProgramOriginal = '';
+
 function arRenderProgram(program) {
-  if (!program) return;
   const view = document.getElementById('arProgramView');
-  const content = program.content || '';
-  if (!content) {
-    view.innerHTML = '<div class="ar-no-data">No program.md yet. Create one to steer evolution.</div>';
-  } else {
-    // Simple markdown rendering (headers, bold, lists)
-    view.innerHTML = `<div class="ar-markdown">${arSimpleMarkdown(content)}</div>`;
-  }
+  const content = (program && program.content) || _AR_DEFAULT_PROGRAM;
+  _arProgramOriginal = content;
+
+  view.innerHTML = `<div class="ar-markdown">${arSimpleMarkdown(content)}</div>`;
+
+  // Hide edit view, show rendered
+  const editEl = document.getElementById('arProgramEdit');
+  if (editEl) editEl.style.display = 'none';
+  view.style.display = '';
 
   // Version selector
   const sel = document.getElementById('arProgramVersion');
-  sel.innerHTML = '';
-  if (program.versions) {
-    for (const v of program.versions) {
-      const opt = document.createElement('option');
-      opt.value = v.version;
-      opt.textContent = `v${v.version}` + (v.author ? ` (${v.author})` : '');
-      sel.appendChild(opt);
+  if (sel) {
+    sel.innerHTML = '';
+    if (program && program.versions) {
+      for (const v of program.versions) {
+        const opt = document.createElement('option');
+        opt.value = v.version;
+        opt.textContent = `v${v.version}` + (v.author ? ` (${v.author})` : '');
+        sel.appendChild(opt);
+      }
     }
   }
 
   // Active proposal indicator
-  if (program.active_proposal) {
-    const deadline = new Date(program.active_proposal.vote_deadline * 1000);
+  if (program && program.active_proposal) {
     const remaining = Math.max(0, Math.ceil((program.active_proposal.vote_deadline - Date.now()/1000)));
     view.innerHTML += `<div class="ar-vote-banner">Active proposal: ${remaining}s left — For: ${program.active_proposal.votes_for} Against: ${program.active_proposal.votes_against}</div>`;
   }
 }
 
+function arToggleEdit() {
+  const view = document.getElementById('arProgramView');
+  const edit = document.getElementById('arProgramEdit');
+  const textarea = document.getElementById('arProgramTextarea');
+  const diff = document.getElementById('arProgramDiff');
+  if (!edit || !view) return;
+
+  if (edit.style.display === 'none') {
+    // Switch to edit mode
+    textarea.value = _arProgramOriginal;
+    edit.style.display = 'flex';
+    view.style.display = 'none';
+    if (diff) diff.style.display = 'none';
+    // Live diff on input
+    textarea.oninput = () => arUpdateDiff();
+  } else {
+    arCancelEdit();
+  }
+}
+
+function arCancelEdit() {
+  const view = document.getElementById('arProgramView');
+  const edit = document.getElementById('arProgramEdit');
+  if (edit) edit.style.display = 'none';
+  if (view) view.style.display = '';
+}
+
+function arUpdateDiff() {
+  const diff = document.getElementById('arProgramDiff');
+  const textarea = document.getElementById('arProgramTextarea');
+  if (!diff || !textarea) return;
+
+  const oldLines = _arProgramOriginal.split('\n');
+  const newLines = textarea.value.split('\n');
+  const maxLen = Math.max(oldLines.length, newLines.length);
+  let html = '';
+  let hasChanges = false;
+
+  for (let i = 0; i < maxLen; i++) {
+    const oldLine = i < oldLines.length ? oldLines[i] : undefined;
+    const newLine = i < newLines.length ? newLines[i] : undefined;
+    if (oldLine === newLine) {
+      // Context line — skip for brevity unless near a change
+    } else {
+      hasChanges = true;
+      if (oldLine !== undefined && newLine !== undefined) {
+        html += `<div class="ar-diff-del">- ${escHtml(oldLine)}</div>`;
+        html += `<div class="ar-diff-add">+ ${escHtml(newLine)}</div>`;
+      } else if (oldLine !== undefined) {
+        html += `<div class="ar-diff-del">- ${escHtml(oldLine)}</div>`;
+      } else {
+        html += `<div class="ar-diff-add">+ ${escHtml(newLine)}</div>`;
+      }
+    }
+  }
+
+  if (hasChanges) {
+    diff.innerHTML = html;
+    diff.style.display = 'block';
+  } else {
+    diff.style.display = 'none';
+  }
+}
+
 function arSimpleMarkdown(text) {
+  // Handle code blocks first (```...```)
+  let html = '';
+  const parts = text.split(/```(\w*)\n?([\s\S]*?)```/g);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 3 === 0) {
+      // Normal text
+      html += _arInlineMarkdown(parts[i]);
+    } else if (i % 3 === 1) {
+      // Language tag (skip)
+    } else {
+      // Code block content
+      html += `<pre><code>${escHtml(parts[i])}</code></pre>`;
+    }
+  }
+  return html;
+}
+
+function _arInlineMarkdown(text) {
   return escHtml(text)
-    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
     .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
+    .replace(/<\/ul>\s*<ul>/g, '')
+    .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br>');
 }
 
@@ -4636,24 +4745,7 @@ async function arProposeProgram() {
   }
 }
 
-// Wire up program mode selector
-document.addEventListener('DOMContentLoaded', () => {
-  const modeSelect = document.getElementById('arProgramMode');
-  if (modeSelect) {
-    modeSelect.addEventListener('change', e => {
-      const mode = e.target.value;
-      const view = document.getElementById('arProgramView');
-      const edit = document.getElementById('arProgramEdit');
-      if (mode === 'edit') {
-        view.style.display = 'none';
-        edit.style.display = 'flex';
-      } else {
-        view.style.display = '';
-        edit.style.display = 'none';
-      }
-    });
-  }
-});
+// (Program edit/diff wired via onclick in HTML — arToggleEdit, arCancelEdit, arUpdateDiff)
 
 
 /* ── Human vs AI Dialog ── */
@@ -4789,6 +4881,7 @@ function arStartLocalResearch() {
 
 function arStartPolling(gameId) {
   arStopPolling();
+  // Heartbeat every 15 minutes — refreshes leaderboard, comments, recent games
   AR.pollTimer = setInterval(async () => {
     if (AR.selectedGame !== gameId) { arStopPolling(); return; }
     try {
@@ -4797,7 +4890,7 @@ function arStartPolling(gameId) {
     } catch (e) {
       // Silently fail
     }
-  }, 5000);
+  }, 15 * 60 * 1000);
 }
 
 function arStopPolling() {

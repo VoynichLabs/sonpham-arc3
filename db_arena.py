@@ -192,6 +192,11 @@ def arena_record_game(game_id, agent1_id, agent2_id, winner_id,
         if not a1 or not a2:
             return None
 
+        # Skip entirely if this pair already has enough games
+        pair_count = _count_pair(conn, agent1_id, agent2_id)
+        if pair_count >= MAX_STORED_GAMES_PER_PAIR:
+            return None
+
         elo_gap = abs(a1["elo"] - a2["elo"])
 
         # Determine ELO result
