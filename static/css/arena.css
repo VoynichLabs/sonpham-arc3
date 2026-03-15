@@ -59,7 +59,7 @@
 
 /* ── Side Panels (Agent A left, Agent B right) ────────────────────────────── */
 .arena-side-panel {
-  width: 430px; flex-shrink: 0; display: flex; flex-direction: column;
+  width: 500px; flex-shrink: 0; display: flex; flex-direction: column;
   background: var(--surface); overflow: hidden;
 }
 #panelA { border-right: 1px solid var(--border); }
@@ -89,7 +89,11 @@
 .agent-panel-a .harness-settings-container .toggle input:checked + .slider { background: var(--red); }
 .agent-panel-a .harness-settings-container .quadswitch label:has(input:checked),
 .agent-panel-a .harness-settings-container .triswitch label:has(input:checked) {
-  background: var(--red); color: #fff; font-weight: 600;
+  background: var(--red) !important; color: #fff !important; font-weight: 600;
+}
+.agent-panel-a .harness-settings-container .quadswitch label:has(input:checked) span,
+.agent-panel-a .harness-settings-container .triswitch label:has(input:checked) span {
+  color: #fff !important;
 }
 .agent-panel-a .harness-settings-container select:hover { border-color: var(--red); }
 /* Red text for active radio/switch labels */
@@ -137,8 +141,12 @@
 
 /* ── Agent Settings (pre-match) ───────────────────────────────────────────── */
 .agent-settings {
-  flex: 1; overflow-y: auto; padding: 16px 14px;
+  flex: 1; overflow-y: auto; padding: 0;
 }
+/* Harness selector + pipeline get inner padding, section headers stay flush */
+.harness-settings-container > div[style*="padding"] { /* inline padding from renderArenaHarness */ }
+.harness-settings-container .opt-body { padding: 8px 14px 10px; }
+.harness-settings-container .opt-body.settings-grid { padding: 8px 14px 10px; }
 .setting-section { margin-bottom: 20px; }
 .setting-label {
   font-size: 10px; font-weight: 600; color: var(--text-dim);
@@ -979,14 +987,21 @@
 
 @media (max-width: 1400px) {
   .arena-side-panel { width: 360px; }
+  .ar-left-col { width: 280px; }
+  .ar-right-col { width: 300px; }
 }
 @media (max-width: 1100px) {
   .arena-side-panel { width: 300px; }
   .arena-obs-panel { width: 320px; }
+  .ar-left-col { width: 240px; }
+  .ar-right-col { width: 260px; }
 }
 @media (max-width: 900px) {
   .arena-side-panel { width: 260px; }
   .arena-obs-panel { width: 280px; }
+  .ar-left-col { width: 200px; }
+  .ar-right-col { width: 220px; }
+  .ar-game-item-desc, .ar-game-item-tags { display: none; }
 }
 @media (max-width: 750px) {
   .arena-layout { flex-direction: column; }
@@ -999,4 +1014,7 @@
   .arena-center { order: 2; }
   .arena-obs-body { flex-direction: column; }
   .arena-obs-panel { width: 100%; max-height: 200px; border: none !important; border-bottom: 1px solid var(--border) !important; }
+  .ar-layout { flex-direction: column; }
+  .ar-left-col, .ar-right-col { width: 100%; max-height: 250px; }
+  .ar-live-games { grid-template-columns: 1fr 1fr 1fr 1fr; }
 }
