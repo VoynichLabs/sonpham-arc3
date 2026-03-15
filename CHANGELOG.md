@@ -5,6 +5,28 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.5.0] — feat: Arena Auto Research (Phase 2 — Headless Engine + Evolution)
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Added
+- **Headless match runner** (`arRunHeadless`) — Generic function that runs any of the 9 Arena games with two arbitrary `getMove()` functions, without needing the canvas or visual rendering. Returns winner, turn count, and frame history.
+- **Per-game state adapters** — Each game engine (Snake, Tron, Connect4, Chess960, Othello, Go 9x9, Gomoku, Artillery, Poker) has a state adapter that converts internal engine state to the standardized `AGENT_INTERFACE` format agents receive.
+- **Per-game seed agents** — Functional baseline agents for each game (greedy/cautious/wall-following for Snake, center-preference for C4, corner-priority for Othello, etc.) replace the old dummy "return UP" seeds.
+- **Live tournament canvases** — The 4 mini canvases in the Auto Research right column now animate recent tournament matches frame-by-frame during local research.
+- **Automatic test match on agent creation** — When the LLM creates an agent via `create_agent` tool, a quick test match runs against a random existing agent and the result is returned in the tool response.
+
+### Fixed
+- **Tournament runner** — Rewrote `arRunTournamentRound` to use the headless match runner instead of the broken strategy-injection approach that couldn't pass custom agent functions to `game.run()`.
+- **`test_match` tool** — Now uses the headless runner instead of the broken `game.run()` call.
+- **BYOK key storage** — Provider detection from model name now falls back to prefix-based guessing when `getModelInfo()` doesn't have the model.
+- **`arSubmitToComminity` typo** — Renamed to `arSubmitToCommunity` (old name kept as alias).
+
+### Architecture
+- Engine factories (`_arNewEngine`), turn detection (`_arWhoseTurn`), step dispatchers (`_arStepEngine`), and direction/move parsers handle the 3 game categories: simultaneous (Snake/Tron), turn-based board (C4/Chess/Othello/Go/Gomoku), and physics (Artillery).
+- Poker headless not yet supported (returns draw) due to its functional/multi-round architecture.
+
+---
+
 ## [1.4.0] — feat: Arena Auto Research (Phase 1)
 *Author: Claude Opus 4.6 | 2026-03-15*
 
