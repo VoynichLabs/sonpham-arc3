@@ -76,9 +76,9 @@
   color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px;
 }
 
-/* Agent A: tint section headers red, text RIGHT-aligned (faces center) */
+/* Agent A: tint section headers orange, text RIGHT-aligned (faces center) */
 .agent-panel-a .harness-settings-container .opt-header {
-  background: rgba(249, 60, 49, 0.06);
+  background: rgba(224, 149, 64, 0.06);
   flex-direction: row-reverse;
 }
 .agent-panel-a .harness-settings-container .opt-header .chevron {
@@ -87,9 +87,9 @@
 .agent-panel-a .harness-settings-container .opt-section.open .opt-header .chevron {
   transform: rotate(270deg);
 }
-/* Agent B: tint section headers orange, text LEFT-aligned (faces center) */
+/* Agent B: tint section headers red, text LEFT-aligned (faces center) */
 .agent-panel-b .harness-settings-container .opt-header {
-  background: rgba(224, 149, 64, 0.06);
+  background: rgba(249, 60, 49, 0.06);
 }
 
 /* ── Harness selector + pipeline viz get padding ──────────────────────────── */
@@ -97,29 +97,37 @@
   padding: 8px 14px 0;
 }
 
-/* ── Agent A: IMG badge red ───────────────────────────────────────────────── */
-.agent-panel-a .badge-img { background: rgba(249, 60, 49, 0.2); color: var(--red); }
+/* ── Agent A: IMG badge orange ──────────────────────────────────────────── */
+.agent-panel-a .badge-img { background: rgba(224, 149, 64, 0.2); color: var(--accent); }
 
-/* ── Agent A: red accent overrides ────────────────────────────────────────── */
-.agent-panel-a .setting-select:hover { border-color: var(--red); }
-.agent-panel-a .harness-settings-container .toggle input:checked + .slider { background: var(--red); }
-/* Override BOTH the label background AND the inner span background/color */
+/* ── Agent A: orange accent overrides ──────────────────────────────────── */
+.agent-panel-a .setting-select:hover { border-color: var(--accent); }
+.agent-panel-a .harness-settings-container .toggle input:checked + .slider { background: var(--accent); }
 .agent-panel-a .harness-settings-container .quadswitch label:has(input:checked),
 .agent-panel-a .harness-settings-container .triswitch label:has(input:checked) {
-  background: var(--red) !important; color: #fff !important; font-weight: 600;
+  background: var(--accent) !important; color: #000 !important; font-weight: 600;
 }
 .agent-panel-a .harness-settings-container .quadswitch input:checked + span,
 .agent-panel-a .harness-settings-container .triswitch input:checked + span {
-  background: var(--red) !important; color: #fff !important;
+  background: var(--accent) !important; color: #000 !important;
 }
 .agent-panel-a .harness-settings-container .quadswitch label:has(input:checked) span,
 .agent-panel-a .harness-settings-container .triswitch label:has(input:checked) span {
-  color: #fff !important;
+  color: #000 !important;
 }
-.agent-panel-a .harness-settings-container select:hover { border-color: var(--red); }
-/* Red text for active radio/switch labels */
-.agent-panel-a .harness-settings-container .opt-header .chevron { color: var(--red); }
-.agent-panel-a .harness-settings-container .opt-section.open .opt-header span:first-child { color: var(--red); }
+.agent-panel-a .harness-settings-container select:hover { border-color: var(--accent); }
+.agent-panel-a .harness-settings-container .opt-header .chevron { color: var(--accent); }
+.agent-panel-a .harness-settings-container .opt-section.open .opt-header span:first-child { color: var(--accent); }
+
+/* ── Agent B: red accent overrides ─────────────────────────────────────── */
+.agent-panel-b .setting-select:hover { border-color: var(--red); }
+.agent-panel-b .harness-settings-container .toggle input:checked + .slider { background: var(--red); }
+.agent-panel-b .harness-settings-container .quadswitch label:has(input:checked),
+.agent-panel-b .harness-settings-container .triswitch label:has(input:checked) {
+  background: var(--red) !important; color: #fff !important; font-weight: 600;
+}
+.agent-panel-b .harness-settings-container .opt-header .chevron { color: var(--red); }
+.agent-panel-b .harness-settings-container .opt-section.open .opt-header span:first-child { color: var(--red); }
 
 /* ── Toggle fix: circle alignment within pill ─────────────────────────────── */
 .harness-settings-container .toggle {
@@ -140,7 +148,7 @@
 .harness-settings-container .toggle input:checked + .slider::before {
   transform: translateX(16px); background: #fff;
 }
-.agent-panel-a .harness-settings-container .toggle input:checked + .slider { background: var(--red); }
+/* Agent A toggle override already handled above — no red override needed */
 /* Ensure opt-row toggles align vertically */
 .harness-settings-container .opt-row { display: flex; align-items: center; }
 
@@ -153,15 +161,15 @@
   align-items: center; justify-content: center; font-weight: 700;
   font-size: 16px; color: #000; flex-shrink: 0;
 }
-.agent-avatar-a { background: var(--red); }
-.agent-avatar-b { background: var(--accent); }
+.agent-avatar-a { background: var(--accent); }
+.agent-avatar-b { background: var(--red); }
 .agent-info { flex: 1; min-width: 0; }
 .agent-name { font-weight: 600; font-size: 14px; }
 .agent-score-box { text-align: center; flex-shrink: 0; }
 .agent-score-label { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
 .agent-score-val { font-size: 24px; font-weight: 700; line-height: 1; }
-.score-a { color: var(--red); }
-.score-b { color: var(--accent); }
+.score-a { color: var(--accent); }
+.score-b { color: var(--red); }
 
 /* ── Agent Settings (pre-match) ───────────────────────────────────────────── */
 .agent-settings {
@@ -197,8 +205,8 @@
   overflow: hidden; border: 1px solid var(--border);
 }
 .stat-fill { display: block; height: 100%; border-radius: 3px; transition: width 0.3s; }
-#panelA .stat-fill { background: var(--red); }
-#panelB .stat-fill { background: var(--accent); }
+#panelA .stat-fill { background: var(--accent); }
+#panelB .stat-fill { background: var(--red); }
 
 /* ── Harness Settings (scaffolding mode) ──────────────────────────────────── */
 .harness-settings-container {
@@ -416,8 +424,8 @@
 }
 .match-status.ready { background: #30363d; color: var(--text-dim); }
 .match-status.playing { background: #3fb95033; color: var(--green); }
-.match-status.win-a { background: #f8514933; color: var(--red); }
-.match-status.win-b { background: #e0954033; color: var(--accent); }
+.match-status.win-a { background: #e0954033; color: var(--accent); }
+.match-status.win-b { background: #f8514933; color: var(--red); }
 .match-status.draw { background: #bc8cff33; color: var(--purple); }
 
 .arena-canvas-area {
@@ -436,8 +444,8 @@
 }
 .sb-agent { display: flex; align-items: center; gap: 8px; }
 .sb-dot { width: 10px; height: 10px; border-radius: 50%; }
-.sb-dot-a { background: var(--red); }
-.sb-dot-b { background: var(--accent); }
+.sb-dot-a { background: var(--accent); }
+.sb-dot-b { background: var(--red); }
 .sb-name { font-size: 12px; font-weight: 600; }
 .sb-score { font-size: 20px; font-weight: 700; }
 .sb-vs { font-size: 13px; color: var(--text-dim); font-weight: 600; }
@@ -489,10 +497,10 @@
 }
 
 /* Observe buttons in transport */
-.btn-obs-a { border-color: var(--red) !important; color: var(--red) !important; }
-.btn-obs-a:hover { background: var(--red) !important; color: #000 !important; }
-.btn-obs-b { border-color: var(--accent) !important; color: var(--accent) !important; }
-.btn-obs-b:hover { background: var(--accent) !important; color: #000 !important; }
+.btn-obs-a { border-color: var(--accent) !important; color: var(--accent) !important; }
+.btn-obs-a:hover { background: var(--accent) !important; color: #000 !important; }
+.btn-obs-b { border-color: var(--red) !important; color: var(--red) !important; }
+.btn-obs-b:hover { background: var(--red) !important; color: #000 !important; }
 
 /* ── Winner Overlay ───────────────────────────────────────────────────────── */
 .winner-overlay {
@@ -536,10 +544,10 @@
   font-weight: 600;
 }
 .arena-obs-agent-switch .btn-obs-a.active {
-  background: var(--red); color: #000; border-color: var(--red);
+  background: var(--accent); color: #000; border-color: var(--accent);
 }
 .arena-obs-agent-switch .btn-obs-b.active {
-  background: var(--accent); color: #000; border-color: var(--accent);
+  background: var(--red); color: #000; border-color: var(--red);
 }
 
 .arena-obs-body {
