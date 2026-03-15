@@ -459,15 +459,88 @@ def _has_new_feedback(game_id='snake'):
         return False
 
 
-def _heartbeat_loop():
-    """Main heartbeat loop — runs in a daemon thread.
+# ═══════════════════════════════════════════════════════════════════════════
+#   Continuous Tournament Runner — always scheduling games
+# ═══════════════════════════════════════════════════════════════════════════
+
+MATCH_DELAY = 0.5  # seconds between matches (~2 games/sec, ~5% CPU)
+
+def _tournament_loop():
+    """Continuously run matches between existing agents. Separate from evolution."""
+    print('[tournament] Continuous tournament runner started')
+
+    # Wait a few seconds for DB to be ready
+    time.sleep(5)
+
+    # Seed agents if DB is empty
+    _seed_if_empty('snake')
+
+    while _heartbeat_state['running']:
+        try:
+            games = _run_tournament(game_id='snake', match_count=1)
+            if games > 0:
+                _heartbeat_state['games_played'] += games
+            else:
+                # No valid pairs left — all pairs saturated at 10 games
+                # Wait longer before checking again
+                time.sleep(30)
+                continue
+        except Exception as e:
+            print(f'[tournament] Error: {e}')
+            time.sleep(10)
+            continue
+
+        time.sleep(MATCH_DELAY)
+
+
+def _seed_if_empty(game_id):
+    """Seed the 3 baseline agents if the DB has no agents for this game."""
+    agents = arena_get_leaderboard(game_id, limit=1)
+    if agents:
+        return
+
+    print(f'[tournament] No agents found for {game_id}, seeding baselines...')
+
+    seed_dir = os.path.join(_SNAKE_AUTORESEARCH_DIR, 'agents', 'seed')
+    seeds = {
+        'seed_random': os.path.join(seed_dir, 'random_agent.py'),
+        'seed_greedy': os.path.join(seed_dir, 'greedy_agent.py'),
+        'seed_wall_avoider': os.path.join(seed_dir, 'wall_avoider.py'),
+    }
+
+    for name, path in seeds.items():
+        if os.path.exists(path):
+            with open(path) as f:
+                code = f.read()
+            result = arena_submit_agent(game_id, name, code, generation=0,
+                                       contributor='seed', is_anchor=1)
+            if isinstance(result, dict):
+                print(f'[tournament] Seeded {name} (id={result["id"]})')
+            else:
+                print(f'[tournament] Seed {name} failed: {result}')
+
+    print(f'[tournament] Seeding complete')
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#   Evolution Heartbeat — creates new agents via LLM
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _evolution_loop():
+    """Evolution heartbeat — calls Claude to create new agents.
     Normal: 15-min interval. Speeds up to 1-min when new user feedback exists."""
-    _heartbeat_state['running'] = True
     _heartbeat_state['last_comment_check'] = time.time()
-    print('[heartbeat] Arena heartbeat started (15min normal, 1min on new feedback)')
+    print('[evolution] Evolution heartbeat started (15min normal, 1min on feedback)')
+
+    # Wait for tournament to seed agents first
+    time.sleep(10)
 
     while _heartbeat_state['running']:
         api_key = os.environ.get('ARENA_CLAUDE_KEY', '')
+        if not api_key:
+            # No key — sleep and check again later
+            time.sleep(HEARTBEAT_INTERVAL_NORMAL)
+            continue
 
         try:
             tick_start = time.time()
@@ -475,57 +548,65 @@ def _heartbeat_loop():
 
             has_feedback = _has_new_feedback('snake')
             if has_feedback:
-                print(f'[heartbeat] Tick #{_heartbeat_state["ticks"]} (FAST — new user feedback)')
+                print(f'[evolution] Tick #{_heartbeat_state["ticks"]} (FAST — new user feedback)')
             else:
-                print(f'[heartbeat] Tick #{_heartbeat_state["ticks"]} starting...')
+                print(f'[evolution] Tick #{_heartbeat_state["ticks"]} starting...')
 
-            # 1. Evolution (if API key available)
-            if api_key:
-                created = _run_evolution(api_key, game_id='snake')
-                _heartbeat_state['agents_created'] += len(created)
-                if created:
-                    print(f'[heartbeat] Created {len(created)} agent(s): {", ".join(created)}')
-
-            # 2. Tournament
-            games = _run_tournament(game_id='snake', match_count=TOURNAMENT_GAMES_PER_TICK)
-            _heartbeat_state['games_played'] += games
-            print(f'[heartbeat] Tournament: {games} games played')
+            created = _run_evolution(api_key, game_id='snake')
+            _heartbeat_state['agents_created'] += len(created)
+            if created:
+                print(f'[evolution] Created {len(created)} agent(s): {", ".join(created)}')
 
             elapsed = time.time() - tick_start
             _heartbeat_state['last_tick'] = time.time()
             _heartbeat_state['last_error'] = None
-            print(f'[heartbeat] Tick #{_heartbeat_state["ticks"]} done in {elapsed:.1f}s')
+            print(f'[evolution] Tick #{_heartbeat_state["ticks"]} done in {elapsed:.1f}s')
 
         except Exception as e:
             _heartbeat_state['last_error'] = str(e)
-            print(f'[heartbeat] Tick error: {e}')
+            print(f'[evolution] Tick error: {e}')
             traceback.print_exc()
 
-        # Sleep: 1 min if new feedback pending, 15 min otherwise
         interval = HEARTBEAT_INTERVAL_FAST if _has_new_feedback('snake') else HEARTBEAT_INTERVAL_NORMAL
         time.sleep(interval)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#   Start / Stop / Status
+# ═══════════════════════════════════════════════════════════════════════════
+
 def start_arena_heartbeat():
-    """Start the arena heartbeat background thread. Call once at server boot."""
+    """Start both the tournament runner and evolution heartbeat. Call once at server boot."""
     if _heartbeat_state.get('thread') and _heartbeat_state['thread'].is_alive():
         print('[heartbeat] Already running')
         return
 
-    t = threading.Thread(target=_heartbeat_loop, daemon=True, name='arena-heartbeat')
-    _heartbeat_state['thread'] = t
-    t.start()
+    _heartbeat_state['running'] = True
+
+    # Thread 1: continuous tournament (always running games)
+    t1 = threading.Thread(target=_tournament_loop, daemon=True, name='arena-tournament')
+    _heartbeat_state['thread'] = t1
+    t1.start()
+
+    # Thread 2: evolution heartbeat (creates new agents via LLM)
+    t2 = threading.Thread(target=_evolution_loop, daemon=True, name='arena-evolution')
+    _heartbeat_state['evo_thread'] = t2
+    t2.start()
 
 
 def stop_arena_heartbeat():
-    """Signal the heartbeat to stop."""
+    """Signal both threads to stop."""
     _heartbeat_state['running'] = False
 
 
 def get_heartbeat_status():
     """Get current heartbeat status for monitoring."""
+    t1 = _heartbeat_state.get('thread')
+    t2 = _heartbeat_state.get('evo_thread')
     return {
         'running': _heartbeat_state['running'],
+        'tournament_alive': t1.is_alive() if t1 else False,
+        'evolution_alive': t2.is_alive() if t2 else False,
         'ticks': _heartbeat_state['ticks'],
         'last_tick': _heartbeat_state['last_tick'],
         'last_error': _heartbeat_state['last_error'],
