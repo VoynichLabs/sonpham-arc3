@@ -3341,6 +3341,19 @@ function initArena() {
 
   // Load models for harness mode (async, non-blocking)
   arenaLoadModels();
+
+  // Default both agents to harness mode — render immediately
+  for (const agent of ['A', 'B']) {
+    const container = document.getElementById(`harnessSettings${agent}`);
+    if (container && !container.dataset.rendered) {
+      const savedType = localStorage.getItem(`arc_arena_${agent.toLowerCase()}_scaffolding_type`) || 'linear';
+      renderArenaHarness(agent, savedType);
+      container.dataset.rendered = '1';
+    }
+  }
+
+  // Route from URL hash (arena#matchup, arena#autoresearch)
+  if (typeof _arenaRouteFromHash === 'function') _arenaRouteFromHash();
 }
 
 function renderPreview(canvas, game) {
@@ -3736,33 +3749,72 @@ document.addEventListener('keydown', e => {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Code / Harness Mode Toggle
+   Side Tab Switching + Harness/Code Mode
    ═══════════════════════════════════════════════════════════════════════════ */
 
-function toggleAgentMode(agent) {
-  const mode = document.getElementById(`agentMode${agent}`).value;
+/** Switch arena side tab — shows the matching harness section or code mode */
+function switchArenaTab(agent, tab) {
+  const bar = document.getElementById(`subtabBar${agent}`);
+  if (!bar) return;
+
+  // Deactivate all buttons
+  bar.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+  // Activate clicked button
+  const btn = bar.querySelector(`button[data-tab="${tab}"]`);
+  if (btn) btn.classList.add('active');
+
   const codeDiv = document.getElementById(`codeMode${agent}`);
   const harnessDiv = document.getElementById(`harnessMode${agent}`);
+  const container = document.getElementById(`harnessSettings${agent}`);
 
-  if (mode === 'code') {
-    codeDiv.style.display = '';
-    harnessDiv.style.display = 'none';
+  if (tab === 'code') {
+    // Show code mode, hide harness
+    if (harnessDiv) harnessDiv.style.display = 'none';
+    if (codeDiv) codeDiv.style.display = '';
+    localStorage.setItem(`arc_arena_${agent.toLowerCase()}_mode`, 'code');
   } else {
-    codeDiv.style.display = 'none';
-    harnessDiv.style.display = '';
-    // Render harness settings if not already rendered
-    const container = document.getElementById(`harnessSettings${agent}`);
-    if (!container.dataset.rendered) {
+    // Show harness, hide code
+    if (codeDiv) codeDiv.style.display = 'none';
+    if (harnessDiv) harnessDiv.style.display = '';
+    localStorage.setItem(`arc_arena_${agent.toLowerCase()}_mode`, 'harness');
+
+    // Ensure harness is rendered
+    if (container && !container.dataset.rendered) {
       const savedType = localStorage.getItem(`arc_arena_${agent.toLowerCase()}_scaffolding_type`) || 'linear';
       renderArenaHarness(agent, savedType);
       container.dataset.rendered = '1';
     }
+
+    // Scroll to the matching section
+    if (container) {
+      const sectionMap = { input: 'Input', reasoning: 'Reasoning', keys: 'Model Keys' };
+      const label = sectionMap[tab];
+      if (label) {
+        // Find the section by its label text and scroll to it
+        const sections = container.querySelectorAll('.opt-section');
+        for (const sec of sections) {
+          const header = sec.querySelector('.opt-header span');
+          if (header && header.textContent.trim() === label) {
+            sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Open it if closed
+            if (!sec.classList.contains('open')) sec.classList.add('open');
+            break;
+          }
+        }
+      }
+    }
   }
-  localStorage.setItem(`arc_arena_${agent.toLowerCase()}_mode`, mode);
 }
 
 function getAgentMode(agent) {
-  return document.getElementById(`agentMode${agent}`)?.value || 'code';
+  const mode = localStorage.getItem(`arc_arena_${agent.toLowerCase()}_mode`);
+  return mode || 'harness';
+}
+
+/** Legacy alias for any remaining references */
+function toggleAgentMode(agent) {
+  const mode = getAgentMode(agent) === 'harness' ? 'code' : 'harness';
+  switchArenaTab(agent, mode === 'code' ? 'code' : 'input');
 }
 
 
@@ -4253,12 +4305,18 @@ const AR = {
   localRunning: false,
 };
 
-function switchArenaMode(mode) {
+function switchArenaMode(mode, skipHash) {
   const matchBtn = document.getElementById('modeBtnMatch');
   const researchBtn = document.getElementById('modeBtnResearch');
   const layout = document.getElementById('arenaLayout');
   const researchView = document.getElementById('arResearchView');
   const statusBar = document.getElementById('arStatusBar');
+
+  // Update URL hash
+  if (!skipHash && typeof _ARENA_VIEW_TO_HASH !== 'undefined') {
+    const hash = _ARENA_VIEW_TO_HASH[mode] || 'matchup';
+    if (location.hash !== '#' + hash) history.replaceState(null, '', '#' + hash);
+  }
 
   if (mode === 'research') {
     matchBtn.classList.remove('active');

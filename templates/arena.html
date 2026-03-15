@@ -43,7 +43,7 @@ const FEATURES = {{ features | tojson }};
     </span>
     <span style="flex:1"></span>
     <div class="arena-mode-switcher">
-      <button class="arena-mode-btn active" id="modeBtnMatch" onclick="switchArenaMode('match')">Match Mode</button>
+      <button class="arena-mode-btn active" id="modeBtnMatch" onclick="switchArenaMode('match')">Create Match-up</button>
       <button class="arena-mode-btn" id="modeBtnResearch" onclick="switchArenaMode('research')">Auto Research</button>
     </div>
     <a class="nav-switch-btn to-obs" href="/obs">&#8592; to Observatory</a>
@@ -54,7 +54,7 @@ const FEATURES = {{ features | tojson }};
   <div class="arena-layout" id="arenaLayout">
 
     <!-- ── Left Panel: Agent A ──────────────────────────────────────────────── -->
-    <div class="arena-side-panel" id="panelA">
+    <div class="arena-side-panel agent-panel-a" id="panelA">
       <div class="agent-header">
         <div class="agent-avatar agent-avatar-a">A</div>
         <div class="agent-info">
@@ -66,41 +66,28 @@ const FEATURES = {{ features | tojson }};
         </div>
       </div>
 
-      <!-- Settings mode (pre-match) -->
-      <div class="agent-settings" id="settingsA">
-        <!-- Code / Harness mode selector -->
-        <div class="setting-section">
-          <div class="setting-label">Agent Mode</div>
-          <select class="setting-select" id="agentModeA" onchange="toggleAgentMode('A')">
-            <option value="code" selected>Code (built-in AI)</option>
-            <option value="harness">Harness (LLM agent)</option>
-          </select>
-        </div>
-
-        <!-- Code mode: strategy + personality -->
-        <div id="codeModeA">
-          <div class="setting-section">
-            <div class="setting-label">Strategy</div>
-            <select class="setting-select" id="stratA">
-              <option value="greedy" selected>Greedy</option>
-            </select>
-            <div class="setting-desc" id="stratDescA">Chases food directly</div>
+      <!-- Settings + side tabs -->
+      <div class="arena-panel-body" id="settingsA">
+        <div class="arena-panel-content" id="panelContentA">
+          <!-- Harness mode (default) -->
+          <div id="harnessModeA">
+            <div id="harnessSettingsA" class="harness-settings-container"></div>
           </div>
-          <div class="setting-section">
-            <div class="setting-label">Personality</div>
-            <div class="agent-personality-preview" id="personalityA">
-              <div class="personality-bar">
-                <span class="personality-stat"><span class="stat-label">Aggression</span><span class="stat-bar"><span class="stat-fill" style="width:20%"></span></span></span>
-                <span class="personality-stat"><span class="stat-label">Caution</span><span class="stat-bar"><span class="stat-fill" style="width:40%"></span></span></span>
-                <span class="personality-stat"><span class="stat-label">Greed</span><span class="stat-bar"><span class="stat-fill" style="width:90%"></span></span></span>
-              </div>
+          <!-- Code mode: hidden by default -->
+          <div id="codeModeA" style="display:none;">
+            <div class="setting-section" style="padding:14px;">
+              <div class="setting-label">Strategy</div>
+              <select class="setting-select" id="stratA"><option value="greedy" selected>Greedy</option></select>
+              <div class="setting-desc" id="stratDescA">Chases food directly</div>
             </div>
           </div>
         </div>
-
-        <!-- Harness mode: scaffolding settings -->
-        <div id="harnessModeA" style="display:none;">
-          <div id="harnessSettingsA" class="harness-settings-container"></div>
+        <div class="arena-subtab-bar arena-subtab-right" id="subtabBarA">
+          <button class="active" data-tab="input" onclick="switchArenaTab('A','input')">Input</button>
+          <button data-tab="reasoning" onclick="switchArenaTab('A','reasoning')">Reasoning</button>
+          <button data-tab="keys" onclick="switchArenaTab('A','keys')">Keys</button>
+          <div class="arena-subtab-spacer"></div>
+          <button data-tab="code" onclick="switchArenaTab('A','code')" class="arena-subtab-mode">Code AI</button>
         </div>
       </div>
 
@@ -188,7 +175,7 @@ const FEATURES = {{ features | tojson }};
     </div>
 
     <!-- ── Right Panel: Agent B ─────────────────────────────────────────────── -->
-    <div class="arena-side-panel" id="panelB">
+    <div class="arena-side-panel agent-panel-b" id="panelB">
       <div class="agent-header">
         <div class="agent-avatar agent-avatar-b">B</div>
         <div class="agent-info">
@@ -200,41 +187,28 @@ const FEATURES = {{ features | tojson }};
         </div>
       </div>
 
-      <!-- Settings mode (pre-match) -->
-      <div class="agent-settings" id="settingsB">
-        <!-- Code / Harness mode selector -->
-        <div class="setting-section">
-          <div class="setting-label">Agent Mode</div>
-          <select class="setting-select" id="agentModeB" onchange="toggleAgentMode('B')">
-            <option value="code" selected>Code (built-in AI)</option>
-            <option value="harness">Harness (LLM agent)</option>
-          </select>
+      <!-- Settings + side tabs -->
+      <div class="arena-panel-body" id="settingsB">
+        <div class="arena-subtab-bar arena-subtab-left" id="subtabBarB">
+          <button class="active" data-tab="input" onclick="switchArenaTab('B','input')">Input</button>
+          <button data-tab="reasoning" onclick="switchArenaTab('B','reasoning')">Reasoning</button>
+          <button data-tab="keys" onclick="switchArenaTab('B','keys')">Keys</button>
+          <div class="arena-subtab-spacer"></div>
+          <button data-tab="code" onclick="switchArenaTab('B','code')" class="arena-subtab-mode">Code AI</button>
         </div>
-
-        <!-- Code mode: strategy + personality -->
-        <div id="codeModeB">
-          <div class="setting-section">
-            <div class="setting-label">Strategy</div>
-            <select class="setting-select" id="stratB">
-              <option value="greedy">Greedy</option>
-            </select>
-            <div class="setting-desc" id="stratDescB">Chases food directly</div>
+        <div class="arena-panel-content" id="panelContentB">
+          <!-- Harness mode (default) -->
+          <div id="harnessModeB">
+            <div id="harnessSettingsB" class="harness-settings-container"></div>
           </div>
-          <div class="setting-section">
-            <div class="setting-label">Personality</div>
-            <div class="agent-personality-preview" id="personalityB">
-              <div class="personality-bar">
-                <span class="personality-stat"><span class="stat-label">Aggression</span><span class="stat-bar"><span class="stat-fill" style="width:80%"></span></span></span>
-                <span class="personality-stat"><span class="stat-label">Caution</span><span class="stat-bar"><span class="stat-fill" style="width:30%"></span></span></span>
-                <span class="personality-stat"><span class="stat-label">Greed</span><span class="stat-bar"><span class="stat-fill" style="width:50%"></span></span></span>
-              </div>
+          <!-- Code mode: hidden by default -->
+          <div id="codeModeB" style="display:none;">
+            <div class="setting-section" style="padding:14px;">
+              <div class="setting-label">Strategy</div>
+              <select class="setting-select" id="stratB"><option value="greedy">Greedy</option></select>
+              <div class="setting-desc" id="stratDescB">Chases food directly</div>
             </div>
           </div>
-        </div>
-
-        <!-- Harness mode: scaffolding settings -->
-        <div id="harnessModeB" style="display:none;">
-          <div id="harnessSettingsB" class="harness-settings-container"></div>
         </div>
       </div>
 
@@ -469,6 +443,17 @@ function toggleTheme() {
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('arc-theme', t || '');
 }
+
+// Hash-based routing: arena#matchup, arena#autoresearch
+const _ARENA_HASH_MAP = { matchup: 'match', autoresearch: 'research' };
+const _ARENA_VIEW_TO_HASH = { match: 'matchup', research: 'autoresearch' };
+function _arenaRouteFromHash() {
+  const h = location.hash.replace('#', '');
+  const mode = _ARENA_HASH_MAP[h];
+  if (mode && typeof switchArenaMode === 'function') switchArenaMode(mode, true);
+}
+window.addEventListener('hashchange', _arenaRouteFromHash);
+// Route on load (after DOMContentLoaded, handled in arena.js init)
 </script>
 <!-- LLM calling infrastructure (callLLM, provider routing, BYOK keys) -->
 <script src="/static/js/scaffolding.js?v={{ static_v }}"></script>
