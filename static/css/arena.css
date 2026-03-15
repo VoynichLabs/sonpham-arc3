@@ -822,7 +822,7 @@
 }
 .ar-live-games {
   flex: 1; display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 6px; padding: 6px;
   align-content: start; overflow-y: auto;
 }
