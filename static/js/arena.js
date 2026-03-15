@@ -3121,7 +3121,8 @@ function runPokerMatch(config, strategyA, strategyB) {
    Available Games
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const ARENA_GAMES = [
+// Only Snake is enabled for now — other games kept for future re-enablement
+const _ALL_ARENA_GAMES = [
   { id: 'snake', title: 'Snake Battle', category: 'ARC-style',
     desc: 'Two AI snakes compete for food. Eat to grow, avoid walls and each other.',
     tags: ['Territorial', 'Simultaneous'],
@@ -3177,6 +3178,9 @@ const ARENA_GAMES = [
     strategies: PKR_STRATEGIES,
     run: runPokerMatch, render: renderPokerFrame, preview: renderPokerPreview },
 ];
+
+const ARENA_ENABLED_IDS = new Set(['snake']);
+const ARENA_GAMES = _ALL_ARENA_GAMES.filter(g => ARENA_ENABLED_IDS.has(g.id));
 
 
 /* ═══════════════════════════════════════════════════════════════════════════

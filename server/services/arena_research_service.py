@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-15 22:00
+# Date: 2026-03-16 01:30
 # PURPOSE: Service layer for Arena Auto Research. Validates inputs, orchestrates
 #   DB calls from db_arena.py, enforces rate limits and submission gates.
 #   Pure business logic — no Flask request/response objects.
@@ -38,7 +38,11 @@ from db_arena import (
 log = logging.getLogger(__name__)
 
 # Valid Arena game IDs (must match ARENA_GAMES in arena.js)
+# Only snake enabled for now — re-enable others when ready
 ARENA_GAME_IDS = {
+    "snake",
+}
+_ALL_ARENA_GAME_IDS = {
     "snake", "tron", "connect4", "chess960",
     "othello", "go9", "gomoku", "artillery", "poker",
 }
