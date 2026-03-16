@@ -44,7 +44,7 @@ from db_arena import (
 #   Config
 # ═══════════════════════════════════════════════════════════════════════════
 
-HEARTBEAT_INTERVAL_NORMAL = 5 * 60   # 5 minutes
+HEARTBEAT_INTERVAL_NORMAL = 2 * 60   # 2 minutes
 HEARTBEAT_INTERVAL_FAST = 60         # 1 minute when new user feedback exists
 TOURNAMENT_GAMES_PER_TICK = 20
 EVOLUTION_AGENTS_PER_TICK = 1
