@@ -1,5 +1,5 @@
-// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-15 14:00
+// Author: Claude Opus 4.6 (1M context)
+// Date: 2026-03-15 18:00
 // PURPOSE: LLM configuration getters (Phase 12 extraction)
 // Extracted from llm.js to reduce core file complexity
 // SRP: Pure getters for input/scaffolding settings, canvas state
@@ -13,7 +13,7 @@ function getCanvasScreenshotB64() {
 function getInputSettings() {
   return {
     diff: document.getElementById('inputDiff')?.checked ?? true,
-    full_grid: document.getElementById('inputGrid')?.checked ?? true,
+    grid_repr: document.getElementById('inputGrid')?.value || 'lp16',
     image: document.getElementById('inputImage')?.checked ?? false,
     color_histogram: document.getElementById('inputHistogram')?.checked ?? false,
   };
@@ -35,7 +35,7 @@ function getScaffoldingSettings() {
   } else if (type === 'rlm') {
     s.input = {
       diff: document.getElementById('sf_rlm_inputDiff')?.checked ?? true,
-      full_grid: document.getElementById('sf_rlm_inputGrid')?.checked ?? true,
+      grid_repr: document.getElementById('sf_rlm_inputGrid')?.value || 'lp16',
       image: document.getElementById('sf_rlm_inputImage')?.checked ?? false,
       color_histogram: document.getElementById('sf_rlm_inputHistogram')?.checked ?? false,
     };
@@ -52,7 +52,7 @@ function getScaffoldingSettings() {
   } else if (type === 'three_system') {
     s.input = {
       diff: document.getElementById('sf_ts_inputDiff')?.checked ?? true,
-      full_grid: document.getElementById('sf_ts_inputGrid')?.checked ?? true,
+      grid_repr: document.getElementById('sf_ts_inputGrid')?.value || 'lp16',
       image: document.getElementById('sf_ts_inputImage')?.checked ?? false,
       color_histogram: document.getElementById('sf_ts_inputHistogram')?.checked ?? false,
     };
@@ -76,7 +76,7 @@ function getScaffoldingSettings() {
   } else if (type === 'two_system') {
     s.input = {
       diff: document.getElementById('sf_2s_inputDiff')?.checked ?? true,
-      full_grid: document.getElementById('sf_2s_inputGrid')?.checked ?? true,
+      grid_repr: document.getElementById('sf_2s_inputGrid')?.value || 'lp16',
       image: document.getElementById('sf_2s_inputImage')?.checked ?? false,
       color_histogram: document.getElementById('sf_2s_inputHistogram')?.checked ?? false,
     };
@@ -94,7 +94,7 @@ function getScaffoldingSettings() {
   } else if (type === 'agent_spawn') {
     s.input = {
       diff: document.getElementById('sf_as_inputDiff')?.checked ?? true,
-      full_grid: document.getElementById('sf_as_inputGrid')?.checked ?? true,
+      grid_repr: document.getElementById('sf_as_inputGrid')?.value || 'lp16',
       image: document.getElementById('sf_as_inputImage')?.checked ?? false,
       color_histogram: document.getElementById('sf_as_inputHistogram')?.checked ?? false,
     };
@@ -111,7 +111,7 @@ function getScaffoldingSettings() {
   } else if (type === 'world_model') {
     s.input = {
       diff: document.getElementById('sf_wm_inputDiff')?.checked ?? true,
-      full_grid: document.getElementById('sf_wm_inputGrid')?.checked ?? true,
+      grid_repr: document.getElementById('sf_wm_inputGrid')?.value || 'lp16',
       image: document.getElementById('sf_wm_inputImage')?.checked ?? false,
       color_histogram: document.getElementById('sf_wm_inputHistogram')?.checked ?? false,
     };

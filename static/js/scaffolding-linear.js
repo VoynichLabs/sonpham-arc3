@@ -1,10 +1,12 @@
 // Author: Claude Opus 4.6 (1M context)
-// Date: 2026-03-15 16:00
+// Date: 2026-03-15 18:00
 // PURPOSE: Linear (single-turn) scaffolding prompt builder for ARC-AGI-3. Provides
 //   buildClientPrompt() — constructs system + user messages for a single LLM call
 //   with lexical grid encoding, action history, change map, tool instructions,
 //   planning mode, compact context, and Anthropic prompt caching support.
-//   Returns {system, user} for provider-aware message splitting.
+//   Returns {system, user, cacheablePrefix} for provider-aware message splitting
+//   and Anthropic prompt caching. cacheablePrefix contains the compact context
+//   (stable between compaction cycles) for cache_control breakpoint placement.
 //   Used by llm.js askLLM() for the default linear scaffolding type.
 //   Depends on: getPrompt, gridToLexical, ARC3_LEXICAL_LEGEND (scaffolding.js),
 //   extractJsonFromText (json-parsing.js)
@@ -21,7 +23,8 @@ function buildClientPrompt(state, history, changeMap, inputSettings, toolsMode, 
   // ── System prompt (static per session — cacheable) ──
   const systemParts = [];
   const desc = getPrompt('shared.arc_description');
-  systemParts.push(`${desc}\n\nCOLOR PALETTE: ${COLOR_PALETTE}\nLEXICAL GRID LEGEND: ${ARC3_LEXICAL_LEGEND}`);
+  const gridRepr = inputSettings.grid_repr || 'lp16';
+  systemParts.push(`${desc}\n\nCOLOR PALETTE: ${COLOR_PALETTE}\n${getGridReprLegend(gridRepr)}`);
 
   // Inject agent priors
   const priors = getPrompt('shared.agent_priors');
@@ -69,20 +72,27 @@ Rules:
 - Other actions: set "data" to {}.${toolInstr}`);
   }
 
-  // ── User prompt (dynamic — changes every call) ──
+  // ── User prompt — ordered for Anthropic prefix caching ──
+  // Anthropic prompt caching matches an exact token prefix. For maximum cache hits,
+  // we order blocks from MOST STABLE to MOST DYNAMIC:
+  //   1. Compact context (stable ~5 calls between compactions)  → cacheablePrefix
+  //   2. Old history (steps 1..N-1, identical to previous call) → cacheableHistory
+  //   3. New step + STATE + CHANGES + GRID (dynamic every call) → user
+  // This gives us three cache breakpoints: system, compact prefix, old history.
+  let cacheablePrefix = null;
+  let cacheableHistory = null;
   const userParts = [];
 
-  const actions = (state.available_actions || []).map(a => `${a}=${ACTION_NAMES[a] || 'ACTION'+a}`).join(', ');
-  userParts.push(`## STATE\nGame: ${state.game_id} | State: ${state.state} | Levels: ${state.levels_completed}/${state.win_levels}\nAvailable actions: ${actions}`);
-
-  // Compact context replaces verbose history when active
+  // Compact context: stable between compaction cycles — first cacheable block
   if (compactContext) {
-    userParts.push(compactContext);
+    cacheablePrefix = compactContext;
   }
 
+  // History: append-only. Separate old entries (identical to previous call) from
+  // the latest entry (new this call). Old entries form a cacheable prefix.
   if (history && history.length) {
     const reasoningTraceOn = document.getElementById('reasoningTrace')?.checked;
-    const lines = history.map(h => {
+    const formatEntry = (h) => {
       let line = `  Step ${h.step || '?'}: ${ACTION_NAMES[h.action] || '?'} -> ${h.result_state || '?'}`;
       if (h.change_map && h.change_map.change_count > 0) {
         line += ` (${h.change_map.change_count} cells changed)`;
@@ -93,28 +103,48 @@ Rules:
       if (h.observation) line += ` | ${h.observation}`;
       if (reasoningTraceOn && h.reasoning) line += `\n    Reasoning: ${h.reasoning}`;
       if (h.grid) {
-        const rle = h.grid.map((r, i) => `    Row ${i}: ${compressRowJS(r)}`).join('\n');
-        line += `\n${rle}`;
+        const gridText = formatGrid(h.grid, gridRepr).split('\n').map(l => `    ${l}`).join('\n');
+        line += `\n${gridText}`;
       }
       return line;
-    });
-    userParts.push(`## HISTORY (${history.length} steps)\n` + lines.join('\n'));
+    };
+
+    if (history.length > 1) {
+      // Old history (all but last) — this text is IDENTICAL to what we sent last call
+      const oldLines = history.slice(0, -1).map(formatEntry);
+      cacheableHistory = `## HISTORY\n` + oldLines.join('\n');
+      // New step — only the latest entry
+      const newLine = formatEntry(history[history.length - 1]);
+      userParts.push(`## LATEST STEP\n${newLine}`);
+    } else {
+      // Only one entry — no old history to cache
+      userParts.push(`## HISTORY\n${formatEntry(history[0])}`);
+    }
   }
+
+  // Dynamic sections: STATE, CHANGES, GRID — change every call
+  const actions = (state.available_actions || []).map(a => `${a}=${ACTION_NAMES[a] || 'ACTION'+a}`).join(', ');
+  userParts.push(`## STATE\nGame: ${state.game_id} | State: ${state.state} | Levels: ${state.levels_completed}/${state.win_levels}\nAvailable actions: ${actions}`);
 
   if (inputSettings.diff && changeMap && changeMap.change_count > 0) {
     userParts.push(`## CHANGES (${changeMap.change_count} cells changed)\n${changeMap.change_map_text || ''}`);
   }
 
-  if (inputSettings.full_grid) {
-    const gridText = gridToLexical(grid);
-    userParts.push(`## GRID (64×64 lexical)\n${gridText}`);
+  if (gridRepr) {
+    const gridText = formatGrid(grid, gridRepr);
+    userParts.push(`## GRID (${getGridReprLabel(gridRepr)})\n${gridText}`);
   }
 
   const system = systemParts.join('\n\n');
   const user = userParts.join('\n\n');
 
-  // Return structured object for provider-aware message building
-  return { system, user };
+  // Return structured object for provider-aware message building.
+  // Cache breakpoints (Anthropic):
+  //   1. system message  — static per session (always cached)
+  //   2. cacheablePrefix — compact context (stable ~5 calls between compactions)
+  //   3. cacheableHistory — old history entries (identical to previous call, cache hit every call)
+  // Dynamic content (user) comes last to maximize prefix matching.
+  return { system, user, cacheablePrefix, cacheableHistory };
 }
 
 // parseClientLLMResponse / parseLLMResponse — defined in utils/json-parsing.js (loaded before scaffolding.js)

@@ -146,7 +146,8 @@ function buildCompactContextFallback() {
 async function checkInterrupt(expected, grid, changeMap) {
   // Ask a cheap model whether the plan went as expected after a step.
   // Returns true if plan should be interrupted, false otherwise.
-  const gridCompact = grid ? grid.map(r => r.join(',')).join('\n') : '';
+  const gridRepr = (typeof getInputSettings === 'function' ? getInputSettings().grid_repr : null) || 'lp16';
+  const gridCompact = grid ? formatGrid(grid, gridRepr) : '';
   const changesText = changeMap ? 'Recent changes: ' + JSON.stringify(changeMap) : '';
   const template = getPrompt('linear.interrupt_prompt');
   const prompt = template

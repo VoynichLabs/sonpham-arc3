@@ -1,5 +1,5 @@
-// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-11 13:54
+// Author: Claude Opus 4.6 (1M context)
+// Date: 2026-03-15 18:00
 // PURPOSE: Three-System and Two-System scaffolding for ARC-AGI-3. Implements
 //   multi-agent cognitive architecture: Planner (strategic), Actor (tactical), and
 //   Monitor (evaluation) LLM agents with working memory management. Provides
@@ -83,7 +83,7 @@ function _tsHandleWmQuery(tsState, tool, step, stepRange) {
     if (!snap) return `(no data for step ${step})`;
     if (tool === 'change_map') return snap.change_map_text || '(no changes)';
     if (tool === 'histogram') return _computeColorHistogram(snap.grid || []);
-    if (tool === 'grid') return (snap.grid || []).map((r, i) => `Row ${i}: ${compressRowJS(r)}`).join('\n');
+    if (tool === 'grid') return formatGrid(snap.grid || [], 'lp16');
   } else if (stepRange && stepRange.length >= 2) {
     const [start, end] = [stepRange[0], stepRange[stepRange.length - 1]];
     const snaps = snapshots.filter(s => s.step >= start && s.step <= end);
@@ -93,7 +93,7 @@ function _tsHandleWmQuery(tsState, tool, step, stepRange) {
       let detail = '';
       if (tool === 'change_map') detail = snap.change_map_text || '  (no changes)';
       else if (tool === 'histogram') detail = _computeColorHistogram(snap.grid || []);
-      else if (tool === 'grid') detail = (snap.grid || []).map((r, i) => `  Row ${i}: ${compressRowJS(r)}`).join('\n');
+      else if (tool === 'grid') detail = formatGrid(snap.grid || [], 'lp16').split('\n').map(l => '  ' + l).join('\n');
       return `Step ${snap.step} (${aname}):\n${detail}`;
     }).join('\n');
   }
@@ -403,8 +403,9 @@ async function askLLMThreeSystem(_cur, model, modelInfo, waitEl, isActiveFn, his
   else if (typeof cm === 'string' && cm) changeMapBlock = cm;
 
   // Grid block
-  const gridText = context.grid.length ? context.grid.map((r, i) => `Row ${i}: ${compressRowJS(r)}`).join('\n') : '(no grid)';
-  const gridBlock = `## GRID (RLE)\n${gridText}`;
+  const gridRepr = settings.input?.grid_repr || 'lp16';
+  const gridText = context.grid.length ? formatGrid(context.grid, gridRepr) : '(no grid)';
+  const gridBlock = `## GRID (${getGridReprLabel(gridRepr)})\n${gridText}`;
 
   const rulesDoc = ss.rules_doc || '(No rules discovered yet — explore to learn!)';
   const conversation = [];

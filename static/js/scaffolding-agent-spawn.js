@@ -1,5 +1,5 @@
-// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-11 13:47
+// Author: Claude Opus 4.6 (1M context)
+// Date: 2026-03-15 18:00
 // PURPOSE: Agent Spawn orchestrator scaffolding for ARC-AGI-3. Implements Agentica-style
 //   multi-agent orchestration: a coordinator LLM spawns reactive subagents, each running
 //   independent observation-action loops. Provides runAgentSpawn() entry point, subagent
@@ -103,9 +103,8 @@ function _makeBoundedBudget(limit) {
   };
 }
 
-function _asRenderGrid(grid) {
-  if (!grid || !grid.length) return '(empty grid)';
-  return grid.map((r, i) => `Row ${String(i).padStart(2)}: ${compressRowJS(r)}`).join('\n');
+function _asRenderGrid(grid, repr) {
+  return formatGrid(grid, repr || 'lp16');
 }
 
 function _asDiffFrames(oldGrid, newGrid) {
@@ -164,9 +163,9 @@ function _asColorCounts(grid) {
   return _computeColorHistogram(grid);
 }
 
-function _asDispatchFrameTool(tool, grid, prevGrid, args) {
+function _asDispatchFrameTool(tool, grid, prevGrid, args, gridRepr) {
   switch (tool) {
-    case 'render_grid': return _asRenderGrid(grid);
+    case 'render_grid': return _asRenderGrid(grid, gridRepr);
     case 'diff_frames': return _asDiffFrames(prevGrid, grid);
     case 'change_summary': return _asChangeSummary(prevGrid, grid);
     case 'find_colors': return _asFind(grid, ...(args?.colors || []));
@@ -399,6 +398,7 @@ async function askLLMAgentSpawn(_cur, model, modelInfo, waitEl, isActiveFn, hist
   const subMaxTokens = Math.min(parseInt(settings.subagent_max_tokens) || 16384, 65536);
   const maxSubBudget = parseInt(settings.max_subagent_budget) || 5;
   const orchMaxTurns = parseInt(settings.orchestrator_max_turns) || 5;
+  const _asGridRepr = settings.input?.grid_repr || 'lp16';
 
   // Token/cost tracking — uses trackTokenUsage() from utils/tokens.js
   const _asTokens = _cur.sessionTotalTokens || sessionTotalTokens;
@@ -493,7 +493,7 @@ async function askLLMAgentSpawn(_cur, model, modelInfo, waitEl, isActiveFn, hist
       win_levels: _cur.currentState.win_levels || 0,
       grid, avail,
       actionDesc: avail.map(a => `${a}=${ACTION_NAMES[a] || 'ACTION' + a}`).join(', '),
-      gridText: grid.length ? grid.map((r, i) => `Row ${i}: ${compressRowJS(r)}`).join('\n') : '(no grid)',
+      gridText: grid.length ? formatGrid(grid, _asGridRepr) : '(no grid)',
       changeMapBlock,
     };
   }
@@ -512,9 +512,9 @@ async function askLLMAgentSpawn(_cur, model, modelInfo, waitEl, isActiveFn, hist
       if (cmText && cmText !== '(no changes)' && cmText !== '(initial)') {
         lines.push(`  Changes:\n${cmText}`);
       }
-      // Include full grid snapshot (RLE compressed, all rows)
+      // Include full grid snapshot
       if (h.grid && h.grid.length) {
-        const gridLines = h.grid.map((r, i) => `    Row ${i}: ${compressRowJS(r)}`);
+        const gridLines = formatGrid(h.grid, _asGridRepr).split('\n').map(l => '    ' + l);
         lines.push(`  Grid:\n${gridLines.join('\n')}`);
       }
       return lines.join('\n');
@@ -719,7 +719,7 @@ Decide your next move. Respond with a JSON object (delegate or think).`, turnVar
           const toolName = subParsed.tool || 'render_grid';
           const toolArgs = subParsed.args || {};
           const prevGrid = _cur.previousGrid || null;
-          const result = _asDispatchFrameTool(toolName, subCtx.grid, prevGrid, toolArgs);
+          const result = _asDispatchFrameTool(toolName, subCtx.grid, prevGrid, toolArgs, _asGridRepr);
           toolResults = `Tool: ${toolName}\n${result}`;
           _asPushTl({ type: 'as_sub_tool', turn, agent_type: agentType, tool_name: toolName });
           subMessages.push({ role: 'user', content: `Frame tool result:\n${toolResults}\n\nContinue with your next command.` });

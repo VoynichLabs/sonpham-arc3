@@ -215,10 +215,10 @@ async function askLLM(ss) {
         if (resp) resp._clientSide = true;
       } else {
       const promptObj = buildClientPrompt(_cur.currentState, historyForLLM, _cur.currentChangeMap, inputSettings, _snap?.tools_mode || getToolsMode(), compactBlock, _snap?.planning_mode || getPlanningMode());
-      // buildClientPrompt returns {system, user} for provider-aware message splitting
+      // buildClientPrompt returns {system, user, cacheablePrefix} for provider-aware message splitting
       const _sysMsg = promptObj.system;
       const _usrMsg = promptObj.user;
-      const _linearMsgs = [{role: 'system', content: _sysMsg}, {role: 'user', content: _usrMsg}];
+      const _linearMsgs = [{role: 'system', content: _sysMsg}, {role: 'user', content: _usrMsg, _cacheablePrefix: promptObj.cacheablePrefix, _cacheableHistory: promptObj.cacheableHistory}];
       window._lastLLMGrid = _cur.currentState.grid;
       window._lastLLMPrevGrid = _ss ? _ss.previousGrid : previousGrid;
       let rawContent;

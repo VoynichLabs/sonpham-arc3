@@ -1,5 +1,5 @@
-// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-11 13:47
+// Author: Claude Opus 4.6 (1M context)
+// Date: 2026-03-15 18:00
 // PURPOSE: Global application state and settings management for ARC-AGI-3 web UI.
 //   Declares all global state variables (sessionId, currentGrid, moveHistory, etc.),
 //   feature flags (FEATURES), color palette (COLORS), settings persistence helpers
@@ -339,7 +339,7 @@ function loadScaffoldingFromStorage(schemaId) {
     const s = JSON.parse(raw);
     if (schemaId === 'linear' || schemaId === 'linear_interrupt') {
       // Restore linear/linear_interrupt settings to DOM
-      _setChecked('inputGrid', s.input?.full_grid ?? true);
+      _setSelectVal('inputGrid', s.input?.grid_repr || 'lp16');
       _setChecked('inputImage', s.input?.image ?? false);
       _setChecked('inputDiff', s.input?.diff ?? true);
       _setChecked('inputHistogram', s.input?.color_histogram ?? false);
@@ -358,7 +358,7 @@ function loadScaffoldingFromStorage(schemaId) {
         toggleInterruptSettings();
       }
     } else if (schemaId === 'rlm') {
-      _setChecked('sf_rlm_inputGrid', s.input?.full_grid ?? true);
+      _setSelectVal('sf_rlm_inputGrid', s.input?.grid_repr || 'lp16');
       _setChecked('sf_rlm_inputImage', s.input?.image ?? false);
       _setChecked('sf_rlm_inputDiff', s.input?.diff ?? true);
       _setChecked('sf_rlm_inputHistogram', s.input?.color_histogram ?? false);
@@ -371,7 +371,7 @@ function loadScaffoldingFromStorage(schemaId) {
       _setVal('sf_rlm_maxIter', s.max_iterations || 10);
       _setVal('sf_rlm_outputTrunc', s.output_truncation || 5000);
     } else if (schemaId === 'three_system') {
-      _setChecked('sf_ts_inputGrid', s.input?.full_grid ?? true);
+      _setSelectVal('sf_ts_inputGrid', s.input?.grid_repr || 'lp16');
       _setChecked('sf_ts_inputImage', s.input?.image ?? false);
       _setChecked('sf_ts_inputDiff', s.input?.diff ?? true);
       _setChecked('sf_ts_inputHistogram', s.input?.color_histogram ?? false);
@@ -388,7 +388,7 @@ function loadScaffoldingFromStorage(schemaId) {
       _setVal('sf_ts_wmUpdateEvery', s.wm_update_every || 5);
       _setVal('sf_ts_maxPlanLength', s.max_plan_length || 15);
     } else if (schemaId === 'two_system') {
-      _setChecked('sf_2s_inputGrid', s.input?.full_grid ?? true);
+      _setSelectVal('sf_2s_inputGrid', s.input?.grid_repr || 'lp16');
       _setChecked('sf_2s_inputImage', s.input?.image ?? false);
       _setChecked('sf_2s_inputDiff', s.input?.diff ?? true);
       _setChecked('sf_2s_inputHistogram', s.input?.color_histogram ?? false);
@@ -624,6 +624,7 @@ function renderGroup(g) {
 function renderField(f) {
   switch (f.type) {
     case 'toggle': return renderToggle(f);
+    case 'select': return renderSelect(f);
     case 'model-select': return renderModelSelect(f);
     case 'quadswitch': return renderSwitch(f, 'quadswitch');
     case 'triswitch': return renderSwitch(f, 'triswitch');
@@ -642,6 +643,16 @@ function renderToggle(f) {
   const rowId = f.rowId ? ` id="${f.rowId}"` : '';
   const label = f.labelHtml || f.label;
   return `<div class="opt-row"${rowId}><span class="opt-label">${label}</span><label class="toggle"><input type="checkbox" id="${f.id}"${f.default ? ' checked' : ''}><span class="slider"></span></label></div>`;
+}
+
+function renderSelect(f) {
+  let h = `<div class="opt-row"><span class="opt-label">${f.label}</span>`;
+  h += `<select id="${f.id}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px;font-family:inherit;font-size:12px;">`;
+  for (const o of f.options) {
+    h += `<option value="${o.v}"${o.v === f.default ? ' selected' : ''}>${o.l}</option>`;
+  }
+  h += '</select></div>';
+  return h;
 }
 
 function renderModelSelect(f) {

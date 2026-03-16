@@ -5,6 +5,25 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.7.4] — feat: Grid representation options + Anthropic prompt caching
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Changed
+- **Grid representation** — replaced "Full grid (RLE)" toggle with a `<select>` dropdown offering three formats across all harnesses (Linear, Linear w/ Interrupt, RLM, 3-System, 2-System, Agent Spawn, World Model):
+  - **LP16** (default) — mnemonic character encoding (`.1234KMmRBbYOrGP`), preserves color identity in a compact spatial layout
+  - **Numeric** — space-separated integer grid, raw color indices
+  - **RGB-Agent** — ASCII density ramp (70-char palette), maps color index to brightness character
+- **Diff maps** — removed RLE compression from change maps. Now shows per-cell `col X: from->to` format for clarity.
+- **Anthropic prompt caching** — three cache breakpoints on Linear/Linear w/ Interrupt prompts:
+  1. **System message** (existing) — static per session, always cached
+  2. **Compact context** (new) — stable between compaction cycles (~5 calls)
+  3. **Old history** (new) — all history entries except the latest step, identical to previous call's history
+  User message blocks are reordered (compact → old history → new step → state → grid) so the token prefix is maximally stable between consecutive calls. Each breakpoint is a separate Anthropic content block with `cache_control: ephemeral`.
+
+### Removed
+- **RLE encoding** — no longer used in any LLM prompt (grid or diff). `compressRowJS()` kept for backward compat but not called by any scaffolding.
+
+---
 ## [1.7.2] — feat: Arena Auto Research layout overhaul
 *Author: Claude Opus 4.6 | 2026-03-16*
 

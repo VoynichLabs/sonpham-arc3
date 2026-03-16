@@ -1,5 +1,5 @@
-// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-15 14:00
+// Author: Claude Opus 4.6 (1M context)
+// Date: 2026-03-15 18:00
 // PURPOSE: Scaffolding configuration schemas for ARC-AGI-3 web UI. Defines
 //   SCAFFOLDING_SCHEMAS — the declarative field definitions (toggles, selects,
 //   sliders, model selects) for each scaffolding type (linear, rlm, three_system,
@@ -20,7 +20,8 @@
 let activeScaffoldingType = 'linear';
 
 const _linearInputFields = [
-  { type: 'toggle', id: 'inputGrid', label: 'Full grid (RLE)', default: true },
+  { type: 'select', id: 'inputGrid', label: 'Grid representation',
+      options: [{v:'lp16',l:'LP16'},{v:'numeric',l:'Numeric'},{v:'rgb',l:'RGB-Agent'}], default: 'lp16' },
   { type: 'toggle', id: 'inputImage', label: 'Image', default: false, rowId: 'imageRow',
     labelHtml: 'Image <span class="opt-badge badge-img" id="imgBadge">IMG</span>' },
   { type: 'toggle', id: 'inputDiff', label: 'Diff (change map)', default: true },
@@ -189,7 +190,8 @@ const SCAFFOLDING_SCHEMAS = {
       {
         id: 'sf_rlm_secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
         fields: [
-          { type: 'toggle', id: 'sf_rlm_inputGrid', label: 'Full grid (RLE)', default: true },
+          { type: 'select', id: 'sf_rlm_inputGrid', label: 'Grid representation',
+            options: [{v:'lp16',l:'LP16'},{v:'numeric',l:'Numeric'},{v:'rgb',l:'RGB-Agent'}], default: 'lp16' },
           { type: 'toggle', id: 'sf_rlm_inputImage', label: 'Image', default: false },
           { type: 'toggle', id: 'sf_rlm_inputDiff', label: 'Diff (change map)', default: true },
           { type: 'toggle', id: 'sf_rlm_inputHistogram', label: 'Color histogram', default: false },
@@ -269,7 +271,8 @@ const SCAFFOLDING_SCHEMAS = {
       {
         id: 'sf_ts_secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
         fields: [
-          { type: 'toggle', id: 'sf_ts_inputGrid', label: 'Full grid (RLE)', default: true },
+          { type: 'select', id: 'sf_ts_inputGrid', label: 'Grid representation',
+            options: [{v:'lp16',l:'LP16'},{v:'numeric',l:'Numeric'},{v:'rgb',l:'RGB-Agent'}], default: 'lp16' },
           { type: 'toggle', id: 'sf_ts_inputImage', label: 'Image', default: false },
           { type: 'toggle', id: 'sf_ts_inputDiff', label: 'Diff (change map)', default: true },
           { type: 'toggle', id: 'sf_ts_inputHistogram', label: 'Color histogram', default: false },
@@ -366,7 +369,8 @@ const SCAFFOLDING_SCHEMAS = {
       {
         id: 'sf_2s_secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
         fields: [
-          { type: 'toggle', id: 'sf_2s_inputGrid', label: 'Full grid (RLE)', default: true },
+          { type: 'select', id: 'sf_2s_inputGrid', label: 'Grid representation',
+            options: [{v:'lp16',l:'LP16'},{v:'numeric',l:'Numeric'},{v:'rgb',l:'RGB-Agent'}], default: 'lp16' },
           { type: 'toggle', id: 'sf_2s_inputImage', label: 'Image', default: false },
           { type: 'toggle', id: 'sf_2s_inputDiff', label: 'Diff (change map)', default: true },
           { type: 'toggle', id: 'sf_2s_inputHistogram', label: 'Color histogram', default: false },
@@ -453,7 +457,8 @@ const SCAFFOLDING_SCHEMAS = {
       {
         id: 'sf_as_secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
         fields: [
-          { type: 'toggle', id: 'sf_as_inputGrid', label: 'Full grid (RLE)', default: true },
+          { type: 'select', id: 'sf_as_inputGrid', label: 'Grid representation',
+            options: [{v:'lp16',l:'LP16'},{v:'numeric',l:'Numeric'},{v:'rgb',l:'RGB-Agent'}], default: 'lp16' },
           { type: 'toggle', id: 'sf_as_inputImage', label: 'Image', default: false },
           { type: 'toggle', id: 'sf_as_inputDiff', label: 'Diff (change map)', default: true },
           { type: 'toggle', id: 'sf_as_inputHistogram', label: 'Color histogram', default: false },
@@ -530,7 +535,8 @@ const SCAFFOLDING_SCHEMAS = {
       {
         id: 'sf_wm_secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
         fields: [
-          { type: 'toggle', id: 'sf_wm_inputGrid', label: 'Full grid (RLE)', default: true },
+          { type: 'select', id: 'sf_wm_inputGrid', label: 'Grid representation',
+            options: [{v:'lp16',l:'LP16'},{v:'numeric',l:'Numeric'},{v:'rgb',l:'RGB-Agent'}], default: 'lp16' },
           { type: 'toggle', id: 'sf_wm_inputImage', label: 'Image', default: false },
           { type: 'toggle', id: 'sf_wm_inputDiff', label: 'Diff (change map)', default: true },
           { type: 'toggle', id: 'sf_wm_inputHistogram', label: 'Color histogram', default: false },

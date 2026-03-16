@@ -1,11 +1,11 @@
 // Author: Claude Opus 4.6 (1M context)
-// Date: 2026-03-15 16:00
+// Date: 2026-03-15 18:00
 // PURPOSE: Core scaffolding infrastructure for ARC-AGI-3 web UI. Handles API mode
 //   switching (local vs official), model discovery (loadModels + LM Studio via direct browser fetch),
 //   model select population, BYOK key management, LLM call routing (callLLM → _callLLMInner
 //   for Puter.js, Gemini, Anthropic, OpenAI, Cloudflare, Groq, Mistral, HuggingFace, LM Studio),
-//   prompt template loading (getPrompt), RLE compression (compressRowJS), lexical grid encoding
-//   (gridToLexical + ARC3_LEXICAL_MAP), and Anthropic prompt caching via cache_control.
+//   prompt template loading (getPrompt), grid representation encoders (gridToLexical/LP16,
+//   gridToNumeric, gridToRgbAgent, formatGrid dispatcher), and Anthropic prompt caching via cache_control.
 //   Phase 5 extracted scaffolding-specific logic into scaffolding-rlm.js,
 //   scaffolding-three-system.js, scaffolding-agent-spawn.js, and scaffolding-linear.js.
 //   Phase 3 extracted JSON parsing to utils/json-parsing.js.
@@ -416,7 +416,12 @@ function compressRowJS(row) {
   return parts.join(' ');
 }
 
-// ── Lexical Grid Encoding (LexicalColorPalette16-inspired) ──
+// ═══════════════════════════════════════════════════════════════════════════
+// GRID REPRESENTATION ENCODERS
+// Three formats: LP16 (lexical mnemonic), Numeric (integers), RGB-Agent (density)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── LP16: Lexical Grid Encoding (LexicalColorPalette16-inspired) ──
 // Maps ARC3 color indices 0-15 to single mnemonic characters.
 // Produces a 64×64 character grid that preserves spatial layout.
 const ARC3_LEXICAL_MAP = ['.','1','2','3','4','K','M','m','R','B','b','Y','O','r','G','P'];
@@ -426,6 +431,54 @@ function gridToLexical(grid) {
   if (!grid || !grid.length) return '';
   return grid.map(row => row.map(c => ARC3_LEXICAL_MAP[c] ?? '?').join('')).join('\n');
 }
+
+// ── Numeric: Space-separated integer grid ──
+// Each row is space-separated color indices: "0 0 5 5 0 14 14 0"
+function gridToNumeric(grid) {
+  if (!grid || !grid.length) return '';
+  return grid.map(row => row.join(' ')).join('\n');
+}
+
+// ── RGB-Agent: ASCII density ramp ──
+// Maps 0-15 linearly into a 70-char density string (from dense to light).
+// Based on alexisfox7/RGB-Agent. Encodes index as brightness — discards color identity.
+const _RGB_DENSITY = '$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1EG[]?-_+~<>i!lI;:,"^`\'. ';
+
+function gridToRgbAgent(grid) {
+  if (!grid || !grid.length) return '';
+  const n = _RGB_DENSITY.length;
+  return grid.map(row => row.map(v => {
+    const idx = Math.min(Math.floor((Math.max(0, Math.min(15, v)) / 16) * (n - 1)), n - 1);
+    return _RGB_DENSITY[idx];
+  }).join('')).join('\n');
+}
+
+// ── Dispatcher: format grid using selected representation ──
+// repr: 'lp16' | 'numeric' | 'rgb'
+function formatGrid(grid, repr) {
+  if (!grid || !grid.length) return '(empty grid)';
+  switch (repr) {
+    case 'numeric': return gridToNumeric(grid);
+    case 'rgb':     return gridToRgbAgent(grid);
+    case 'lp16':
+    default:        return gridToLexical(grid);
+  }
+}
+
+// ── Grid representation legends for system prompts ──
+const GRID_REPR_LEGENDS = {
+  lp16: `LEXICAL GRID LEGEND: ${ARC3_LEXICAL_LEGEND}`,
+  numeric: 'NUMERIC GRID: Each row is space-separated color indices (0-15).',
+  rgb: 'RGB-AGENT GRID: ASCII density ramp — darker chars = lower index, lighter = higher. Index identity only, not color.',
+};
+
+function getGridReprLegend(repr) {
+  return GRID_REPR_LEGENDS[repr] || GRID_REPR_LEGENDS.lp16;
+}
+
+// ── Grid repr label for prompt section headers ──
+const GRID_REPR_LABELS = { lp16: '64×64 lexical', numeric: '64×64 numeric', rgb: '64×64 rgb-agent' };
+function getGridReprLabel(repr) { return GRID_REPR_LABELS[repr] || GRID_REPR_LABELS.lp16; }
 
 // ── [Section extracted to scaffolding-rlm.js] ───────────────────────────
 
@@ -558,14 +611,31 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
     const chatMsgs = messages.filter(m => m.role !== 'system');
     // Pre-flight: estimate tokens and warn if likely to exceed context window
     const modelCtx = getModelInfo(model)?.context_window || 200000;
-    const allText = messages.map(m => m.content).join('');
+    const allText = messages.map(m => (m._cacheablePrefix || '') + (m._cacheableHistory || '') + m.content).join('');
     const estTokens = estimateTokens(allText);
     if (estTokens > modelCtx * 0.95) {
       throw new Error(`Prompt too long (~${Math.round(estTokens/1000)}K tokens) for ${model} (${Math.round(modelCtx/1000)}K limit). Enable Compact Context or reduce history.`);
     }
-    const body = { model: apiModel, max_tokens: maxTokens, messages: chatMsgs.map(m => ({ role: m.role, content: m.content })) };
-    // Prompt caching: send system as structured content block with cache_control.
-    // Anthropic caches the system prefix across calls — saves ~90% on repeated tokens.
+    // Prompt caching: Anthropic prefix caching matches an exact token prefix.
+    // Three cache breakpoints are set (most stable → least stable):
+    //   1. System message — static per session (game description, task instructions)
+    //   2. Compact context prefix — stable between compaction cycles (~5 calls)
+    //   3. Old history — all history entries except the latest (identical to previous call)
+    // Dynamic content (new step, STATE, GRID, CHANGES) comes last to maximize prefix matching.
+    const body = { model: apiModel, max_tokens: maxTokens, messages: chatMsgs.map(m => {
+      if (m.role === 'user' && (m._cacheablePrefix || m._cacheableHistory)) {
+        const blocks = [];
+        if (m._cacheablePrefix) {
+          blocks.push({ type: 'text', text: m._cacheablePrefix, cache_control: { type: 'ephemeral' } });
+        }
+        if (m._cacheableHistory) {
+          blocks.push({ type: 'text', text: m._cacheableHistory, cache_control: { type: 'ephemeral' } });
+        }
+        blocks.push({ type: 'text', text: m.content });
+        return { role: 'user', content: blocks };
+      }
+      return { role: m.role, content: m.content };
+    }) };
     if (systemMsg) {
       body.system = [{ type: 'text', text: systemMsg.content, cache_control: { type: 'ephemeral' } }];
     }

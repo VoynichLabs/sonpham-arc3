@@ -534,17 +534,10 @@ function computeChangeMapJS(prevGrid, currGrid) {
       }
     }
     if (rowChars.includes('X')) {
-      // Compress: runs of same char
-      let compressed = '';
-      let i = 0;
-      while (i < rowChars.length) {
-        const ch = rowChars[i];
-        let count = 1;
-        while (i + count < rowChars.length && rowChars[i + count] === ch) count++;
-        compressed += (compressed ? ' ' : '') + (count > 1 ? `${ch}x${count}` : ch);
-        i += count;
-      }
-      rows.push(`Row ${y}: ${compressed}`);
+      // Per-cell diff: show col index with from->to values (no RLE)
+      const rowChanges = changes.filter(c => c.y === y);
+      const details = rowChanges.map(c => `col ${c.x}: ${c.from}->${c.to}`).join(', ');
+      rows.push(`Row ${y}: ${details}`);
     }
   }
   return {
