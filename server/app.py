@@ -383,6 +383,26 @@ def arena_live_tournament(game_id):
     return jsonify(get_live_matches(game_id))
 
 
+@app.route("/api/arena/export/<game_id>")
+def arena_export(game_id):
+    from server.arena_heartbeat import get_latest_export, run_export
+    export = get_latest_export()
+    if not export:
+        # No export yet — run one now
+        run_export(game_id)
+        export = get_latest_export()
+    if not export:
+        return jsonify({"error": "No export available"}), 404
+    return jsonify(export)
+
+
+@app.route("/api/arena/export/<game_id>/now", methods=["POST"])
+def arena_export_now(game_id):
+    from server.arena_heartbeat import run_export
+    run_export(game_id)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/arena/elo-history/<game_id>")
 def arena_elo_history(game_id):
     from db_arena import arena_get_leaderboard
