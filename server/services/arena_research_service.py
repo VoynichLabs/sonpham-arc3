@@ -40,6 +40,7 @@ log = logging.getLogger(__name__)
 # Only snake enabled for now — re-enable others when ready
 ARENA_GAME_IDS = {
     "snake",
+    "chess960",
 }
 _ALL_ARENA_GAME_IDS = {
     "snake", "tron", "connect4", "chess960",

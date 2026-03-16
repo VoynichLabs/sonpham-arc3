@@ -77,7 +77,7 @@ _heartbeat_state = {
 
 # Ring buffer of recent matches for live tournament canvases.
 # Kept in-memory only — no DB bloat. Max 4 entries.
-_LIVE_BUFFER_SIZE = 4
+_LIVE_BUFFER_SIZE = 8  # 4 per game × 2 games
 _live_matches = []
 _live_lock = threading.Lock()
 
@@ -212,10 +212,11 @@ def _push_live_match(a1, a2, winner_name, history, game_id='snake'):
 
 def get_live_matches(game_id='snake'):
     """Return recent matches for the live tournament canvases.
-    Primary: in-memory ring buffer. Fallback: recent DB games with history."""
+    Primary: in-memory ring buffer (filtered by game_id). Fallback: recent DB games."""
     with _live_lock:
-        if _live_matches:
-            return list(_live_matches)
+        filtered = [m for m in _live_matches if m.get('gameId', 'snake') == game_id]
+        if filtered:
+            return filtered
 
     try:
         db_games = arena_get_recent_games_with_history(game_id, limit=_LIVE_BUFFER_SIZE)

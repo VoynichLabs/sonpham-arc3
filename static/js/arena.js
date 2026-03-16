@@ -306,8 +306,9 @@ const AI_STRATEGIES = {
 
 const KING = 1, QUEEN = 2, ROOK = 3, BISHOP = 4, KNIGHT = 5, PAWN = 6;
 const PIECE_CHAR = { [KING]:'K',[QUEEN]:'Q',[ROOK]:'R',[BISHOP]:'B',[KNIGHT]:'N',[PAWN]:'' };
+// Use FILLED glyphs (♚♛♜♝♞♟) for all pieces — solid look for both colors
 const PIECE_UNICODE = {
-  1:'\u2654', 2:'\u2655', 3:'\u2656', 4:'\u2657', 5:'\u2658', 6:'\u2659',
+  1:'\u265A', 2:'\u265B', 3:'\u265C', 4:'\u265D', 5:'\u265E', 6:'\u265F',
   [-1]:'\u265A', [-2]:'\u265B', [-3]:'\u265C', [-4]:'\u265D', [-5]:'\u265E', [-6]:'\u265F',
 };
 const PIECE_VAL = { [KING]:20000,[QUEEN]:900,[ROOK]:500,[BISHOP]:330,[KNIGHT]:320,[PAWN]:100 };
@@ -663,11 +664,20 @@ function renderChessFrame(ctx, frame, size) {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         // Shadow for depth
-        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
         ctx.fillText(ch, c*sq+sq/2+1.5, r*sq+sq/2+1.5);
-        // Piece
-        ctx.fillStyle = piece > 0 ? '#FFFFFF' : '#1a1a1a';
-        ctx.fillText(ch, c*sq+sq/2, r*sq+sq/2);
+        // Piece fill
+        if (piece > 0) {
+          // White: solid white fill + dark outline for definition
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillText(ch, c*sq+sq/2, r*sq+sq/2);
+          ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+          ctx.lineWidth = 0.8;
+          ctx.strokeText(ch, c*sq+sq/2, r*sq+sq/2);
+        } else {
+          ctx.fillStyle = '#1a1a1a';
+          ctx.fillText(ch, c*sq+sq/2, r*sq+sq/2);
+        }
       }
     }
   }
@@ -707,12 +717,18 @@ function renderChessPreview(canvas, config) {
     if (p !== 0) {
       ctx.font = `${sq*0.82}px serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      // Shadow for depth
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
       ctx.fillText(PIECE_UNICODE[p], c*sq+sq/2+0.8, r*sq+sq/2+0.8);
-      // Piece
-      ctx.fillStyle = p > 0 ? '#FFFFFF' : '#1a1a1a';
-      ctx.fillText(PIECE_UNICODE[p], c*sq+sq/2, r*sq+sq/2);
+      if (p > 0) {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(PIECE_UNICODE[p], c*sq+sq/2, r*sq+sq/2);
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 0.4;
+        ctx.strokeText(PIECE_UNICODE[p], c*sq+sq/2, r*sq+sq/2);
+      } else {
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillText(PIECE_UNICODE[p], c*sq+sq/2, r*sq+sq/2);
+      }
     }
   }
 }
@@ -4375,17 +4391,49 @@ function arBuildGameTabs() {
     tab.className = 'ar-game-tab' + (AR.selectedGame === game.id ? ' active' : '');
     tab.dataset.game = game.id;
 
-    // Small canvas preview
+    // Canvas preview
     const canvas = document.createElement('canvas');
     canvas.className = 'ar-game-tab-preview';
-    canvas.width = 44; canvas.height = 44;
+    canvas.width = 96; canvas.height = 96;
     tab.appendChild(canvas);
 
-    const title = document.createElement('span');
+    // Meta: title, desc, tags, stats
+    const meta = document.createElement('div');
+    meta.className = 'ar-game-tab-meta';
+
+    const title = document.createElement('div');
     title.className = 'ar-game-tab-title';
     title.textContent = game.title;
-    tab.appendChild(title);
+    meta.appendChild(title);
 
+    if (game.desc) {
+      const desc = document.createElement('div');
+      desc.className = 'ar-game-tab-desc';
+      desc.textContent = game.desc;
+      meta.appendChild(desc);
+    }
+
+    // Tags row
+    if (game.tags && game.tags.length) {
+      const tagsRow = document.createElement('div');
+      tagsRow.className = 'ar-game-tab-tags';
+      for (const t of game.tags) {
+        const tag = document.createElement('span');
+        tag.className = 'ar-game-tab-tag';
+        tag.textContent = t;
+        tagsRow.appendChild(tag);
+      }
+      meta.appendChild(tagsRow);
+    }
+
+    // Stats row (agent count, game count — filled async)
+    const statsRow = document.createElement('div');
+    statsRow.className = 'ar-game-tab-stats';
+    statsRow.id = `arTabStats_${game.id}`;
+    statsRow.innerHTML = '<span class="ar-game-tab-stat">Loading...</span>';
+    meta.appendChild(statsRow);
+
+    tab.appendChild(meta);
     tab.addEventListener('click', () => arSelectGame(game.id, 'community'));
     container.appendChild(tab);
 
@@ -4393,6 +4441,33 @@ function arBuildGameTabs() {
     if (game.preview) {
       try { game.preview(canvas, game.config); } catch (e) { /* skip */ }
     }
+
+    // Fetch stats for each tab
+    _arFetchTabStats(game.id);
+  }
+}
+
+async function _arFetchTabStats(gameId) {
+  try {
+    const data = await fetch(`/api/arena/research/${gameId}`).then(r => r.json());
+    const el = document.getElementById(`arTabStats_${gameId}`);
+    if (!el) return;
+    if (data.error) {
+      el.innerHTML = '<span class="ar-game-tab-stat">New</span>';
+      return;
+    }
+    const agents = data.agent_count || 0;
+    const games = data.game_count || 0;
+    const gen = data.generation || 0;
+    const best = data.best_agent ? `#1 ${data.best_agent}` : '';
+    let html = `<span class="ar-game-tab-stat">${agents} agents</span>`;
+    html += `<span class="ar-game-tab-stat">${games} games</span>`;
+    html += `<span class="ar-game-tab-stat">Gen ${gen}</span>`;
+    if (best) html += `<span class="ar-game-tab-stat">${best}</span>`;
+    el.innerHTML = html;
+  } catch (e) {
+    const el = document.getElementById(`arTabStats_${gameId}`);
+    if (el) el.innerHTML = '<span class="ar-game-tab-stat">Offline</span>';
   }
 }
 

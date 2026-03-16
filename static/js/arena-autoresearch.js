@@ -1552,17 +1552,26 @@ function _arRenderMiniFrame(canvas, gameId, frame) {
 
         const piece = board[r][c];
         if (piece !== 0) {
-          const _MINI_PIECE = {1:'\u2654',2:'\u2655',3:'\u2656',4:'\u2657',5:'\u2658',6:'\u2659',
-                               '-1':'\u265A','-2':'\u265B','-3':'\u265C','-4':'\u265D','-5':'\u265E','-6':'\u265F'};
-          const ch = _MINI_PIECE[piece] || '';
+          // Python engine encoding: 1=Pawn,2=Knight,3=Bishop,4=Rook,5=Queen,6=King
+          // Use FILLED Unicode glyphs (♟♞♝♜♛♚) for both colors — solid look
+          const _PY_PIECE_FILLED = {1:'\u265F',2:'\u265E',3:'\u265D',4:'\u265C',5:'\u265B',6:'\u265A'};
+          const ch = _PY_PIECE_FILLED[Math.abs(piece)] || '';
           ctx.font = `${sq * 0.82}px serif`;
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          // Shadow
-          ctx.fillStyle = 'rgba(0,0,0,0.35)';
+          // Shadow for depth
+          ctx.fillStyle = 'rgba(0,0,0,0.4)';
           ctx.fillText(ch, c*sq+sq/2+1, r*sq+sq/2+1);
-          // Piece color
-          ctx.fillStyle = piece > 0 ? '#FFFFFF' : '#1a1a1a';
-          ctx.fillText(ch, c*sq+sq/2, r*sq+sq/2);
+          // White pieces: white fill with dark stroke; black pieces: dark fill
+          if (piece > 0) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillText(ch, c*sq+sq/2, r*sq+sq/2);
+            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.lineWidth = 0.5;
+            ctx.strokeText(ch, c*sq+sq/2, r*sq+sq/2);
+          } else {
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillText(ch, c*sq+sq/2, r*sq+sq/2);
+          }
         }
       }
     }
