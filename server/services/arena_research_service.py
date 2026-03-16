@@ -7,6 +7,7 @@
 """Arena Auto Research service — validation and orchestration."""
 
 import logging
+import os
 import re
 import time
 
@@ -35,6 +36,26 @@ from db_arena import (
 )
 
 log = logging.getLogger(__name__)
+
+_SEEDS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'arena_seeds')
+
+_GAME_PROGRAM_FILES = {
+    'snake': 'default_program.md',
+    'chess960': 'chess960_program.md',
+    'othello': 'othello_program.md',
+}
+
+
+def _load_default_program(game_id):
+    """Load default program.md from seed files when DB has no content."""
+    filename = _GAME_PROGRAM_FILES.get(game_id)
+    if filename:
+        path = os.path.join(_SEEDS_DIR, filename)
+        if os.path.exists(path):
+            with open(path) as f:
+                return f.read()
+    return ""
+
 
 # Valid Arena game IDs (must match ARENA_GAMES in arena.js)
 # Only snake enabled for now — re-enable others when ready
@@ -129,6 +150,9 @@ def get_research_overview(game_id):
     stats = arena_get_research_stats(game_id)
     leaderboard = arena_get_leaderboard(game_id, limit=200)
     program = arena_get_program(game_id)
+    # If DB has no program content, load default from seed file
+    if program and not program.get("content"):
+        program["content"] = _load_default_program(game_id)
     return {
         **stats,
         "leaderboard": leaderboard,
