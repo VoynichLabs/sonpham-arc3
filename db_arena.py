@@ -52,6 +52,25 @@ def arena_get_or_create_research(game_id):
         return dict(row)
 
 
+def arena_increment_generation(game_id):
+    """Increment and return the generation counter for a game."""
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT generation FROM arena_research WHERE game_id = ?", (game_id,)
+        ).fetchone()
+        if not row:
+            arena_get_or_create_research(game_id)
+            row = conn.execute(
+                "SELECT generation FROM arena_research WHERE game_id = ?", (game_id,)
+            ).fetchone()
+        new_gen = (row['generation'] or 0) + 1
+        conn.execute(
+            "UPDATE arena_research SET generation = ?, updated_at = unixepoch('now') WHERE game_id = ?",
+            (new_gen, game_id)
+        )
+        return new_gen
+
+
 def arena_get_research_stats(game_id):
     """Get summary stats for a game's research."""
     with _db() as conn:
@@ -150,6 +169,36 @@ def arena_get_agent(game_id, agent_id):
             (agent_id, game_id)
         ).fetchone()
         return dict(row) if row else None
+
+
+def arena_get_agent_by_name(game_id, name):
+    """Get a single agent by name."""
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT * FROM arena_agents WHERE game_id = ? AND name = ?",
+            (game_id, name)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def arena_get_agent_games(game_id, agent_id, limit=5):
+    """Get an agent's recent games with summary data."""
+    with _db() as conn:
+        rows = conn.execute("""
+            SELECT g.id, g.agent1_id, g.agent2_id, g.winner_id,
+                   g.agent1_score, g.agent2_score, g.turns, g.is_upset,
+                   g.history, g.created_at,
+                   a1.name as agent1_name, a2.name as agent2_name,
+                   CASE WHEN g.winner_id IS NULL THEN 'Draw'
+                        WHEN g.winner_id = g.agent1_id THEN a1.name
+                        ELSE a2.name END as winner_name
+            FROM arena_games g
+            JOIN arena_agents a1 ON g.agent1_id = a1.id
+            JOIN arena_agents a2 ON g.agent2_id = a2.id
+            WHERE g.game_id = ? AND (g.agent1_id = ? OR g.agent2_id = ?)
+            ORDER BY g.created_at DESC LIMIT ?
+        """, (game_id, agent_id, agent_id, limit)).fetchall()
+        return [dict(r) for r in rows]
 
 
 def arena_prune_weak_agents(game_id, count=10):
@@ -331,6 +380,36 @@ def arena_get_recent_games(game_id, limit=50):
             ORDER BY g.created_at DESC LIMIT ?
         """, (game_id, limit)).fetchall()
         return [dict(r) for r in rows]
+
+
+def arena_get_recent_games_with_history(game_id, limit=8):
+    """Get recent games that still have replay history (not yet stripped)."""
+    with _db() as conn:
+        rows = conn.execute("""
+            SELECT g.id, g.history, g.turns,
+                   a1.name as agent1_name, a1.elo as agent1_elo,
+                   a1.wins as agent1_wins, a1.losses as agent1_losses,
+                   a2.name as agent2_name, a2.elo as agent2_elo,
+                   a2.wins as agent2_wins, a2.losses as agent2_losses,
+                   CASE WHEN g.winner_id IS NULL THEN 'Draw'
+                        WHEN g.winner_id = g.agent1_id THEN a1.name
+                        ELSE a2.name END as winner_name
+            FROM arena_games g
+            JOIN arena_agents a1 ON g.agent1_id = a1.id
+            JOIN arena_agents a2 ON g.agent2_id = a2.id
+            WHERE g.game_id = ? AND g.history != '[]' AND g.history IS NOT NULL
+            ORDER BY g.created_at DESC LIMIT ?
+        """, (game_id, limit)).fetchall()
+        results = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d['history'] = json.loads(d['history']) if d['history'] else []
+            except (json.JSONDecodeError, TypeError):
+                d['history'] = []
+            if d['history']:
+                results.append(d)
+        return results
 
 
 def arena_get_game(game_id, match_id):

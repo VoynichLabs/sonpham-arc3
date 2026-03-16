@@ -779,7 +779,7 @@
 
 /* ── Col 3: Leaderboard + Recent Games (narrow ~10%) ── */
 .ar-mid-col {
-  width: 10%; min-width: 200px; max-width: 320px;
+  width: 20%; min-width: 280px; max-width: 480px;
   flex-shrink: 0; display: flex; flex-direction: column;
   background: var(--surface); border-left: 1px solid var(--border);
   overflow: hidden;
@@ -791,7 +791,7 @@
   flex: 1; overflow-y: auto;
 }
 .ar-recent-games {
-  flex: 0 0 auto; max-height: 180px; overflow-y: auto; padding: 4px 8px;
+  flex: 1; overflow-y: auto; padding: 4px 8px;
 }
 .ar-recent-game {
   display: flex; align-items: center; gap: 4px; padding: 3px 0;
@@ -802,9 +802,9 @@
 .ar-rg-result.ar-draw { color: var(--text-dim); }
 .ar-rg-turns { color: var(--text-dim); flex-shrink: 0; }
 
-/* ── Col 4: Live Tournament (25%) ── */
+/* ── Col 4: Live Tournament (30%) ── */
 .ar-right-col {
-  flex: 0 0 25%; display: flex; flex-direction: column;
+  flex: 0 0 30%; display: flex; flex-direction: column;
   background: var(--surface); border-left: 1px solid var(--border);
   overflow-y: auto;
 }
@@ -820,12 +820,12 @@
   border: 1px solid var(--border);
 }
 .ar-live-cell canvas {
-  width: 100%; aspect-ratio: 1; image-rendering: pixelated; border-radius: 3px;
+  width: 100%; aspect-ratio: 1; border-radius: 3px; display: block;
 }
 .ar-live-info {
   font-size: 9px; color: var(--text-dim); text-align: center;
-  margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  width: 100%;
+  margin-top: 2px; overflow: hidden;
+  width: 100%; line-height: 1.3;
 }
 
 
@@ -1043,7 +1043,7 @@
   .arena-obs-panel { width: 280px; }
   .ar-left-col { width: 160px; }
   .ar-mid-col { display: none; }
-  .ar-right-col { width: 25%; min-width: 150px; }
+  .ar-right-col { width: 30%; min-width: 150px; }
 }
 @media (max-width: 750px) {
   .arena-layout { flex-direction: column; }
@@ -1059,5 +1059,5 @@
   .ar-layout { flex-direction: column; }
   .ar-left-col, .ar-right-col, .ar-mid-col { width: 100%; max-height: 250px; }
   .ar-mid-col { display: flex; }
-  .ar-live-games { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .ar-live-games { grid-template-columns: 1fr 1fr; }
 }

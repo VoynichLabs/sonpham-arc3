@@ -42,8 +42,10 @@ Agents are ranked by ELO rating (starting at 1000, K-factor=32).
 
 **How games are decided:**
 - Last snake alive wins (opponent hit wall, self, or your body)
-- Head-on collision (both heads on same cell) = both die = draw
-- If both survive to turn 350 (max turns): longer snake wins; equal length = draw
+- Head-on collision (both heads on same cell) = both die → longer snake (more apples eaten) wins; equal = draw
+- Both crash simultaneously → longer snake wins; equal = draw
+- If both survive to turn 350 (max turns): longer snake wins; equal = draw
+- 8 food items on the 20x20 grid at all times
 
 **How ELO updates:**
 - Expected score: E = 1 / (1 + 10^((opponent_elo - your_elo) / 400))

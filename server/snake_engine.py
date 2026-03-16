@@ -41,7 +41,7 @@ class Snake:
 
 
 class SnakeGame:
-    def __init__(self, width=20, height=20, max_turns=500, food_count=3):
+    def __init__(self, width=20, height=20, max_turns=350, food_count=8):
         self.width = width
         self.height = height
         self.max_turns = max_turns
@@ -157,8 +157,9 @@ class SnakeGame:
 
         alive = [s.alive for s in self.snakes]
         if not alive[0] and not alive[1]:
+            # Both dead (head-on or simultaneous crash) — longer snake wins
             self.game_over = True
-            self.winner = None
+            self.winner = self._winner_by_length()
         elif not alive[0]:
             self.game_over = True
             self.winner = 1
@@ -166,19 +167,21 @@ class SnakeGame:
             self.game_over = True
             self.winner = 0
         elif self.turn >= self.max_turns:
+            # Time's up — longer snake wins
             self.game_over = True
-            l0, l1 = len(self.snakes[0].body), len(self.snakes[1].body)
-            if l0 > l1:
-                self.winner = 0
-            elif l1 > l0:
-                self.winner = 1
-            else:
-                self.winner = None
+            self.winner = self._winner_by_length()
 
         if self.game_over:
             self.history.append(self.get_full_state())
 
         return not self.game_over
+
+    def _winner_by_length(self) -> Optional[int]:
+        """Determine winner by snake length (apples eaten). None if tied."""
+        l0, l1 = len(self.snakes[0].body), len(self.snakes[1].body)
+        if l0 > l1: return 0
+        elif l1 > l0: return 1
+        return None
 
     def run(self, agent0_fn, agent1_fn) -> Dict:
         self.setup()

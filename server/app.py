@@ -377,6 +377,12 @@ def arena_heartbeat_status():
     return jsonify(get_heartbeat_status())
 
 
+@app.route("/api/arena/live-tournament/<game_id>")
+def arena_live_tournament(game_id):
+    from server.arena_heartbeat import get_live_matches
+    return jsonify(get_live_matches(game_id))
+
+
 @app.route("/api/arena/human-play/<game_id>", methods=["POST"])
 def arena_human_play(game_id):
     data = request.get_json(force=True)

@@ -1382,13 +1382,24 @@ const arSubmitToComminity = arSubmitToCommunity;
    Live Tournament Canvases — animate recent matches on mini canvases
    ═══════════════════════════════════════════════════════════════════════════ */
 
+async function arFetchLiveTournament(gameId) {
+  try {
+    const matches = await fetch(`/api/arena/live-tournament/${gameId}`).then(r => r.json());
+    if (Array.isArray(matches) && matches.length > 0) {
+      LocalResearch.liveMatches = matches;
+      arRenderLiveCanvases();
+    }
+  } catch (e) {
+    // Silently fail
+  }
+}
+
 function arRenderLiveCanvases() {
-  // Stop existing animations
   for (const t of LocalResearch.liveTimers) clearInterval(t);
   LocalResearch.liveTimers = [];
 
   const matches = LocalResearch.liveMatches;
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 4; i++) {
     const canvas = document.getElementById(`arLive${i}`);
     const info = document.getElementById(`arLiveInfo${i}`);
     if (!canvas || !info) continue;
@@ -1396,7 +1407,7 @@ function arRenderLiveCanvases() {
     const match = matches[i];
     if (!match || !match.history || !match.history.length) {
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#1a1a2e';
+      ctx.fillStyle = '#0c0c18';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = '#555';
       ctx.font = '11px monospace';
@@ -1406,69 +1417,128 @@ function arRenderLiveCanvases() {
       continue;
     }
 
-    info.textContent = `${match.agent1} vs ${match.agent2} — ${match.winner}`;
+    // Agent names colored, ELO greyed out, no W/L, no spoilers
+    const a1 = match.agent1, a2 = match.agent2;
+    const a1Elo = match.agent1_elo ? `<span style="color:#555"> ${Math.round(match.agent1_elo)}</span>` : '';
+    const a2Elo = match.agent2_elo ? `<span style="color:#555"> ${Math.round(match.agent2_elo)}</span>` : '';
+    info.innerHTML = `<span style="color:#00ff87">${a1}</span>${a1Elo} vs <span style="color:#00b4d8">${a2}</span>${a2Elo}`;
 
-    // Animate through history frames
+    // Animate at 120ms/frame, freeze 3s on death
     let frameIdx = 0;
+    let freezeCount = 0;
+    const FREEZE_FRAMES = 25; // 25 * 120ms = 3s
     const history = match.history;
     const gameId = match.gameId || LocalResearch.gameId;
 
-    // Render one frame
     const renderFrame = () => {
+      if (freezeCount > 0) {
+        freezeCount--;
+        if (freezeCount === 0) frameIdx = 0;
+        return;
+      }
       const frame = history[frameIdx];
       if (!frame) return;
       _arRenderMiniFrame(canvas, gameId, frame);
-      frameIdx = (frameIdx + 1) % history.length;
+      frameIdx++;
+      if (frameIdx >= history.length) {
+        freezeCount = FREEZE_FRAMES;
+      }
     };
 
     renderFrame();
-    const timer = setInterval(renderFrame, 200);
+    const timer = setInterval(renderFrame, 120);
     LocalResearch.liveTimers.push(timer);
   }
 }
+
+// Snake colors (from snake_autoresearch)
+const _SNAKE_COLORS = [['#00ff87', '#00a85a'], ['#00b4d8', '#007a94']];
+const _SNAKE_FOOD = '#ff006e';
+const _SNAKE_DEAD = '#2a2a2a';
+const _SNAKE_BG = '#0c0c18';
+const _SNAKE_GRID_DOT = '#16182a';
 
 function _arRenderMiniFrame(canvas, gameId, frame) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
 
-  // Get grid data from the frame
-  const grid = frame.grid || frame.board;
-  if (!grid || !grid.length) {
-    // For games with state objects (artillery), render a simple indicator
-    ctx.fillStyle = '#1a1a2e';
+  // Snake: raw state format {snakes, food, alive, scores, turn}
+  if (gameId === 'snake' && frame.snakes) {
+    const GRID = 20;
+    const SC = w / GRID;
+
+    ctx.fillStyle = _SNAKE_BG;
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = frame.winner ? '#4FCC30' : '#e09540';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`Turn ${frame.turn || 0}`, w / 2, h / 2 - 6);
-    if (frame.move) ctx.fillText(String(frame.move).substring(0, 20), w / 2, h / 2 + 8);
+
+    ctx.fillStyle = _SNAKE_GRID_DOT;
+    for (let x = 0; x <= GRID; x++)
+      for (let y = 0; y <= GRID; y++)
+        ctx.fillRect(x * SC, y * SC, 1, 1);
+
+    for (const f of (frame.food || [])) {
+      ctx.fillStyle = _SNAKE_FOOD;
+      ctx.beginPath();
+      ctx.arc(f[0] * SC + SC / 2, f[1] * SC + SC / 2, SC * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const alive = frame.alive || [true, true];
+    for (let s = 0; s < 2; s++) {
+      const sn = frame.snakes[s];
+      if (!sn || !sn.length) continue;
+      const [hc, bc] = alive[s] ? _SNAKE_COLORS[s] : [_SNAKE_DEAD, _SNAKE_DEAD];
+      const P = 1;
+      for (let i = sn.length - 1; i >= 0; i--) {
+        const [sx, sy] = sn[i];
+        ctx.fillStyle = i === 0 ? hc : bc;
+        const x = sx * SC + P, y = sy * SC + P, bw = SC - P * 2, bh = SC - P * 2, r = Math.min(3, SC * 0.15);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y); ctx.lineTo(x + bw - r, y); ctx.quadraticCurveTo(x + bw, y, x + bw, y + r);
+        ctx.lineTo(x + bw, y + bh - r); ctx.quadraticCurveTo(x + bw, y + bh, x + bw - r, y + bh);
+        ctx.lineTo(x + r, y + bh); ctx.quadraticCurveTo(x, y + bh, x, y + bh - r);
+        ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.fill();
+        if (i === 0 && alive[s]) {
+          ctx.fillStyle = '#000';
+          ctx.beginPath();
+          ctx.arc(sx * SC + SC * 0.35, sy * SC + SC * 0.38, Math.max(1.5, SC * 0.12), 0, Math.PI * 2);
+          ctx.arc(sx * SC + SC * 0.65, sy * SC + SC * 0.38, Math.max(1.5, SC * 0.12), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.arc(sx * SC + SC * 0.35, sy * SC + SC * 0.36, Math.max(0.7, SC * 0.05), 0, Math.PI * 2);
+          ctx.arc(sx * SC + SC * 0.65, sy * SC + SC * 0.36, Math.max(0.7, SC * 0.05), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    if (frame.scores) {
+      ctx.font = `bold ${Math.max(9, SC * 0.7 | 0)}px monospace`;
+      ctx.fillStyle = _SNAKE_COLORS[0][0];
+      ctx.fillText(frame.scores[0], 4, h - 4);
+      ctx.fillStyle = _SNAKE_COLORS[1][0];
+      ctx.textAlign = 'right';
+      ctx.fillText(frame.scores[1], w - 4, h - 4);
+      ctx.textAlign = 'left';
+    }
     return;
   }
 
+  // Fallback: ARC3 grid format
+  const grid = frame.grid || frame.board;
+  if (!grid || !grid.length) {
+    ctx.fillStyle = _SNAKE_BG;
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
   const rows = grid.length, cols = grid[0].length;
   const cellW = w / cols, cellH = h / rows;
-
-  // Tron raw grid: 0=empty, 1=A_trail, 2=B_trail, 3=A_head, 4=B_head
-  const TRON_COLORS = { 0: '#000000', 1: '#88D8F1', 2: '#FF851B', 3: '#1E93FF', 4: '#F93C31' };
-
-  for (let r = 0; r < rows; r++) {
+  for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++) {
-      const val = grid[r][c];
-      if (gameId === 'snake') {
-        // Snake grid uses ARC3 color indices directly
-        ctx.fillStyle = ARC3[val] || ARC3[5];
-      } else if (gameId === 'tron') {
-        ctx.fillStyle = TRON_COLORS[val] || '#000000';
-      } else {
-        // Board games: 0=empty, 1=playerA, -1/2=playerB
-        if (val === 0) ctx.fillStyle = '#1a1a2e';
-        else if (val === 1) ctx.fillStyle = '#F93C31';
-        else if (val === -1 || val === 2) ctx.fillStyle = '#e09540';
-        else ctx.fillStyle = '#333';
-      }
+      ctx.fillStyle = ARC3[grid[r][c]] || ARC3[5];
       ctx.fillRect(c * cellW, r * cellH, cellW + 0.5, cellH + 0.5);
     }
-  }
 }
 
 

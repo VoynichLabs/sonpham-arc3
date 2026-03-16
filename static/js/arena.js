@@ -4431,6 +4431,9 @@ function arRenderResearch(gameId, data) {
 
   // Recent games
   arLoadRecentGames(gameId);
+
+  // Live tournament canvases (server-side matches)
+  if (typeof arFetchLiveTournament === 'function') arFetchLiveTournament(gameId);
 }
 
 // Default program.md for snake (shown when server has no program yet)
@@ -4929,20 +4932,23 @@ function arStartLocalResearch() {
 
 function arStartPolling(gameId) {
   arStopPolling();
-  // Refresh dashboard every 60 seconds — leaderboard, comments, recent games
   AR.pollTimer = setInterval(async () => {
     if (AR.selectedGame !== gameId) { arStopPolling(); return; }
     try {
       const data = await fetch(`/api/arena/research/${gameId}`).then(r => r.json());
       if (!data.error) arRenderResearch(gameId, data);
-    } catch (e) {
-      // Silently fail
-    }
+    } catch (e) {}
   }, 60 * 1000);
+  // Refresh live tournament canvases every 30 seconds
+  AR.livePollTimer = setInterval(() => {
+    if (AR.selectedGame !== gameId) return;
+    if (typeof arFetchLiveTournament === 'function') arFetchLiveTournament(gameId);
+  }, 30 * 1000);
 }
 
 function arStopPolling() {
   if (AR.pollTimer) { clearInterval(AR.pollTimer); AR.pollTimer = null; }
+  if (AR.livePollTimer) { clearInterval(AR.livePollTimer); AR.livePollTimer = null; }
 }
 
 
