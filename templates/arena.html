@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>((t)=>{if(t)document.documentElement.setAttribute('data-theme',t)})(localStorage.getItem('arc-theme'))</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARC Arena</title>
+<link rel="stylesheet" href="/static/css/main.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/arena.css?v={{ static_v }}">
+</head>
+<body>
+<!-- Template globals required by scaffolding-schemas.js -->
+<script>
+const MODE = {{ mode | tojson }};
+const FEATURES = {{ features | tojson }};
+</script>
+
+<div class="arena-container" id="arenaContainer">
+  <!-- ── Top Nav ──────────────────────────────────────────────────────────── -->
+  <div class="arena-top-nav">
+    <span class="app-title">
+      <svg class="arena-logo" viewBox="0 0 28 19.5" width="59" height="40" preserveAspectRatio="xMidYMid meet" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="9" height="9" rx="1" fill="var(--red)">
+          <animate attributeName="opacity" values="1;0.12;0.12;0.12;0.12;0.12;0.12;1" keyTimes="0;0.15;0.3;0.45;0.55;0.7;0.85;1" dur="3.2s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="0" y="10.5" width="9" height="9" rx="1" fill="var(--red)">
+          <animate attributeName="opacity" values="1;0.12;0.12;0.12;0.12;0.12;0.12;1" keyTimes="0;0.15;0.3;0.45;0.55;0.7;0.85;1" dur="3.2s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="11" y="8.75" width="2" height="2" rx="0.3" fill="var(--red)">
+          <animate attributeName="opacity" values="0.12;0.12;1;0.12;0.12;0.12;0.12;1;0.12;0.12" keyTimes="0;0.14;0.18;0.25;0.45;0.55;0.74;0.78;0.85;1" dur="3.2s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="15" y="8.75" width="2" height="2" rx="0.3" fill="var(--accent)">
+          <animate attributeName="opacity" values="0.12;0.12;1;0.12;0.12;0.12;0.12;1;0.12;0.12" keyTimes="0;0.27;0.31;0.38;0.45;0.55;0.62;0.66;0.72;1" dur="3.2s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="19" y="0" width="9" height="9" rx="1" fill="var(--accent)">
+          <animate attributeName="opacity" values="0.12;0.12;0.12;1;1;0.12;0.12;0.12" keyTimes="0;0.15;0.3;0.45;0.55;0.7;0.85;1" dur="3.2s" repeatCount="indefinite"/>
+        </rect>
+        <rect x="19" y="10.5" width="9" height="9" rx="1" fill="var(--accent)">
+          <animate attributeName="opacity" values="0.12;0.12;0.12;1;1;0.12;0.12;0.12" keyTimes="0;0.15;0.3;0.45;0.55;0.7;0.85;1" dur="3.2s" repeatCount="indefinite"/>
+        </rect>
+      </svg>
+      <span class="app-title-text">ARC Arena<a class="logo-sub-link to-obs" href="/obs">&#8594; to Observatory</a></span>
+    </span>
+    <a class="nav-link active" id="modeBtnResearch" href="#autoresearch" onclick="switchArenaMode('research');return false;">Auto Research</a>
+    <a class="nav-link" id="modeBtnMatch" href="#matchup" onclick="switchArenaMode('match');return false;">Create Match-up</a>
+    <span style="flex:1"></span>
+    <a class="nav-switch-btn to-obs" href="/obs">&#8592; to Observatory</a>
+    <button id="themeToggle" onclick="toggleTheme()" style="background:none;border:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-size:16px;padding:4px 8px;border-radius:6px;line-height:1;" title="Toggle light/dark mode"></button>
+  </div>
+
+  <!-- ── Three-Column Layout (persistent) ─────────────────────────────────── -->
+  <div class="arena-layout" id="arenaLayout">
+
+    <!-- ── Left Panel: Agent A ──────────────────────────────────────────────── -->
+    <div class="arena-side-panel agent-panel-a" id="panelA">
+      <div class="agent-header">
+        <div class="agent-avatar agent-avatar-a">A</div>
+        <div class="agent-info">
+          <div class="agent-name">Agent A</div>
+        </div>
+        <div class="agent-score-box">
+          <div class="agent-score-label">Score</div>
+          <div class="agent-score-val score-a" id="sbScoreA">0</div>
+        </div>
+      </div>
+
+      <!-- Harness settings (default) -->
+      <div class="agent-settings" id="settingsA">
+        <div id="harnessModeA">
+          <div id="harnessSettingsA" class="harness-settings-container"></div>
+        </div>
+        <div id="codeModeA" style="display:none;">
+          <div class="setting-section" style="padding:14px;">
+            <div class="setting-label">Strategy</div>
+            <select class="setting-select" id="stratA"><option value="greedy" selected>Greedy</option></select>
+            <div class="setting-desc" id="stratDescA">Chases food directly</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Match mode: reasoning log -->
+      <div class="agent-log" id="logA"></div>
+    </div>
+
+    <!-- ── Center Panel ─────────────────────────────────────────────────────── -->
+    <div class="arena-center" id="centerPanel">
+
+      <!-- Pre-match: Game Selection -->
+      <div class="game-select-area" id="gameSelectArea">
+        <div class="game-select-header">
+          <h2>Choose a Game</h2>
+          <p>Select a game, configure your agents, and start the match</p>
+        </div>
+        <div class="game-card-row" id="gameCardRow"></div>
+        <div class="match-config">
+          <div class="config-row">
+            <label>Seed</label>
+            <input type="number" id="cfgSeed" value="42" min="1">
+          </div>
+          <div class="config-row">
+            <label>Max Turns</label>
+            <input type="number" id="cfgMaxTurns" value="200" min="10" max="1000">
+          </div>
+          <button class="config-start-btn" onclick="startMatch()">Start Match</button>
+        </div>
+      </div>
+
+      <!-- During match: Canvas + Controls -->
+      <div class="match-area" id="matchArea">
+        <div class="arena-topbar">
+          <span class="game-title" id="arenaGameTitle">Snake Battle</span>
+          <span class="turn-info" id="turnInfo">Turn 0 / 0</span>
+          <span class="match-status ready" id="matchStatus">Ready</span>
+        </div>
+
+        <div class="arena-canvas-area">
+          <canvas id="arenaCanvas" width="512" height="512"></canvas>
+          <div class="winner-overlay" id="winnerOverlay">
+            <div class="winner-text" id="winnerText"></div>
+            <div class="winner-sub" id="winnerSub"></div>
+          </div>
+        </div>
+
+        <div class="arena-scoreboard">
+          <div class="sb-agent">
+            <div class="sb-dot sb-dot-a"></div>
+            <span class="sb-name">Agent A</span>
+            <span class="sb-score score-a" id="sbScoreAMatch">0</span>
+          </div>
+          <div class="sb-vs">vs</div>
+          <div class="sb-agent">
+            <span class="sb-score score-b" id="sbScoreBMatch">0</span>
+            <span class="sb-name">Agent B</span>
+            <div class="sb-dot sb-dot-b"></div>
+          </div>
+        </div>
+
+        <div class="arena-scrubber-wrap">
+          <label id="scrubLabel">Turn 0</label>
+          <input type="range" id="arenaScrubber" min="0" max="0" value="0">
+        </div>
+
+        <div class="arena-transport">
+          <button class="btn" onclick="backToSetup()" title="Back to setup">Back</button>
+          <button class="btn" onclick="arenaStepBack()" title="Step back (&#8592;)">&#9664;</button>
+          <button class="btn btn-primary" id="arenaPlayBtn" onclick="arenaPlayPause()">Play</button>
+          <button class="btn" onclick="arenaStepForward()" title="Step forward (&#8594;)">&#9654;</button>
+          <span class="transport-sep"></span>
+          <button class="btn btn-obs-a" onclick="enterArenaObs('A')" title="Observe Agent A">Observe A</button>
+          <button class="btn btn-obs-b" onclick="enterArenaObs('B')" title="Observe Agent B">Observe B</button>
+          <span class="transport-sep"></span>
+          <button class="btn" onclick="restartMatch()" title="Rematch with new settings">Rematch</button>
+          <select id="arenaSpeed" title="Playback speed">
+            <option value="500">0.5x</option>
+            <option value="200" selected>1x</option>
+            <option value="100">2x</option>
+            <option value="50">4x</option>
+            <option value="10">Max</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Right Panel: Agent B ─────────────────────────────────────────────── -->
+    <div class="arena-side-panel agent-panel-b" id="panelB">
+      <div class="agent-header">
+        <div class="agent-avatar agent-avatar-b">B</div>
+        <div class="agent-info">
+          <div class="agent-name">Agent B</div>
+        </div>
+        <div class="agent-score-box">
+          <div class="agent-score-label">Score</div>
+          <div class="agent-score-val score-b" id="sbScoreB">0</div>
+        </div>
+      </div>
+
+      <!-- Harness settings (default) -->
+      <div class="agent-settings" id="settingsB">
+        <div id="harnessModeB">
+          <div id="harnessSettingsB" class="harness-settings-container"></div>
+        </div>
+        <div id="codeModeB" style="display:none;">
+          <div class="setting-section" style="padding:14px;">
+            <div class="setting-label">Strategy</div>
+            <select class="setting-select" id="stratB"><option value="greedy">Greedy</option></select>
+            <div class="setting-desc" id="stratDescB">Chases food directly</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Match mode: reasoning log -->
+      <div class="agent-log" id="logB"></div>
+    </div>
+
+  </div>
+
+  <!-- ══ Auto Research View (hidden by default) ═══════════════════════════ -->
+  <div class="ar-layout" id="arResearchView" style="display:none;">
+
+    <!-- Col 1: Game List -->
+    <div class="ar-left-col" id="arLeftCol">
+      <div class="ar-game-list" id="arGameList"></div>
+    </div>
+
+    <!-- Col 2: Program MD (2/3) + Strategy Discussion (1/3) -->
+    <div class="ar-center" id="arCenter">
+      <!-- Program.md viewer/editor — 2/3 height -->
+      <div class="ar-program-area" id="arProgramArea">
+        <div class="ar-section-header">
+          <span>program.md <button class="ar-btn ar-btn-xs" id="arProgramEditBtn" onclick="arToggleEdit()" style="margin-left:6px">Edit</button></span>
+          <select class="ar-small-select" id="arProgramVersion"></select>
+        </div>
+        <div class="ar-program-view" id="arProgramView">
+          <div class="ar-no-data">Select a game to view its evolution program</div>
+        </div>
+        <div class="ar-program-edit" id="arProgramEdit" style="display:none;">
+          <div class="ar-program-diff" id="arProgramDiff"></div>
+          <textarea id="arProgramTextarea" placeholder="Write program.md content..."></textarea>
+          <div class="ar-program-edit-actions">
+            <input type="text" id="arProgramSummary" placeholder="Change summary..." class="ar-input">
+            <button class="ar-btn ar-btn-accept" onclick="arProposeProgram()">Accept Changes</button>
+            <button class="ar-btn ar-btn-xs" onclick="arCancelEdit()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Strategy Discussion — 1/3 height -->
+      <div class="ar-discussion-area" id="arDiscussionArea">
+        <div class="ar-section-header">
+          <span>Strategy Discussion</span>
+        </div>
+        <div class="ar-comments-list" id="arCommentsList"></div>
+        <div class="ar-comment-input">
+          <textarea id="arCommentText" placeholder="Discuss strategies..." rows="2"></textarea>
+          <button class="ar-btn ar-btn-primary" onclick="arPostComment()">Post</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 3: Leaderboard + Recent Games (narrow) -->
+    <div class="ar-mid-col" id="arMidCol">
+      <div class="ar-leaderboard-area" id="arLeaderboardArea">
+        <div class="ar-section-header">
+          <span>Leaderboard</span>
+          <span class="ar-stat-badge" id="arAgentCount">0 agents</span>
+        </div>
+        <div class="ar-leaderboard-table-wrap">
+          <table class="ar-table" id="arLeaderboardTable">
+            <thead>
+              <tr>
+                <th>#</th><th>Agent</th><th>ELO</th><th>W/L/D</th>
+                <th>Games</th><th>By</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="arLeaderboardBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="ar-section-header"><span>Recent Games</span></div>
+      <div class="ar-recent-games" id="arRecentGames">
+        <div class="ar-no-data">No games yet</div>
+      </div>
+    </div>
+
+    <!-- Col 4: Live Tournament (25%) — fills with as many games as space allows -->
+    <div class="ar-right-col" id="arRightCol">
+      <div class="ar-section-header"><span>Live Tournament</span></div>
+      <div class="ar-live-games" id="arLiveGames">
+        <div class="ar-live-cell"><canvas id="arLive0" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo0"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive1" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo1"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive2" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo2"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive3" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo3"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive4" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo4"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive5" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo5"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive6" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo6"></div></div>
+        <div class="ar-live-cell"><canvas id="arLive7" width="180" height="180"></canvas><div class="ar-live-info" id="arLiveInfo7"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar (Auto Research) -->
+  <div class="ar-status-bar" id="arStatusBar" style="display:none;">
+    <span id="arStatusText">Select a game to begin</span>
+  </div>
+
+  <!-- Local Auto Research Config Dialog -->
+  <div class="ar-dialog-overlay" id="arLocalDialog" style="display:none;">
+    <div class="ar-dialog">
+      <h3 id="arLocalDialogTitle">Local Auto Research</h3>
+      <label>Evolving Model</label>
+      <select id="arLocalModel" class="ar-select"></select>
+      <label>API Key</label>
+      <input type="password" id="arLocalKey" class="ar-input" placeholder="sk-...">
+      <div class="ar-hint">In-memory only. Never sent to our server.</div>
+      <div class="ar-dialog-grid">
+        <div><label>Workers</label><select id="arLocalWorkers" class="ar-select"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+        <div><label>Max Tokens</label><select id="arLocalTokens" class="ar-select"><option value="4096">4k</option><option value="8192">8k</option><option value="16384" selected>16k</option><option value="32768">32k</option></select></div>
+      </div>
+      <label>Matchmaking</label>
+      <div class="ar-mm-grid">
+        <label>Swiss</label><input type="number" id="arMmSwiss" value="90" min="0" max="100" step="5">
+        <label>Random</label><input type="number" id="arMmRandom" value="10" min="0" max="100" step="5">
+      </div>
+      <div class="ar-dialog-actions">
+        <button class="ar-btn" onclick="arCloseLocalDialog()">Cancel</button>
+        <button class="ar-btn ar-btn-primary" onclick="arStartLocalResearch()">Start Local Research</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Human vs AI Play Dialog -->
+  <div class="ar-dialog-overlay" id="arHumanDialog" style="display:none;">
+    <div class="ar-dialog">
+      <h3 id="arHumanDialogTitle">Play Against AI</h3>
+      <div class="ar-human-opponent" id="arHumanOpponent"></div>
+      <label>Your Time Per Move</label>
+      <div class="ar-delay-options" id="arDelayOptions">
+        <label class="ar-delay-opt"><input type="radio" name="arDelay" value="250"> <span>Fast (250ms)</span> <small>reflex mode</small></label>
+        <label class="ar-delay-opt"><input type="radio" name="arDelay" value="500"> <span>Normal (500ms)</span> <small>competitive</small></label>
+        <label class="ar-delay-opt"><input type="radio" name="arDelay" value="1000" checked> <span>Relaxed (1000ms)</span> <small>strategic</small></label>
+        <label class="ar-delay-opt"><input type="radio" name="arDelay" value="2000"> <span>Slow (2000ms)</span> <small>careful analysis</small></label>
+        <label class="ar-delay-opt"><input type="radio" name="arDelay" value="0"> <span>Infinite</span> <small>unlimited thinking</small></label>
+      </div>
+      <div class="ar-human-label-preview">You appear as: <strong id="arHumanLabel">human-1000ms</strong></div>
+      <div class="ar-dialog-actions">
+        <button class="ar-btn" onclick="arCloseHumanDialog()">Cancel</button>
+        <button class="ar-btn ar-btn-primary" onclick="arStartHumanPlay()">Start Game</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agent Code Modal -->
+  <div class="ar-dialog-overlay" id="arCodeModal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+    <div class="ar-dialog ar-dialog-wide">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 id="arCodeModalTitle">Agent Code</h3>
+        <button class="ar-btn" onclick="document.getElementById('arCodeModal').style.display='none'">&times;</button>
+      </div>
+      <pre class="ar-code-view" id="arCodeModalCode"></pre>
+    </div>
+  </div>
+
+  <!-- ── Observatory Overlay (Agent A — left of canvas) ────────────────────── -->
+  <div class="arena-obs-screen" id="arenaObsScreen" style="display:none;">
+    <div class="arena-obs-topbar">
+      <button class="btn" id="obsBackBtn" onclick="exitArenaObs()">&#8592; Back to Match</button>
+      <span class="arena-obs-title" id="obsAgentTitle">Agent A Observatory</span>
+      <div class="arena-obs-agent-switch">
+        <button class="btn btn-obs-a active" id="obsSwitchA" onclick="switchArenaObs('A')">Agent A</button>
+        <button class="btn btn-obs-b" id="obsSwitchB" onclick="switchArenaObs('B')">Agent B</button>
+      </div>
+    </div>
+    <div class="arena-obs-body" id="arenaObsBody">
+      <!-- Obs panel — positioned left or right via CSS class -->
+      <div class="arena-obs-panel" id="arenaObsPanel">
+        <div class="arena-obs-status" id="arenaObsStatus">
+          <span class="obs-stat"><span class="obs-stat-label">Turn</span><span class="obs-stat-val" id="obsStatTurn">0</span></span>
+          <span class="obs-stat"><span class="obs-stat-label">Step</span><span class="obs-stat-val" id="obsStatStep">0</span></span>
+          <span class="obs-stat"><span class="obs-stat-label">Agent</span><span class="obs-stat-val" id="obsStatAgent">A</span></span>
+        </div>
+        <div class="arena-obs-log-wrap">
+          <div class="arena-obs-log" id="arenaObsLog"></div>
+        </div>
+      </div>
+      <!-- Game canvas area -->
+      <div class="arena-obs-canvas-area" id="arenaObsCanvasArea">
+        <canvas id="arenaObsCanvas" width="512" height="512"></canvas>
+        <div class="arena-obs-scrubber">
+          <label id="obsScrubLabel">Turn 0</label>
+          <input type="range" id="arenaObsScrubber" min="0" max="0" value="0">
+        </div>
+        <div class="arena-obs-transport">
+          <button class="btn" onclick="arenaStepBack()">&#9664;</button>
+          <button class="btn btn-primary" id="arenaObsPlayBtn" onclick="arenaPlayPause()">Play</button>
+          <button class="btn" onclick="arenaStepForward()">&#9654;</button>
+          <select id="arenaObsSpeed" title="Playback speed" onchange="document.getElementById('arenaSpeed').value=this.value;if(Arena.playing){stopPlayback();startPlayback();}">
+            <option value="500">0.5x</option>
+            <option value="200" selected>1x</option>
+            <option value="100">2x</option>
+            <option value="50">4x</option>
+            <option value="10">Max</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Scaffolding schemas (declarative field definitions) -->
+<script src="/static/js/config/scaffolding-schemas.js?v={{ static_v }}"></script>
+<!-- Shim: provide getModelInfo/PROVIDER_LABELS/modelsData for scaffolding.js (normally from ui-models.js) -->
+<script>
+let modelsData = [];
+const PROVIDER_LABELS = {
+  openai:'OpenAI', anthropic:'Anthropic', gemini:'Gemini', groq:'Groq',
+  mistral:'Mistral', cloudflare:'Cloudflare', huggingface:'HuggingFace',
+  ollama:'Ollama', lmstudio:'LM Studio', copilot:'Copilot', puter:'Puter',
+};
+function getModelInfo(key) { return modelsData.find(m => m.name === key); }
+function loadPuterJS() { return Promise.resolve(); }
+function estimateTokens(text) { return text ? Math.ceil(text.length / 4) : 0; }
+async function fetchJSON(url, body, signal) {
+  const opts = body ? { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) } : {};
+  if (signal) opts.signal = signal;
+  const r = await fetch(url, opts);
+  return r.json();
+}
+function toggleTheme() {
+  const t = document.documentElement.getAttribute('data-theme') === 'light' ? '' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('arc-theme', t || '');
+}
+
+// Hash-based routing: arena#matchup, arena#autoresearch
+const _ARENA_HASH_MAP = { matchup: 'match', autoresearch: 'research' };
+const _ARENA_VIEW_TO_HASH = { match: 'matchup', research: 'autoresearch' };
+function _arenaRouteFromHash() {
+  const h = location.hash.replace('#', '');
+  const mode = _ARENA_HASH_MAP[h] || 'research'; // default to Auto Research
+  if (typeof switchArenaMode === 'function') switchArenaMode(mode, true);
+}
+window.addEventListener('hashchange', _arenaRouteFromHash);
+// Route on load (after DOMContentLoaded, handled in arena.js init)
+</script>
+<!-- LLM calling infrastructure (callLLM, provider routing, BYOK keys) -->
+<script src="/static/js/scaffolding.js?v={{ static_v }}"></script>
+<script src="/static/js/arena.js?v={{ static_v }}"></script>
+<script src="/static/js/arena-autoresearch.js?v={{ static_v }}"></script>
+</body>
+</html>

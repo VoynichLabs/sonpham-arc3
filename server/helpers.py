@@ -27,7 +27,7 @@ FEATURES = {
     "pyodide_game":  {"staging": True,   "prod": True},
 }
 
-HIDDEN_GAMES = ["ab", "fd", "fy", "pt", "sh"]
+HIDDEN_GAMES = ["ab", "fd", "fy", "mr", "mw", "pt", "sh"]
 
 
 def get_mode() -> str:
@@ -68,17 +68,25 @@ def get_arcade():
     return arcade_instance
 
 
-def get_game_version(game_id: str) -> int:
-    """Return the git commit count touching this game's directory."""
+def get_game_version(game_id: str) -> str:
+    """Return the latest version directory name for a game.
+
+    Version directories are under environment_files/<game_dir>/<version>/
+    where version is typically a zero-padded 8-digit number (e.g., '00000014')
+    or a hash (e.g., 'cb3b57cc'). Returns the highest/latest one.
+    """
     bare_id = game_id if Path(f"environment_files/{game_id}").is_dir() else game_id[:2]
+    game_dir = Path(f"environment_files/{bare_id}")
+    if not game_dir.is_dir():
+        return "unknown"
     try:
-        out = subprocess.check_output(
-            ["git", "log", "--oneline", "--follow", "--", f"environment_files/{bare_id}/"],
-            text=True, stderr=subprocess.DEVNULL,
-        ).strip()
-        return len(out.splitlines()) if out else 0
+        versions = sorted(
+            [d.name for d in game_dir.iterdir() if d.is_dir()],
+            reverse=True,
+        )
+        return versions[0] if versions else "unknown"
     except Exception:
-        return 0
+        return "unknown"
 
 
 def frame_to_grid(frame) -> list[list[int]]:

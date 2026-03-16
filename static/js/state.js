@@ -29,7 +29,6 @@ let autoPlaying = false;
 let action6Mode = false;
 let modelsData = [];  // {name, provider, capabilities, available}
 let undoStack = [];   // local undo snapshots (grid + state for each step)
-let humanLocked = true;  // human controls locked by default
 let turnCounter = 0;     // monotonic turn counter for undo grouping
 let apiMode = 'local';
 const clientId = 'client_' + Math.random().toString(36).slice(2, 10);
@@ -51,7 +50,7 @@ function renderScaffoldingSettings(schemaId) {
   // ── Scaffolding selector + pipeline visualizer ──
   html += '<div style="padding:8px 14px 0;border-bottom:1px solid var(--border);">';
   html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
-  html += '<span style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;">Scaffolding</span>';
+  html += '<span style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;">Harness</span>';
   html += '<select id="scaffoldingSelect" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-family:inherit;font-size:12px;" onchange="switchScaffolding(this.value)">';
   for (const key of Object.keys(SCAFFOLDING_SCHEMAS)) {
     const s = SCAFFOLDING_SCHEMAS[key];
@@ -403,6 +402,7 @@ function loadScaffoldingFromStorage(schemaId) {
       _setVal('sf_2s_maxPlanLength', s.max_plan_length || 15);
     }
     updatePipelineOpacity();
+    applyAllLocalModelTokenCaps();
   } catch {}
 }
 
@@ -436,6 +436,65 @@ document.addEventListener('input', (e) => {
   }
 });
 
+// ── Model cascade helper ───────────────────────────────────────────────────
+// When primary model select changes, copy its value to any sibling that was
+// tracking the old primary value (or was empty). Stores previous value on a
+// data attribute so the correct lastVal is available after loadModels() runs.
+function _cascadeModel(primaryId, siblingIds) {
+  const primary = document.getElementById(primaryId);
+  if (!primary) return;
+  primary.addEventListener('change', function() {
+    const prevVal = this.dataset.cascadeLastVal ?? '';
+    const newVal = this.value;
+    for (const id of siblingIds) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      if (el.value === prevVal || el.value === '' || el.value === 'Select a model...') {
+        el.value = newVal;
+        el.dataset.cascadeLastVal = newVal;
+      }
+    }
+    this.dataset.cascadeLastVal = newVal;
+    updateAllByokKeys();
+    saveScaffoldingToStorage();
+  });
+}
+
+// ── Local model token cap helper ──────────────────────────────────────────
+// When a local (lmstudio/ollama) model is selected, cap associated token
+// fields at 1024 if they are currently above it.
+function _applyLocalModelTokenCap(modelName, tokenFieldIds) {
+  const m = (modelsData || []).find(m => m.name === modelName);
+  if (!m) return;
+  if (m.provider !== 'lmstudio' && m.provider !== 'ollama') return;
+  for (const id of tokenFieldIds) {
+    const el = document.getElementById(id);
+    if (el && parseInt(el.value) > 1024) el.value = 1024;
+  }
+}
+
+// Apply token caps for all currently-visible model selects (called after restore).
+function applyAllLocalModelTokenCaps() {
+  const capMap = [
+    ['modelSelect',                   ['maxTokensLimit']],
+    ['sf_rlm_modelSelect',            ['sf_rlm_maxTokens']],
+    ['sf_rlm_subModelSelect',         ['sf_rlm_subMaxTokens']],
+    ['sf_ts_plannerModelSelect',      ['sf_ts_plannerMaxTokens']],
+    ['sf_ts_monitorModelSelect',      ['sf_ts_monitorMaxTokens']],
+    ['sf_ts_wmModelSelect',           ['sf_ts_wmMaxTokens']],
+    ['sf_2s_plannerModelSelect',      ['sf_2s_plannerMaxTokens']],
+    ['sf_2s_monitorModelSelect',      ['sf_2s_monitorMaxTokens']],
+    ['sf_as_orchestratorModelSelect', ['sf_as_orchestratorMaxTokens']],
+    ['sf_as_subagentModelSelect',     ['sf_as_subagentMaxTokens']],
+    ['sf_wm_agentModelSelect',        ['sf_wm_agentMaxTokens']],
+    ['sf_wm_wmModelSelect',           ['sf_wm_wmMaxTokens']],
+  ];
+  for (const [selId, fieldIds] of capMap) {
+    const el = document.getElementById(selId);
+    if (el && el.value) _applyLocalModelTokenCap(el.value, fieldIds);
+  }
+}
+
 function attachSettingsListeners() {
   // compactContextPct ArrowUp/Down
   const compactPctEl = document.getElementById('compactContextPct');
@@ -446,11 +505,12 @@ function attachSettingsListeners() {
     });
   }
 
-  // modelSelect change
+  // modelSelect change — also sync to all scaffold sub-selects
   const modelSel = document.getElementById('modelSelect');
   if (modelSel) {
     modelSel.addEventListener('change', function() {
       updateModelCaps();
+      syncModelToSubSelects(this.value);
       updateAllByokKeys();
       const model = this.value;
       const isPuter = modelsData.some(m => m.name === model && m.provider === 'puter');
@@ -479,10 +539,40 @@ function attachSettingsListeners() {
     'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
     'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
     'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect',
-    'sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect'
+    'sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect',
+    'sf_wm_agentModelSelect', 'sf_wm_wmModelSelect'
   ]) {
     const el = document.getElementById(selId);
     if (el) el.addEventListener('change', updateAllByokKeys);
+  }
+
+  // ── Model cascade: auto-populate sibling selects when primary changes ──
+  _cascadeModel('sf_ts_plannerModelSelect', ['sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect']);
+  _cascadeModel('sf_2s_plannerModelSelect', ['sf_2s_monitorModelSelect']);
+  _cascadeModel('sf_wm_agentModelSelect',   ['sf_wm_wmModelSelect']);
+  _cascadeModel('sf_as_orchestratorModelSelect', ['sf_as_subagentModelSelect']);
+
+  // ── Local model token cap: fire on every model select change ──
+  const _tokenCapMap = [
+    ['modelSelect',                   ['maxTokensLimit']],
+    ['sf_rlm_modelSelect',            ['sf_rlm_maxTokens']],
+    ['sf_rlm_subModelSelect',         ['sf_rlm_subMaxTokens']],
+    ['sf_ts_plannerModelSelect',      ['sf_ts_plannerMaxTokens']],
+    ['sf_ts_monitorModelSelect',      ['sf_ts_monitorMaxTokens']],
+    ['sf_ts_wmModelSelect',           ['sf_ts_wmMaxTokens']],
+    ['sf_2s_plannerModelSelect',      ['sf_2s_plannerMaxTokens']],
+    ['sf_2s_monitorModelSelect',      ['sf_2s_monitorMaxTokens']],
+    ['sf_as_orchestratorModelSelect', ['sf_as_orchestratorMaxTokens']],
+    ['sf_as_subagentModelSelect',     ['sf_as_subagentMaxTokens']],
+    ['sf_wm_agentModelSelect',        ['sf_wm_agentMaxTokens']],
+    ['sf_wm_wmModelSelect',           ['sf_wm_wmMaxTokens']],
+  ];
+  for (const [selId, fieldIds] of _tokenCapMap) {
+    const el = document.getElementById(selId);
+    if (el) el.addEventListener('change', function() {
+      _applyLocalModelTokenCap(this.value, fieldIds);
+      saveScaffoldingToStorage();
+    });
   }
 
   // toolsMode radio — Pyodide download prompt
@@ -729,6 +819,10 @@ class SessionState {
     this._originalSettings = null;  // { model, scaffolding_type }
     // Upload tracking
     this._lastUploadedStep = 0;  // last step successfully uploaded to server
+    // Game version tracking
+    this.gameVersion = '';        // version directory for the game (e.g. '00000014')
+    // Memory snapshots for inspection
+    this.memorySnapshots = [];    // [{step_num, agent_type, agent_id, memory, timestamp}]
   }
   get avgCallDuration() {
     if (!this.callDurations.length) return 5000; // default 5s
@@ -871,13 +965,11 @@ function restoreSessionFromState(s) {
   if (currentGrid) {
     canvas.style.display = 'block';
     document.getElementById('emptyState').style.display = 'none';
-    document.getElementById('controls').style.display = 'flex';
     document.getElementById('transportBar').style.display = 'block';
     renderGrid(currentGrid);
   } else {
     canvas.style.display = 'none';
     document.getElementById('emptyState').style.display = '';
-    document.getElementById('controls').style.display = 'none';
     document.getElementById('transportBar').style.display = 'none';
   }
 

@@ -100,10 +100,12 @@ function buildSessionPayload(ss) {
   const _st = _s ? _s.sessionStartTime : sessionStartTime;
   if (!_sid || !_cs.game_id) return null;
   const _tlEvents = _s ? _s.timelineEvents : (getActiveSession()?.timelineEvents || []);
+  const _memSnaps = _s ? _s.memorySnapshots : (getActiveSession()?.memorySnapshots || []);
   return {
     session: {
       id: _sid,
       game_id: _cs.game_id,
+      game_version: (_s ? _s.gameVersion : null) || _cs.game_version || '',
       model: (_s ? _s.model : null) || getSelectedModel() || '',
       mode: MODE,
       created_at: _st || (Date.now() / 1000),
@@ -112,6 +114,7 @@ function buildSessionPayload(ss) {
       levels: _cs.levels_completed || 0,
       prompts: _collectPrompts(),
       timeline: _tlEvents,
+      memory_snapshots: _memSnaps,
       user_id: currentUser?.id || null,
     },
     steps: _buf,
@@ -180,6 +183,8 @@ async function autoUploadSession(ss) {
       const _ss = ss || getActiveSession();
       if (_ss) _ss._lastUploadedStep = uploadedStep;
       updateUploadBadge();
+      // Also upload memory snapshots if available
+      if (typeof _uploadMemorySnapshots === 'function') _uploadMemorySnapshots();
     }
   } catch {} // fire-and-forget
 }
@@ -413,7 +418,6 @@ async function resumeFromPuterKv(kvKey) {
       renderGrid(lastStep.grid);
       document.getElementById('emptyState').style.display = 'none';
       canvas.style.display = 'block';
-      document.getElementById('controls').style.display = 'flex';
       document.getElementById('transportBar').style.display = 'block';
       updateUI(currentState);
     }

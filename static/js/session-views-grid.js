@@ -1,26 +1,13 @@
+// Author: Claude Opus 4.6
+// Date: 2026-03-14 22:00
+// PURPOSE: Browse sessions view — renders Human / AI / My sessions as tables
+//   with columns: Timestamp, Game (with version), Levels, Steps, Time, actions.
+//   Depends on fetchJSON/gameShortName/formatDuration (ui.js), currentUser (state.js),
+//   getLocalSessions (session-storage.js), resumeSession (session-views-history.js).
+// SRP/DRY check: Pass — single module for browse-grid rendering, reuses ui.js helpers.
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SESSION VIEWS — GRID (Browse sessions view)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// This module handles browsing and filtering sessions:
-// - loadBrowseView(): Initialize browse columns
-// - _loadBrowseGameList(): Load and render game sidebar with filtering
-// - _browseSelectGame(), clearBrowseGameFilter(): Game filtering
-// - loadBrowseHuman(), loadBrowseAI(), loadBrowseMy(): Load filtered session columns
-// - buildSessionRow(): Render individual session rows
-// - browseReplay(), browseResume(), browseDeleteLocal(): Session actions
-//
-// State:
-// - _browseGlobalCache: Cached server sessions (global)
-// - _browseGameFilter: Currently selected game filter (game_id prefix)
-//
-// Dependencies:
-// - fetchJSON(), gameShortName(), formatDuration() (from ui.js)
-// - currentUser (from state.js)
-// - getLocalSessions() (from session-storage.js)
-// - showAppView() (from session-views.js)
-// - resumeSession() (from session-views-history.js)
-// - _browseActive (shared state from session-views.js)
 // ═══════════════════════════════════════════════════════════════════════════
 
 let _browseGlobalCache = null;  // cache server sessions
@@ -51,19 +38,13 @@ async function _loadBrowseGameList() {
 }
 
 function _browseSelectGame(gameId) {
-  // Extract short prefix for filtering (e.g. "ls20-cb3b57cc" → "ls20")
   const prefix = gameId.split('-')[0].toLowerCase();
   _browseGameFilter = prefix;
-
-  // Highlight in sidebar
   document.querySelectorAll('#browseGameList .game-card').forEach(c => {
     const cid = (c.dataset.gameId || '').split('-')[0].toLowerCase();
     c.classList.toggle('active', cid === prefix);
   });
-
-  // Show clear button
   document.getElementById('browseFilterClear').style.display = '';
-
   _loadBrowseColumns();
 }
 
@@ -86,6 +67,106 @@ function _loadBrowseColumns() {
   loadBrowseMy();
 }
 
+// ── Table builders ───────────────────────────────────────────────────────
+
+function _buildSessionTable(sessions, isLocal) {
+  const table = document.createElement('table');
+  table.className = 'browse-table';
+  // Header
+  const thead = document.createElement('thead');
+  thead.innerHTML = `<tr>
+    <th>Time</th>
+    <th>Game</th>
+    <th>Result</th>
+    <th>Lv</th>
+    <th>Steps</th>
+    <th>Duration</th>
+    <th class="browse-th-actions">Actions</th>
+  </tr>`;
+  table.appendChild(thead);
+  // Body
+  const tbody = document.createElement('tbody');
+  for (const s of sessions) {
+    tbody.appendChild(_buildSessionTr(s, isLocal));
+  }
+  table.appendChild(tbody);
+  return table;
+}
+
+function _buildSessionTr(s, isLocal) {
+  const tr = document.createElement('tr');
+  tr.className = 'browse-tr';
+
+  // Timestamp
+  const date = new Date((s.created_at || 0) * 1000);
+  const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    + ' ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+  // Game code with version
+  const gameCode = (s.game_id || '?').split('-')[0];
+  const ver = s.game_version || '';
+  // Version dir like "00000005" → "v5"
+  const verDisplay = ver && ver !== 'unknown' ? ` v${parseInt(ver, 10) || ver}` : '';
+
+  // Result
+  const result = s.result || 'NOT_FINISHED';
+  const resultLabel = result === 'NOT_FINISHED' ? '...' : result === 'GAME_OVER' ? 'LOST' : result;
+  const resultClass = `s-result-${result}`;
+
+  // Levels
+  const levels = s.levels != null ? s.levels : '\u2014';
+
+  // Steps
+  const steps = s.steps || 0;
+
+  // Duration
+  const durationStr = (s.duration_seconds || s.duration) ? formatDuration(s.duration_seconds || s.duration) : '\u2014';
+
+  // Live tag
+  const isLive = s.live_mode === 1 || s.live_mode === true;
+
+  // Action buttons
+  const replayBtn = `<button class="btn browse-btn" onclick="event.stopPropagation(); window.open('/share?id=${s.id}','_blank');" title="Open shareable replay">&#9654;</button>`;
+  const resumeBtn = result === 'NOT_FINISHED'
+    ? `<button class="btn btn-primary browse-btn" onclick="event.stopPropagation(); browseResume('${s.id}');" title="Resume playing">&#9198;</button>`
+    : '';
+  const copyBtn = `<button class="btn browse-btn browse-copy-btn" onclick="event.stopPropagation(); _browseCopyId('${s.id}', this);" title="Copy session ID">&#128203;</button>`;
+  const deleteBtn = isLocal
+    ? `<button class="btn btn-danger browse-btn" onclick="event.stopPropagation(); browseDeleteLocal('${s.id}', this);" title="Delete local session">&times;</button>`
+    : '';
+
+  tr.innerHTML = `
+    <td class="browse-td-time">${dateStr}</td>
+    <td class="browse-td-game"><span class="s-game">${gameCode}</span><span class="browse-ver">${verDisplay}</span>${isLive ? ' <span class="live-tag" style="font-size:8px;padding:0 3px;">LIVE</span>' : ''}</td>
+    <td class="browse-td-result"><span class="s-result ${resultClass}">${resultLabel}</span></td>
+    <td class="browse-td-levels">${levels}</td>
+    <td class="browse-td-steps">${steps}</td>
+    <td class="browse-td-duration">${durationStr}</td>
+    <td class="browse-td-actions">${replayBtn}${resumeBtn}${copyBtn}${deleteBtn}</td>`;
+  return tr;
+}
+
+function _browseCopyId(sid, btn) {
+  navigator.clipboard.writeText(sid).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '&#10003;';
+    btn.classList.add('browse-copied');
+    setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('browse-copied'); }, 1200);
+  });
+}
+
+// ── Render into column ───────────────────────────────────────────────────
+
+function _renderSessionColumn(el, countEl, sessions, emptyMsg, isLocal) {
+  countEl.textContent = sessions.length ? `(${sessions.length})` : '';
+  if (!sessions.length) {
+    el.innerHTML = `<div class="browse-empty">${emptyMsg}</div>`;
+    return;
+  }
+  el.innerHTML = '';
+  el.appendChild(_buildSessionTable(sessions, isLocal));
+}
+
 // ── Human Sessions column ────────────────────────────────────────────────
 
 async function loadBrowseHuman() {
@@ -97,13 +178,8 @@ async function loadBrowseHuman() {
     let sessions = (data.sessions || []).filter(s => (s.steps || 0) >= 1);
     if (MODE === 'prod') sessions = sessions.filter(s => s.game_id !== 'fd01-00000001');
     sessions = sessions.filter(_matchesGameFilter);
-    countEl.textContent = sessions.length ? `(${sessions.length})` : '';
-    if (!sessions.length) {
-      el.innerHTML = `<div class="browse-empty">${_browseGameFilter ? 'No human sessions for this game.' : 'No human sessions yet.'}</div>`;
-      return;
-    }
-    el.innerHTML = '';
-    for (const s of sessions) el.appendChild(buildSessionRow(s));
+    _renderSessionColumn(el, countEl, sessions,
+      _browseGameFilter ? 'No human sessions for this game.' : 'No human sessions yet.');
   } catch (e) {
     el.innerHTML = `<div class="browse-empty">Error: ${e.message}</div>`;
   }
@@ -120,13 +196,8 @@ async function loadBrowseAI() {
     let sessions = (data.sessions || []).filter(s => (s.steps || 0) >= 5);
     if (MODE === 'prod') sessions = sessions.filter(s => s.game_id !== 'fd01-00000001');
     sessions = sessions.filter(_matchesGameFilter);
-    countEl.textContent = sessions.length ? `(${sessions.length})` : '';
-    if (!sessions.length) {
-      el.innerHTML = `<div class="browse-empty">${_browseGameFilter ? 'No AI sessions for this game.' : 'No AI sessions with 5+ steps yet.'}</div>`;
-      return;
-    }
-    el.innerHTML = '';
-    for (const s of sessions) el.appendChild(buildSessionRow(s));
+    _renderSessionColumn(el, countEl, sessions,
+      _browseGameFilter ? 'No AI sessions for this game.' : 'No AI sessions with 5+ steps yet.');
   } catch (e) {
     el.innerHTML = `<div class="browse-empty">Error: ${e.message}</div>`;
   }
@@ -138,43 +209,30 @@ async function loadBrowseMy() {
   const el = document.getElementById('browseMyList');
   const countEl = document.getElementById('browseMyCount');
 
-  // If logged in, fetch user's sessions from server
   if (currentUser) {
     el.innerHTML = '<div class="browse-empty">Loading...</div>';
     try {
       const data = await fetchJSON('/api/sessions?mine=1');
       const serverSessions = data.sessions || [];
-      // Merge with local sessions (dedup by id)
       const localSessions = getLocalSessions();
       const byId = {};
       for (const s of serverSessions) byId[s.id] = s;
       for (const s of localSessions) { if (!byId[s.id]) byId[s.id] = s; }
       let merged = Object.values(byId).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       merged = merged.filter(_matchesGameFilter);
-      countEl.textContent = merged.length ? `(${merged.length})` : '';
-      if (!merged.length) {
-        el.innerHTML = `<div class="browse-empty">${_browseGameFilter ? 'No sessions for this game.' : 'No sessions yet.'}</div>`;
-        return;
-      }
-      el.innerHTML = '';
-      for (const s of merged) el.appendChild(buildSessionRow(s));
+      _renderSessionColumn(el, countEl, merged,
+        _browseGameFilter ? 'No sessions for this game.' : 'No sessions yet.');
     } catch (e) {
       el.innerHTML = `<div class="browse-empty">Error: ${e.message}</div>`;
     }
     return;
   }
 
-  // Not logged in — show local-only sessions
+  // Not logged in — local-only sessions
   let localSessions = getLocalSessions().filter(_matchesGameFilter);
-  countEl.textContent = localSessions.length ? `(${localSessions.length})` : '';
-  if (!localSessions.length) {
-    el.innerHTML = `<div class="browse-empty">${_browseGameFilter ? 'No local sessions for this game.' : 'Log in to see sessions across devices, or play a game.'}</div>`;
-    return;
-  }
-  el.innerHTML = '';
-  for (const s of localSessions) {
-    el.appendChild(buildSessionRow(s, true));
-  }
+  _renderSessionColumn(el, countEl, localSessions,
+    _browseGameFilter ? 'No local sessions for this game.' : 'Log in to see sessions across devices, or play a game.',
+    true);
 }
 
 // ── Shared helpers ───────────────────────────────────────────────────────
@@ -183,7 +241,6 @@ async function fetchAllSessions(forceRefresh) {
   if (_browseGlobalCache && !forceRefresh) return _browseGlobalCache;
   const data = await fetchJSON('/api/sessions');
   let serverSessions = data.sessions || [];
-  // Merge localStorage sessions (dedup)
   if (MODE === 'prod') {
     const byId = {};
     for (const s of serverSessions) byId[s.id] = s;
@@ -195,53 +252,6 @@ async function fetchAllSessions(forceRefresh) {
   return serverSessions;
 }
 
-function buildSessionRow(s, isLocal) {
-  const div = document.createElement('div');
-  div.className = 'session-row';
-  const date = new Date((s.created_at || 0) * 1000);
-  const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    + ' ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  const result = s.result || 'NOT_FINISHED';
-  const resultClass = `s-result-${result}`;
-  const branchHtml = s.parent_session_id
-    ? `<span class="s-branch">&#8627; branch@${s.branch_at_step || '?'}</span>` : '';
-  const isHuman = s.player_type === 'human';
-  const isLive = s.live_mode === 1 || s.live_mode === true;
-  const durationStr = (s.duration_seconds || s.duration) ? formatDuration(s.duration_seconds || s.duration) : '';
-  let metaParts;
-  if (isHuman) {
-    metaParts = [
-      isLive ? 'LIVE' : null,
-      `${s.steps || 0} steps`,
-      durationStr,
-      dateStr,
-    ].filter(Boolean).join(' \u00b7 ');
-  } else {
-    const costStr = (s.total_cost || s.cost || 0) > 0
-      ? `$${(s.total_cost || s.cost || 0).toFixed(4)}` : '';
-    metaParts = [
-      `${s.steps || 0} steps`,
-      s.model || '',
-      costStr,
-      dateStr,
-    ].filter(Boolean).join(' \u00b7 ');
-  }
-
-  div.innerHTML = `
-    ${branchHtml}
-    <span class="s-game">${gameShortName(s.game_id) || '?'}</span>
-    ${isLive ? '<span class="live-tag" style="font-size:9px;padding:1px 4px;">LIVE</span>' : ''}
-    <span class="s-result ${resultClass}">${result}</span>
-    ${isHuman ? '' : `<span class="s-model">${s.model || '\u2014'}</span>`}
-    <span class="s-meta">${metaParts}</span>
-    <span class="s-actions">
-      <button class="btn" onclick="event.stopPropagation(); window.open('/share?id=${s.id}','_blank');">Shareable Replay</button>
-      ${result === 'NOT_FINISHED' ? `<button class="btn btn-primary" onclick="event.stopPropagation(); browseResume('${s.id}');">&#9654; Resume playing</button>` : ''}
-      ${isLocal ? `<button class="btn btn-danger" onclick="event.stopPropagation(); browseDeleteLocal('${s.id}', this);">Delete</button>` : ''}
-    </span>`;
-  return div;
-}
-
 function browseReplay(sid) {
   showAppView('play');
   loadReplay(sid);
@@ -249,9 +259,7 @@ function browseReplay(sid) {
 
 function browseResume(sid) {
   showAppView('play');
-  // Create a new session tab for this resume
   if (!sessions.has(sid)) {
-    // Detach current session if any
     if (activeSessionId && sessions.has(activeSessionId)) {
       saveSessionToState();
       detachSessionView(activeSessionId);
@@ -270,6 +278,6 @@ function browseResume(sid) {
 function browseDeleteLocal(sid, btn) {
   if (!confirm('Delete this local session?')) return;
   deleteLocalSession(sid);
-  const row = btn.closest('.session-row');
+  const row = btn.closest('tr');
   if (row) row.remove();
 }

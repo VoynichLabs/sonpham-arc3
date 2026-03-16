@@ -54,6 +54,14 @@ async function _asExecuteOneStep(actionId, actionData, reasoning, agentType, _cu
   const changeMap = computeChangeMapJS(prevGrid, newGrid);
   _cur.currentChangeMap = changeMap;
 
+  // Build LLM metadata object (used for both moveHistory + persistence)
+  const _stepLlm = {
+    parsed: { observation: `[${agentType}] ${reasoning || ''}`, reasoning: reasoning || '', action: actionId, data: actionData || {} },
+    model: llmMeta?.model || '', scaffolding: 'agent_spawn',
+    usage: llmMeta?.usage || null,
+    call_duration_ms: llmMeta?.call_duration_ms || null,
+  };
+
   // Push to move history
   _cur.moveHistory.push({
     step: _cur.stepCount, action: actionId,
@@ -62,15 +70,10 @@ async function _asExecuteOneStep(actionId, actionData, reasoning, agentType, _cu
     turnId: currentTurnId,
     observation: `[${agentType}] ${reasoning || ''}`,
     reasoning: reasoning || '',
+    llm_response: _stepLlm,
   });
 
-  // Record for persistence — include subagent LLM metadata so reasoning is available on resume
-  const _stepLlm = {
-    parsed: { observation: `[${agentType}] ${reasoning || ''}`, reasoning: reasoning || '', action: actionId, data: actionData || {} },
-    model: llmMeta?.model || '', scaffolding: 'agent_spawn',
-    usage: llmMeta?.usage || null,
-    call_duration_ms: llmMeta?.call_duration_ms || null,
-  };
+  // Record for persistence
   recordStepForPersistence(actionId, actionData || {}, data.grid, changeMap, _stepLlm, _cur,
     { levels_completed: data.levels_completed, result_state: data.state });
 
@@ -406,6 +409,28 @@ async function askLLMAgentSpawn(_cur, model, modelInfo, waitEl, isActiveFn, hist
   }
   const mem = _cur._asMemories;
 
+  // Memory snapshot helper — captures memory state at each step for later inspection
+  function _captureMemorySnapshot(stepNum, agentType, agentId) {
+    const snap = {
+      step_num: stepNum,
+      agent_type: agentType || 'orchestrator',
+      agent_id: agentId || null,
+      memory: {
+        facts: [...mem.facts],
+        hypotheses: [...mem.hypotheses],
+        stack: mem.stack.slice(-20).map(m => ({ summary: m.summary, details: m.details, agentType: m.agentType, timestamp: m.timestamp })),
+      },
+      timestamp: Date.now(),
+    };
+    // Store on session state for later persistence
+    const _sess = sessions.get(_cur.sessionId);
+    if (_sess) {
+      if (!_sess.memorySnapshots) _sess.memorySnapshots = [];
+      _sess.memorySnapshots.push(snap);
+    }
+    return snap;
+  }
+
   // Assign a turn ID for all steps in this call
   _cur.turnCounter++;
   const currentTurnId = _cur.turnCounter;
@@ -575,6 +600,7 @@ Decide your next move. Respond with a JSON object (delegate or think).`, turnVar
       for (const f of facts) mem.addFact(f);
       for (const h of hypotheses) mem.addHypothesis(h);
       if (parsed.reasoning) mem.add(parsed.reasoning, '', 'orchestrator');
+      _captureMemorySnapshot(_cur.stepCount, 'orchestrator', null);
       orchestratorLog.push({ turn, type: 'think', facts: facts.length, hypotheses: hypotheses.length, duration_ms: durMs, raw_preview: (raw||'').substring(0, 500) });
       _asPushTl({ type: 'as_orch_think', turn, facts: facts.length, hypotheses: hypotheses.length, duration_ms: durMs, reasoning: parsed.next || parsed.reasoning || '', response: (raw||'').substring(0, 1000),
         input_tokens: orchUsage.input_tokens, output_tokens: orchUsage.output_tokens, cost: orchUsage.cost });
@@ -681,6 +707,7 @@ Decide your next move. Respond with a JSON object (delegate or think).`, turnVar
             ...hypotheses.map(h => `Hypothesis: ${h}`),
           ].join('\n');
           mem.add(summary, fullDetails, agentType);
+          _captureMemorySnapshot(_cur.stepCount, agentType, `${agentType}-${totalSubagents}`);
           subagentSummaries.push({ type: agentType, task: task.substring(0, 60), steps: subActions.length, summary });
           _asPushTl({ type: 'as_sub_report', turn, agent_type: agentType, findings: findings.length, hypotheses: hypotheses.length, summary, steps_used: subActions.length, response: (subRaw || '').substring(0, 2000),
             input_tokens: subUsage.input_tokens, output_tokens: subUsage.output_tokens, cost: subUsage.cost });
@@ -740,6 +767,7 @@ Decide your next move. Respond with a JSON object (delegate or think).`, turnVar
           }
 
           totalStepsExecuted++;
+          _captureMemorySnapshot(_cur.stepCount, agentType, `${agentType}-${totalSubagents}`);
           const actDurMs = Math.round(performance.now() - t0);
 
           // Build observation for the subagent

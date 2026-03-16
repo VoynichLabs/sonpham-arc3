@@ -1,14 +1,12 @@
 // Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
 // Date: 2026-03-11 13:47
 // PURPOSE: Token estimation and pricing utilities for ARC-AGI-3 web UI. Provides
-//   estimateTokens() (rough char/4 estimate), TOKEN_PRICES lookup table for all
-//   supported models (input/output $/M tokens), and cost calculation helpers.
+//   estimateTokens() (rough char/4 estimate) and cost calculation helpers.
+//   Pricing comes from modelsData (live from /api/models) — no hardcoded prices.
 //   Used by llm.js, scaffolding.js, and session.js for usage tracking and cost display.
 //   Extracted from llm.js and scaffolding.js in Phase 3. Must load BEFORE those files.
-// SRP/DRY check: Pass — single source of truth for token estimation and pricing
 // ═══════════════════════════════════════════════════════════════════════════
 // TOKENS UTILITY
-// Extracted from llm.js and scaffolding.js — Phase 3 modularization
 // Load order: must be loaded before llm.js, scaffolding.js, session.js
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -21,24 +19,14 @@ function estimateTokens(text) {
 }
 
 /**
- * Per-1M-token pricing table [input $/1M, output $/1M].
+ * Look up [input, output, thinking?] pricing per 1M tokens for a model.
+ * Uses live modelsData from /api/models (single source of truth in models.py).
  */
-const TOKEN_PRICES = {
-  // [input $/1M tok, output $/1M tok]
-  'gemini-3.1-pro': [2.0, 12.0],
-  'gemini-3-pro': [2.0, 12.0],
-  'gemini-3-flash': [0.50, 3.0],
-  'gemini-2.5-pro': [1.25, 10.0],
-  'gemini-2.5-flash': [0.30, 2.50],
-  'gemini-2.5-flash-lite': [0.10, 0.40],
-  'gemini-2.0-flash': [0.10, 0.40],
-  'gemini-2.0-flash-lite': [0.075, 0.30],
-  'claude-sonnet-4-6': [3.0, 15.0],
-  'claude-sonnet-4-5': [3.0, 15.0],
-  'claude-haiku-4-5': [0.80, 4.0],
-  'gpt-4o': [2.50, 10.0],
-  'gpt-4o-mini': [0.15, 0.60],
-};
+function _getModelPricing(modelKey) {
+  const info = typeof getModelInfo === 'function' ? getModelInfo(modelKey) : null;
+  if (info?.pricing && info.pricing.length >= 2) return info.pricing;
+  return null;
+}
 
 /**
  * Format token usage as an HTML info line for display in the reasoning panel.
@@ -60,7 +48,7 @@ function formatTokenInfo(resp, tokensObj) {
 
   // Cost estimate
   const model = resp.model || '';
-  const prices = TOKEN_PRICES[model] || null;
+  const prices = _getModelPricing(model);
   let costStr = '';
   if (prices) {
     const cost = (inputTok * prices[0] + outputTok * prices[1]) / 1_000_000;
@@ -89,7 +77,7 @@ function trackTokenUsage(model, rawText, tokensAccumulator) {
   if (!outputTok && rawText) outputTok = Math.ceil(rawText.length / 4);
   tokensAccumulator.input += inputTok;
   tokensAccumulator.output += outputTok;
-  const prices = TOKEN_PRICES[model] || null;
+  const prices = _getModelPricing(model);
   let cost = 0;
   if (prices) {
     cost = (inputTok * prices[0] + outputTok * prices[1]) / 1_000_000;

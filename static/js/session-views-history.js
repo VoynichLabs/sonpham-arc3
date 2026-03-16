@@ -16,11 +16,45 @@
 // - renderRestoredReasoning() (from session-persistence.js)
 // - closeReplay(), replayData, document.getElementById('replayScrubber') (from session-replay.js)
 // - closeReplay(), enterObsMode() (from observatory.js)
-// - TOKEN_PRICES, switchScaffolding(), loadModels(), SCAFFOLDING_SCHEMAS, activeScaffoldingType (from llm.js / scaffolding.js)
+// - _getModelPricing(), switchScaffolding(), loadModels(), SCAFFOLDING_SCHEMAS, activeScaffoldingType (from tokens.js / scaffolding.js)
 // - initLiveScrubber(), liveScrubUpdate() (from ui.js)
 // - _rebuildTimelineFromSteps() (from session.js)
 // - autoUploadSession() (from session-sync.js)
 // ═══════════════════════════════════════════════════════════════════════════
+
+function _showResumeProgress(totalSteps) {
+  let overlay = document.getElementById('resumeProgressOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'resumeProgressOverlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    overlay.innerHTML = `
+      <div style="background:var(--bg-alt,#1a1a2e);border:1px solid var(--border,#333);border-radius:12px;padding:32px 48px;text-align:center;min-width:320px;">
+        <div style="font-size:14px;color:var(--text-dim,#999);margin-bottom:12px;">Resuming session...</div>
+        <div style="background:var(--bg,#111);border-radius:8px;overflow:hidden;height:24px;position:relative;margin-bottom:8px;">
+          <div id="resumeProgressBar" style="background:linear-gradient(90deg,var(--green,#4FCC30),var(--blue,#1E93FF));height:100%;width:0%;transition:width 0.3s ease;border-radius:8px;"></div>
+          <div id="resumeProgressText" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:11px;color:#fff;font-weight:600;">0%</div>
+        </div>
+        <div id="resumeProgressDetail" style="font-size:11px;color:var(--text-dim,#666);">Replaying 0 / ${totalSteps || '?'} steps</div>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+  return {
+    update(current, total) {
+      const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+      const bar = document.getElementById('resumeProgressBar');
+      const text = document.getElementById('resumeProgressText');
+      const detail = document.getElementById('resumeProgressDetail');
+      if (bar) bar.style.width = pct + '%';
+      if (text) text.textContent = pct + '%';
+      if (detail) detail.textContent = `Replaying ${current} / ${total} steps`;
+    },
+    hide() {
+      const el = document.getElementById('resumeProgressOverlay');
+      if (el) el.remove();
+    },
+  };
+}
 
 async function resumeSession(sid) {
   // Guard: don't overwrite an active session that already has a loaded grid
@@ -28,6 +62,9 @@ async function resumeSession(sid) {
 
   // Track whether session was already registered — used to detect close-during-resume
   const _wasRegistered = sessions.has(sid);
+
+  // Show loading progress overlay
+  const progress = _showResumeProgress();
 
   try {
     let data = await fetchJSON('/api/sessions/resume', { session_id: sid });
@@ -65,6 +102,7 @@ async function resumeSession(sid) {
         saveSessionIndex();
         renderSessionTabs();
         updateEmptyAppState();
+        progress.hide();
         return;
       }
     }
@@ -93,8 +131,15 @@ async function resumeSession(sid) {
     turnCounter = 0;
     sessionTotalTokens = { input: 0, output: 0, cost: 0 };
     const steps = data.steps || [];
+    const totalStepsForProgress = data.total_steps || steps.length;
+    progress.update(0, totalStepsForProgress);
     let _rebuildPlanRemaining = 0;
-    for (const s of steps) {
+    for (let _si = 0; _si < steps.length; _si++) {
+      const s = steps[_si];
+      // Update loading bar every 10 steps or on last step
+      if (_si % 10 === 0 || _si === steps.length - 1) {
+        progress.update(_si + 1, totalStepsForProgress);
+      }
       // Rebuild turnIds: LLM leader starts new turn, followers inherit, human gets own turn
       const llm = s.llm_response;
       if (llm && llm.parsed) {
@@ -117,6 +162,7 @@ async function resumeSession(sid) {
         turnId: _turnId,
         observation: llm?.parsed?.observation || '',
         reasoning: llm?.parsed?.reasoning || '',
+        llm_response: llm || null,
       });
       // Rebuild sessionStepsBuffer
       sessionStepsBuffer.push({
@@ -146,7 +192,7 @@ async function resumeSession(sid) {
         sessionTotalTokens.input += inputTok;
         sessionTotalTokens.output += outputTok;
         const model = llm.model || data.model || '';
-        const prices = TOKEN_PRICES[model] || null;
+        const prices = _getModelPricing(model);
         if (prices) {
           sessionTotalTokens.cost += (inputTok * prices[0] + outputTok * prices[1]) / 1_000_000;
         }
@@ -171,6 +217,10 @@ async function resumeSession(sid) {
     }
     sessionStartTime = Date.now() / 1000;
 
+    // Hide loading progress bar
+    progress.update(totalStepsForProgress, totalStepsForProgress);
+    progress.hide();
+
     // Close replay if open
     closeReplay();
 
@@ -180,7 +230,6 @@ async function resumeSession(sid) {
     // Show controls
     document.getElementById('emptyState').style.display = 'none';
     canvas.style.display = 'block';
-    document.getElementById('controls').style.display = 'flex';
     document.getElementById('transportBar').style.display = 'block';
     initLiveScrubber();
     liveScrubUpdate();
@@ -238,6 +287,9 @@ async function resumeSession(sid) {
     // Rebuild timelineEvents from step history (or use saved timeline)
     const _tlSs = sessions.get(sid);
     if (_tlSs) {
+      // Store game version and memory snapshots on session state
+      _tlSs.gameVersion = data.game_version || '';
+      _tlSs.memorySnapshots = data.memory_snapshots || [];
       _tlSs.timelineEvents = data.timeline || _rebuildTimelineFromSteps(steps);
       // Rebuild obs events from timeline for observatory display
       _tlSs._obsEvents = [];
@@ -332,6 +384,7 @@ async function resumeSession(sid) {
     // Enter observability view so user sees the grid + scrubber
     enterObsMode(_tlSs || getActiveSession());
   } catch (e) {
+    progress.hide();
     alert('Resume failed: ' + e.message);
   }
 }
@@ -391,6 +444,7 @@ async function branchFromStep(stepNum) {
         turnId: _turnId,
         observation: llm?.parsed?.observation || '',
         reasoning: llm?.parsed?.reasoning || '',
+        llm_response: llm || null,
       });
       sessionStepsBuffer.push({
         step_num: s.step_num,
@@ -417,7 +471,7 @@ async function branchFromStep(stepNum) {
         sessionTotalTokens.input += inputTok;
         sessionTotalTokens.output += outputTok;
         const model = llm.model || '';
-        const prices = TOKEN_PRICES[model] || null;
+        const prices = _getModelPricing(model);
         if (prices) {
           sessionTotalTokens.cost += (inputTok * prices[0] + outputTok * prices[1]) / 1_000_000;
         }
@@ -512,6 +566,7 @@ async function branchHere() {
         turnId: _turnId,
         observation: llm?.parsed?.observation || '',
         reasoning: llm?.parsed?.reasoning || '',
+        llm_response: llm || null,
       });
       sessionStepsBuffer.push({
         step_num: s.step_num, action: s.action, data: s.data || {},
@@ -531,7 +586,7 @@ async function branchHere() {
         const outTok = llm.usage.output_tokens || llm.usage.completion_tokens || 0;
         sessionTotalTokens.input += inTok;
         sessionTotalTokens.output += outTok;
-        const prices = TOKEN_PRICES[llm.model || ''] || null;
+        const prices = _getModelPricing(llm.model || '');
         if (prices) sessionTotalTokens.cost += (inTok * prices[0] + outTok * prices[1]) / 1_000_000;
       }
     }
@@ -540,7 +595,6 @@ async function branchHere() {
     // Hide replay bar, show controls
     document.getElementById('replayBar').style.display = 'none';
     document.getElementById('replayReasoningPanel').style.display = 'none';
-    document.getElementById('controls').style.display = 'flex';
     document.getElementById('transportBar').style.display = 'block';
     initLiveScrubber();
 

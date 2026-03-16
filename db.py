@@ -71,7 +71,8 @@ def _init_db():
             branch_at_step INTEGER,
             mode TEXT DEFAULT 'local',
             live_mode INTEGER DEFAULT 0,
-            live_fps INTEGER
+            live_fps INTEGER,
+            game_version TEXT
         );
 
         -- Game actions (replaces session_steps)
@@ -131,6 +132,19 @@ def _init_db():
             FOREIGN KEY (call_id) REFERENCES llm_calls(id)
         );
         CREATE INDEX IF NOT EXISTS idx_tool_exec_session ON tool_executions(session_id);
+
+        -- Agent memory snapshots (per-step memory state for inspection)
+        CREATE TABLE IF NOT EXISTS agent_memory_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            step_num INTEGER NOT NULL,
+            agent_type TEXT DEFAULT 'orchestrator',
+            agent_id TEXT,
+            memory_json TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_snap_session ON agent_memory_snapshots(session_id);
 
         -- Comments
         CREATE TABLE IF NOT EXISTS comments (
@@ -208,6 +222,133 @@ def _init_db():
         -- Leaderboard index
         CREATE INDEX IF NOT EXISTS idx_sessions_leaderboard
             ON sessions(player_type, steps, levels DESC);
+
+        -- ═══════════════════════════════════════════════════════════════════
+        -- Arena Auto Research tables
+        -- ═══════════════════════════════════════════════════════════════════
+
+        -- Per-game auto research context
+        CREATE TABLE IF NOT EXISTS arena_research (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            program_md TEXT DEFAULT '',
+            program_version INTEGER DEFAULT 0,
+            generation INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'stopped',
+            created_at REAL DEFAULT (unixepoch('now')),
+            updated_at REAL DEFAULT (unixepoch('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ar_game ON arena_research(game_id);
+
+        -- Agents (shared genome pool per game)
+        CREATE TABLE IF NOT EXISTS arena_agents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            code TEXT NOT NULL,
+            generation INTEGER DEFAULT 0,
+            elo REAL DEFAULT 1000.0,
+            peak_elo REAL DEFAULT 1000.0,
+            games_played INTEGER DEFAULT 0,
+            wins INTEGER DEFAULT 0,
+            losses INTEGER DEFAULT 0,
+            draws INTEGER DEFAULT 0,
+            contributor TEXT,
+            is_human INTEGER DEFAULT 0,
+            is_anchor INTEGER DEFAULT 0,
+            active INTEGER DEFAULT 1,
+            created_at REAL DEFAULT (unixepoch('now')),
+            UNIQUE(game_id, name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_aa_game_elo ON arena_agents(game_id, elo DESC);
+        CREATE INDEX IF NOT EXISTS idx_aa_game_active ON arena_agents(game_id, active);
+
+        -- Games (matches between agents)
+        CREATE TABLE IF NOT EXISTS arena_games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            agent1_id INTEGER REFERENCES arena_agents(id),
+            agent2_id INTEGER REFERENCES arena_agents(id),
+            winner_id INTEGER REFERENCES arena_agents(id),
+            agent1_score INTEGER DEFAULT 0,
+            agent2_score INTEGER DEFAULT 0,
+            turns INTEGER DEFAULT 0,
+            history TEXT DEFAULT '[]',
+            is_upset INTEGER DEFAULT 0,
+            created_at REAL DEFAULT (unixepoch('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_ag_game ON arena_games(game_id);
+        CREATE INDEX IF NOT EXISTS idx_ag_agents ON arena_games(agent1_id, agent2_id);
+        CREATE INDEX IF NOT EXISTS idx_ag_created ON arena_games(created_at);
+
+        -- Evolution cycles (LLM conversations that produced agents)
+        CREATE TABLE IF NOT EXISTS arena_evolution_cycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            generation INTEGER,
+            worker_label TEXT,
+            agents_created INTEGER DEFAULT 0,
+            agents_passed INTEGER DEFAULT 0,
+            conversation TEXT DEFAULT '[]',
+            started_at REAL,
+            finished_at REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_aec_game ON arena_evolution_cycles(game_id);
+
+        -- Community discussion (strategy comments + votes)
+        CREATE TABLE IF NOT EXISTS arena_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            user_id TEXT,
+            username TEXT DEFAULT 'Anon',
+            content TEXT NOT NULL,
+            comment_type TEXT DEFAULT 'strategy',
+            parent_id INTEGER REFERENCES arena_comments(id),
+            upvotes INTEGER DEFAULT 0,
+            downvotes INTEGER DEFAULT 0,
+            created_at REAL DEFAULT (unixepoch('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_ac_game ON arena_comments(game_id, created_at DESC);
+
+        -- Program.md version history (for voting)
+        CREATE TABLE IF NOT EXISTS arena_program_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            author TEXT,
+            change_summary TEXT,
+            votes_for INTEGER DEFAULT 0,
+            votes_against INTEGER DEFAULT 0,
+            vote_deadline REAL,
+            applied INTEGER DEFAULT 0,
+            created_at REAL DEFAULT (unixepoch('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_apv_game ON arena_program_versions(game_id, version DESC);
+
+        -- Vote tracking (prevent double-voting)
+        CREATE TABLE IF NOT EXISTS arena_votes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            version_id INTEGER REFERENCES arena_program_versions(id),
+            user_id TEXT NOT NULL,
+            vote INTEGER NOT NULL,
+            created_at REAL DEFAULT (unixepoch('now')),
+            UNIQUE(version_id, user_id)
+        );
+
+        -- Human play sessions
+        CREATE TABLE IF NOT EXISTS arena_human_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            human_agent_id INTEGER REFERENCES arena_agents(id),
+            opponent_id INTEGER REFERENCES arena_agents(id),
+            delay_ms INTEGER NOT NULL,
+            winner TEXT,
+            turns INTEGER DEFAULT 0,
+            created_at REAL DEFAULT (unixepoch('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_ahs_game ON arena_human_sessions(game_id);
     """)
 
     conn.commit()
@@ -271,6 +412,12 @@ def _migrate_schema(conn):
         try:
             conn.execute("ALTER TABLE sessions ADD COLUMN live_fps INTEGER")
             log.info("Migrated sessions: added live_fps")
+        except Exception:
+            pass
+    if "game_version" not in sess_cols and sess_cols:
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN game_version TEXT")
+            log.info("Migrated sessions: added game_version")
         except Exception:
             pass
 
@@ -516,10 +663,44 @@ from db_exports import (
     SESSIONS_DIR,
 )
 
+# Memory Snapshots
+from db_memory import (
+    save_memory_snapshot,
+    get_session_memory_snapshots,
+    get_memory_at_step,
+    bulk_save_memory_snapshots,
+)
+
 # Deprecated (backward compat)
 from db_deprecated import (
     _log_turn,
     _get_session_turns,
+)
+
+# Arena Auto Research
+from db_arena import (
+    arena_get_or_create_research,
+    arena_get_leaderboard,
+    arena_submit_agent,
+    arena_get_agent,
+    arena_record_game,
+    arena_update_elo,
+    arena_get_recent_games,
+    arena_get_game,
+    arena_count_pair_games,
+    arena_prune_weak_agents,
+    arena_get_comments,
+    arena_post_comment,
+    arena_vote_comment,
+    arena_get_program,
+    arena_propose_program,
+    arena_vote_program,
+    arena_apply_program_vote,
+    arena_submit_human_result,
+    arena_get_or_create_human_agent,
+    arena_get_research_stats,
+    arena_strip_old_history,
+    arena_delete_old_games,
 )
 
 # Facade exports
@@ -541,6 +722,9 @@ __all__ = [
     # Exports
     '_export_session_to_file', '_read_session_from_file', '_list_file_sessions',
     'SESSIONS_DIR',
+    # Memory Snapshots
+    'save_memory_snapshot', 'get_session_memory_snapshots',
+    'get_memory_at_step', 'bulk_save_memory_snapshots',
     # Deprecated
     '_log_turn', '_get_session_turns',
     # Globals

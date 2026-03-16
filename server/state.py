@@ -27,8 +27,6 @@ FEATURES = {
     "pyodide_game":  {"staging": True,   "prod": True},
 }
 
-HIDDEN_GAMES = ["ab", "fd", "fy", "pt", "sh"]
-
 DEV_SECRET = None  # Set from env at startup
 
 # ── Auth cache ─────────────────────────────────────────────────────────────

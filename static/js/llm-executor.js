@@ -1,5 +1,5 @@
 // Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-12 17:30 EDT
+// Date: 2026-03-15 14:00
 // PURPOSE: Plan execution orchestration (Phase 22 extraction)
 // Extracted from llm.js: executePlan(), executeOneAction(), stepOnce()
 // These functions coordinate multi-step and single-step game action execution.
@@ -50,7 +50,7 @@ async function executePlan(plan, resp, entry, expected, ss) {
       }
     }
     // For linear/default in step-once mode (not autoplay), only execute 1 step
-    const isScaffoldPlan = resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system' || resp?.scaffolding === 'rlm' || resp?.scaffolding === 'agent_spawn';
+    const isScaffoldPlan = resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system' || resp?.scaffolding === 'rlm' || resp?.scaffolding === 'agent_spawn' || resp?.scaffolding === 'world_model';
     if (!isScaffoldPlan && !_cur.autoPlaying && completed > 0) break;
 
     // Mark step as executing
@@ -98,7 +98,7 @@ async function executePlan(plan, resp, entry, expected, ss) {
 
     const _histObs = i === 0 ? (resp?.parsed?.observation || '') : '';
     const _histReason = i === 0 ? (resp?.parsed?.reasoning || '') : '';
-    _cur.moveHistory.push({ step: _cur.stepCount, action: step.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: _histObs, reasoning: _histReason });
+    _cur.moveHistory.push({ step: _cur.stepCount, action: step.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: _histObs, reasoning: _histReason, llm_response: i === 0 ? resp : null });
     recordStepForPersistence(step.action, step.data || {}, data.grid, data.change_map, i === 0 ? resp : null, _ss, { levels_completed: data.levels_completed, result_state: data.state });
     if (isActive()) { updateUI(data); updateUndoBtn(); }
     completed++;
@@ -115,6 +115,12 @@ async function executePlan(plan, resp, entry, expected, ss) {
       event: 'act', agent: _obsAgent, action: ACTION_NAMES[step.action] || `A${step.action}`,
       grid: data.grid || null,
     });
+
+    // ── RGB: update game log with post-step state ──
+    if (resp?.scaffolding === 'rgb' && typeof rgbPostStep === 'function') {
+      const _sid = _ss?.id || _cur.sessionId || activeSessionId;
+      rgbPostStep(_sid, _cur.stepCount, ACTION_NAMES[step.action] || `ACTION${step.action}`, data);
+    }
 
     // ── Three-system: record observation and run monitor client-side ──
     if (resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system') {
@@ -289,8 +295,12 @@ async function executeOneAction(resp) {
   // Guard: session changed during step execution
   if (!sessions.has(_actionSessionId)) { console.log('[executeOneAction] session closed, discarding'); return null; }
   if (data.error) { undoStack.pop(); stepCount--; alert(data.error); return null; }
-  moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: p.observation || '', reasoning: p.reasoning || '' });
+  moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: p.observation || '', reasoning: p.reasoning || '', llm_response: resp || null });
   recordStepForPersistence(p.action, p.data || {}, data.grid, data.change_map, resp, null, { levels_completed: data.levels_completed, result_state: data.state });
+  // RGB: update game log with post-step state
+  if (resp?.scaffolding === 'rgb' && typeof rgbPostStep === 'function') {
+    rgbPostStep(_actionSessionId, stepCount, ACTION_NAMES[p.action] || `ACTION${p.action}`, data);
+  }
   updateUI(data);
   updateUndoBtn();
 
@@ -333,7 +343,6 @@ async function executeOneAction(resp) {
 async function stepOnce() {
   if (!sessionId) { alert('Start a game first'); return; }
   if (currentState.state !== 'NOT_FINISHED') return;
-  lockHumanControls();
   // Stop blink guide
   const _ab = document.getElementById('autoPlayBtn');
   if (_ab) _ab.classList.remove('btn-blink');

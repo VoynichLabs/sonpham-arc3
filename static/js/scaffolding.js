@@ -1,13 +1,14 @@
-// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-11 13:47
+// Author: Claude Opus 4.6 (1M context)
+// Date: 2026-03-15 16:00
 // PURPOSE: Core scaffolding infrastructure for ARC-AGI-3 web UI. Handles API mode
 //   switching (local vs official), model discovery (loadModels + LM Studio via direct browser fetch),
 //   model select population, BYOK key management, LLM call routing (callLLM → _callLLMInner
 //   for Puter.js, Gemini, Anthropic, OpenAI, Cloudflare, Groq, Mistral, HuggingFace, LM Studio),
-//   prompt template loading (getPrompt), and RLE compression (compressRowJS). Phase 5 extracted
-//   scaffolding-specific logic into scaffolding-rlm.js, scaffolding-three-system.js,
-//   scaffolding-agent-spawn.js, and scaffolding-linear.js. Phase 3 extracted JSON parsing
-//   to utils/json-parsing.js.
+//   prompt template loading (getPrompt), RLE compression (compressRowJS), lexical grid encoding
+//   (gridToLexical + ARC3_LEXICAL_MAP), and Anthropic prompt caching via cache_control.
+//   Phase 5 extracted scaffolding-specific logic into scaffolding-rlm.js,
+//   scaffolding-three-system.js, scaffolding-agent-spawn.js, and scaffolding-linear.js.
+//   Phase 3 extracted JSON parsing to utils/json-parsing.js.
 // SRP/DRY check: Pass — scaffolding types in separate files; JSON parsing in json-parsing.js;
 //   tokens in utils/tokens.js; this file is the shared LLM call infrastructure
 // ═══════════════════════════════════════════════════════════════════════════
@@ -47,6 +48,7 @@ async function saveArcApiKey() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function _populateSubModelSelect(sel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, savedVal) {
+  sel.innerHTML = '';
   for (const prov of providerOrder) {
     const models = groups[prov];
     if (!models?.length) continue;
@@ -85,6 +87,36 @@ const LMSTUDIO_CAPABILITIES = {
   'qwen/qwen3.5-9b':        { reasoning: true,  image: false },
 };
 
+/** LM Studio discovery — runs in background, doesn't block init */
+async function _discoverLmStudioAsync() {
+  try {
+    const lmsBaseUrl = (localStorage.getItem('byok_lmstudio_base_url') || 'http://localhost:1234').replace(/\/$/, '');
+    const lmsResp = await fetch(`${lmsBaseUrl}/v1/models`, { signal: AbortSignal.timeout(3000) });
+    if (!lmsResp.ok) return;
+    const lmsData = await lmsResp.json();
+    const existingLms = new Set(modelsData.filter(m => m.provider === 'lmstudio').map(m => m.api_model));
+    let added = 0;
+    for (const m of (lmsData.data || [])) {
+      const mid = m.id || '';
+      if (!mid || mid.toLowerCase().includes('embedding') || existingLms.has(mid)) continue;
+      const caps = LMSTUDIO_CAPABILITIES[mid] || { reasoning: false, image: false };
+      modelsData.push({
+        name: mid, api_model: mid, provider: 'lmstudio',
+        price: 'Free (local)', context_window: 8192,
+        capabilities: { ...caps, tools: false }, available: true,
+      });
+      added++;
+    }
+    if (added > 0) {
+      localStorage.setItem('byok_key_lmstudio', 'local-no-key-needed');
+      // Re-populate model selects with newly discovered models
+      _populateAllModelSelects();
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') console.warn('[LM Studio discovery] client-side fetch failed:', e.message);
+  }
+}
+
 async function loadModels() {
   const data = await fetchJSON('/api/llm/models');
   modelsData = data.models || [];
@@ -97,50 +129,15 @@ async function loadModels() {
   }
 
   // ── LM Studio client-side discovery (production path) ──
-  // In production (Railway), the server can't reach user's localhost:1234, so the browser
-  // fetches it directly. In staging, the server already discovered LM Studio models above
-  // via /api/llm/models — the dedup set below prevents doubles.
-  // IMPORTANT: LM Studio does NOT always send CORS headers. If CORS is disabled, this
-  // fetch fails silently and models come from server-side discovery only (staging mode).
-  // In production, user MUST enable CORS in LM Studio settings for discovery to work.
-  // See docs/lmstudio-integration.md "CORS pitfall" for details.
-  try {
-    const lmsBaseUrl = (localStorage.getItem('byok_lmstudio_base_url') || 'http://localhost:1234').replace(/\/$/, '');
-    const lmsResp = await fetch(`${lmsBaseUrl}/v1/models`, { signal: AbortSignal.timeout(15000) });
-    if (lmsResp.ok) {
-      const lmsData = await lmsResp.json();
-      // Dedup: skip models the server already returned (staging mode server-side discovery)
-      const existingLms = new Set(modelsData.filter(m => m.provider === 'lmstudio').map(m => m.api_model));
-      for (const m of (lmsData.data || [])) {
-        const mid = m.id || '';
-        // Skip empty IDs, embedding models, and duplicates from server discovery
-        if (!mid || mid.toLowerCase().includes('embedding') || existingLms.has(mid)) continue;
-        // Look up known capabilities; unknown models default to text-only
-        const caps = LMSTUDIO_CAPABILITIES[mid] || { reasoning: false, image: false };
-        modelsData.push({
-          name: mid, api_model: mid, provider: 'lmstudio',
-          price: 'Free (local)',
-          // Context window set to 8192 — LM Studio default is 3900 which silently truncates.
-          // See docs/lmstudio-integration.md pitfall #3 for details.
-          context_window: 8192,
-          capabilities: { ...caps, tools: false },
-          available: true,
-        });
-      }
-      // Client-side discovery found models — set dummy key for the key gate
-      if (modelsData.some(m => m.provider === 'lmstudio')) {
-        localStorage.setItem('byok_key_lmstudio', 'local-no-key-needed');
-      }
-    }
-  } catch (e) {
-    // LM Studio not running, unreachable, or CORS blocked — silently skip.
-    // In production (HTTPS → HTTP localhost), CORS must be enabled in LM Studio settings.
-    if (e.name !== 'AbortError') console.warn('[LM Studio discovery] client-side fetch failed:', e.message);
-  }
+  // Runs in background to avoid blocking app init (fetch can take up to 15s if LM Studio
+  // is not running). Results are merged into model selects asynchronously.
+  _discoverLmStudioAsync();
 
-  // Puter.js models are now fetched from the backend API (/api/llm/models)
-  // as part of the centralized MODEL_REGISTRY (models.py). No need to hardcode them here.
+  _populateAllModelSelects();
+}
 
+/** Populate all model <select> elements from modelsData. Called by loadModels() and async LM Studio discovery. */
+function _populateAllModelSelects() {
   // Group models by provider (shared by all selectors)
   const groups = {};
   for (const m of modelsData) {
@@ -305,6 +302,30 @@ async function loadModels() {
     }
   } catch {}
 
+  // Populate World Model harness model selects if they exist
+  for (const wmSelId of ['sf_wm_agentModelSelect', 'sf_wm_wmModelSelect']) {
+    const wmSel = document.getElementById(wmSelId);
+    if (!wmSel) continue;
+    const wmSaved = wmSel.value;
+    wmSel.innerHTML = '<option value="">Select a model...</option>';
+    _populateSubModelSelect(wmSel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, wmSaved);
+  }
+  // Restore World Model model selections from saved settings
+  try {
+    const wmRaw = localStorage.getItem('arc_scaffolding_world_model');
+    if (wmRaw) {
+      const wmS = JSON.parse(wmRaw);
+      const wmMap = {
+        sf_wm_agentModelSelect: wmS.model,
+        sf_wm_wmModelSelect: wmS.wm_model,
+      };
+      for (const [id, val] of Object.entries(wmMap)) {
+        const el = document.getElementById(id);
+        if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
+      }
+    }
+  } catch {}
+
   // Populate Agent Spawn model selects if they exist
   for (const asSelId of ['sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect']) {
     const asSel = document.getElementById(asSelId);
@@ -329,8 +350,43 @@ async function loadModels() {
     }
   } catch {}
 
+  // Populate RGB model selects if they exist
+  for (const rgbSelId of ['sf_rgb_analyzerModelSelect']) {
+    const rgbSel = document.getElementById(rgbSelId);
+    if (!rgbSel) continue;
+    const rgbSaved = rgbSel.value;
+    rgbSel.innerHTML = '<option value="">Select a model...</option>';
+    _populateSubModelSelect(rgbSel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, rgbSaved);
+  }
+  // Restore RGB model selections from saved settings
+  try {
+    const rgbRaw = localStorage.getItem('arc_scaffolding_rgb');
+    if (rgbRaw) {
+      const rgbS = JSON.parse(rgbRaw);
+      const rgbMap = { sf_rgb_analyzerModelSelect: rgbS.model };
+      for (const [id, val] of Object.entries(rgbMap)) {
+        const el = document.getElementById(id);
+        if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
+      }
+    }
+  } catch {}
+
   updateModelCaps();
+  // Sync main model to sub-selects on initial load
+  const mainVal = document.getElementById('modelSelect')?.value || '';
+  if (mainVal) syncModelToSubSelects(mainVal);
   updateAllByokKeys();
+
+  // Sync cascade last-vals so the first cascade after restore uses the
+  // correct previous value (not the empty-string set at listener-setup time).
+  for (const id of ['sf_ts_plannerModelSelect', 'sf_2s_plannerModelSelect',
+                     'sf_wm_agentModelSelect', 'sf_as_orchestratorModelSelect']) {
+    const el = document.getElementById(id);
+    if (el) el.dataset.cascadeLastVal = el.value;
+  }
+
+  // Apply local model token caps for any restored local model selections.
+  if (typeof applyAllLocalModelTokenCaps === 'function') applyAllLocalModelTokenCaps();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -360,6 +416,17 @@ function compressRowJS(row) {
   return parts.join(' ');
 }
 
+// ── Lexical Grid Encoding (LexicalColorPalette16-inspired) ──
+// Maps ARC3 color indices 0-15 to single mnemonic characters.
+// Produces a 64×64 character grid that preserves spatial layout.
+const ARC3_LEXICAL_MAP = ['.','1','2','3','4','K','M','m','R','B','b','Y','O','r','G','P'];
+const ARC3_LEXICAL_LEGEND = '.=White 1=LightGray 2=Gray 3=DarkGray 4=VeryDarkGray K=Black M=Magenta m=LightMagenta R=Red B=Blue b=LightBlue Y=Yellow O=Orange r=Maroon G=Green P=Purple';
+
+function gridToLexical(grid) {
+  if (!grid || !grid.length) return '';
+  return grid.map(row => row.map(c => ARC3_LEXICAL_MAP[c] ?? '?').join('')).join('\n');
+}
+
 // ── [Section extracted to scaffolding-rlm.js] ───────────────────────────
 
 async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'off', onChunk = null } = {}) {
@@ -382,6 +449,7 @@ async function callLLM(messages, model, { maxTokens = 16384, thinkingLevel = 'of
 }
 
 async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel = 'off', onChunk = null } = {}) {
+  callLLM._lastTruncated = false;
   const modelInfo = getModelInfo(model);
   const provider = modelInfo?.provider;
   const apiModel = modelInfo?.api_model || model;
@@ -460,8 +528,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
       const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('') || '';
       const gUsage = data.usageMetadata;
       callLLM._lastUsage = gUsage ? { input_tokens: gUsage.promptTokenCount || 0, output_tokens: gUsage.candidatesTokenCount || 0 } : null;
-      if (fr === 'MAX_TOKENS') return { text, truncated: true };
-      if (fr === 'MALFORMED_FUNCTION_CALL') return { text, malformed: true, finishMessage: data.candidates?.[0]?.finishMessage || '' };
+      if (fr === 'MAX_TOKENS') callLLM._lastTruncated = true;
       return text;
     }
   }
@@ -485,20 +552,57 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
     return data.choices?.[0]?.message?.content || '';
   }
 
-  // ── Anthropic ──
+  // ── Anthropic (with prompt caching) ──
   if (provider === 'anthropic') {
     const systemMsg = messages.find(m => m.role === 'system');
     const chatMsgs = messages.filter(m => m.role !== 'system');
+    // Pre-flight: estimate tokens and warn if likely to exceed context window
+    const modelCtx = getModelInfo(model)?.context_window || 200000;
+    const allText = messages.map(m => m.content).join('');
+    const estTokens = estimateTokens(allText);
+    if (estTokens > modelCtx * 0.95) {
+      throw new Error(`Prompt too long (~${Math.round(estTokens/1000)}K tokens) for ${model} (${Math.round(modelCtx/1000)}K limit). Enable Compact Context or reduce history.`);
+    }
     const body = { model: apiModel, max_tokens: maxTokens, messages: chatMsgs.map(m => ({ role: m.role, content: m.content })) };
-    if (systemMsg) body.system = systemMsg.content;
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify(body),
-    });
+    // Prompt caching: send system as structured content block with cache_control.
+    // Anthropic caches the system prefix across calls — saves ~90% on repeated tokens.
+    if (systemMsg) {
+      body.system = [{ type: 'text', text: systemMsg.content, cache_control: { type: 'ephemeral' } }];
+    }
+    const isOAuth = key.startsWith('sk-ant-oat');
+    let resp;
+    if (isOAuth) {
+      // OAuth tokens can't go direct (CORS preflight fails) — proxy through server
+      body.api_key = key;
+      resp = await fetch('/api/llm/anthropic-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } else {
+      resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify(body),
+      });
+    }
     const data = await resp.json();
-    if (!resp.ok || data.error) throw new Error(`${resp.status} ${data.error?.message || JSON.stringify(data.error || resp.statusText)}`);
-    callLLM._lastUsage = data.usage ? { input_tokens: data.usage.input_tokens || 0, output_tokens: data.usage.output_tokens || 0 } : null;
+    if (!resp.ok || data.error) {
+      const errMsg = data.error?.message || JSON.stringify(data.error || resp.statusText);
+      if (resp.status === 400 && errMsg.includes('too long')) {
+        throw new Error(`Prompt too long for ${model}. Enable Compact Context in settings or reduce history length.`);
+      }
+      throw new Error(`${resp.status} ${errMsg}`);
+    }
+    callLLM._lastUsage = data.usage ? {
+      input_tokens: data.usage.input_tokens || 0,
+      output_tokens: data.usage.output_tokens || 0,
+      cache_creation_input_tokens: data.usage.cache_creation_input_tokens || 0,
+      cache_read_input_tokens: data.usage.cache_read_input_tokens || 0,
+    } : null;
+    if (data.usage?.cache_read_input_tokens > 0) {
+      console.log(`[Anthropic] Cache hit: ${data.usage.cache_read_input_tokens} tokens read from cache`);
+    }
     return data.content?.map(c => c.text).filter(Boolean).join('') || '';
   }
 
@@ -538,7 +642,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
     const msg = data.choices?.[0]?.message || {};
     // GLM-series models return thinking tokens in reasoning_content; content may be null
     const text = msg.content || msg.reasoning_content || '';
-    if (data.choices?.[0]?.finish_reason === 'length') return { text, truncated: true };
+    if (data.choices?.[0]?.finish_reason === 'length') callLLM._lastTruncated = true;
     return text;
   }
 
@@ -564,6 +668,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
   throw new Error(`Unsupported provider: ${provider || 'unknown'}. Configure an API key or use Puter.js.`);
 }
 callLLM._lastUsage = null;
+callLLM._lastTruncated = false;
 
 // ── [Section extracted to scaffolding-rlm.js continued] ────────────────
 

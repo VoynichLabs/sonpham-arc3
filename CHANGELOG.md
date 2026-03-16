@@ -5,6 +5,243 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.7.2] — feat: Arena Auto Research layout overhaul
+*Author: Claude Opus 4.6 | 2026-03-16*
+
+### Changed
+- **Auto Research layout**: Three-column restructure — left (game list with ARC-style canvas thumbnails), center (program.md viewer/editor with live diff, strategy discussion, model/API key), right (leaderboard + recent games + live tournament at 25% width).
+- **Game list**: Cards now show rendered game previews using each game's `preview()` function instead of emoji icons. Removed C/L (Community/Local) buttons — community mode is default.
+- **Program.md editor**: Edit button toggles inline editor with live green diff highlighting. Accept Changes button submits as a proposal. Cancel reverts to rendered view.
+- **Default program.md**: Snake game shows a built-in default program when server has no program yet, with strategy guidelines and agent interface docs.
+- **Auto-select snake**: Switching to Auto Research mode auto-selects snake (first enabled game) and loads community data immediately.
+- **Markdown rendering**: Improved parser handles code blocks (```), blockquotes, nested lists, headings h1-h4, and inline code.
+
+## [1.7.1] — feat: Prompt Caching + Lexical Grid Encoding (Linear scaffolding)
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Added
+- **Anthropic prompt caching** — Linear and Linear w/ Interrupt scaffoldings now send the system prompt (ARC description, color palette, agent priors, task format) as a structured content block with `cache_control: {type: 'ephemeral'}`. Cached input tokens cost 10% vs 100% at Anthropic and are served faster. Cache hits logged to console.
+- **Lexical grid encoding** — Replaced RLE grid compression with LexicalColorPalette16-inspired single-character encoding. Each ARC3 color maps to a mnemonic character (`.`=White, `K`=Black, `R`=Red, `B`=Blue, `G`=Green, etc.). The 64×64 grid is now a readable character map that preserves spatial layout, helping LLMs reason about 2D positions.
+- **System/user message split** — `buildClientPrompt()` now returns `{system, user}` instead of a single string. Static content goes in the system message (cacheable), dynamic content (state, history, grid) goes in the user message. All providers handle this correctly.
+
+### Changed
+- Anthropic usage tracking now includes `cache_creation_input_tokens` and `cache_read_input_tokens` fields.
+- Grid section header changed from "GRID (RLE, colors 0-15)" to "GRID (64×64 lexical)".
+- Color palette prompt now includes the lexical legend mapping.
+
+---
+
+## [1.7.0] — feat: Arena Auto Research (Phase 4 — Human vs AI Play)
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Added
+- **Human vs AI play mode** — Click "Play" next to any agent in the Auto Research leaderboard to challenge it. Supports all 8 non-poker games.
+- **Simultaneous games** (Snake, Tron) — Arrow keys or WASD to steer. Game ticks at the chosen delay rate. You are the BLUE player (left side).
+- **Turn-based games** (Connect4, Chess960, Othello, Go 9x9, Gomoku, Artillery) — Click to make your move. Valid moves highlighted with green dots/squares. Two-click selection for chess (click piece, then destination).
+- **Move timer** — Configurable per-move time limit (250ms, 500ms, 1s, 2s, or infinite). Countdown shown in header. On timeout, a random valid move is played automatically.
+- **Result submission** — Game results automatically posted to `/api/arena/human-play/{game_id}` and tracked in the ELO leaderboard as `human-{delay}ms` pseudo-agents.
+- **Artillery click-to-aim** — X position maps to angle (0-90°), Y position maps to power (bottom = high power).
+- **Human play CSS** — Timer badge styling for the countdown display.
+
+---
+
+## [1.6.0] — fix: Arena Auto Research (Phase 3 — Integration Wiring)
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Fixed
+- **Missing `estimateTokens()` shim** — `callLLM()` called `estimateTokens()` (from `utils/tokens.js`) which wasn't loaded in `arena.html`. Added inline shim. Anthropic provider calls would crash without this.
+- **Missing `fetchJSON()` shim** — Added inline shim in `arena.html` for API helper used by `scaffolding.js`.
+- **Global `modelsData` not synced** — `arenaLoadModels()` populated `Arena.modelsData` but never updated the global `modelsData` that `getModelInfo()` and `callLLM()` depend on. All LLM calls would fail with "No API key for undefined".
+- **Local research mode not switching views** — `arStartLocalResearch()` now calls `switchArenaMode('research')` before starting, so the research view is visible instead of the match layout.
+- **Community data fetch on local mode** — `arSelectGame('local')` no longer fetches community research data (which would error on games with no server-side data yet).
+- **Model dialog loading** — `arShowLocalDialog()` now awaits `arenaLoadModels()` if models haven't been fetched yet, preventing empty model dropdown.
+- **Added `toggleTheme()` shim** — Theme toggle button in arena top nav now works.
+
+---
+
+## [1.5.0] — feat: Arena Auto Research (Phase 2 — Headless Engine + Evolution)
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Added
+- **Headless match runner** (`arRunHeadless`) — Generic function that runs any of the 9 Arena games with two arbitrary `getMove()` functions, without needing the canvas or visual rendering. Returns winner, turn count, and frame history.
+- **Per-game state adapters** — Each game engine (Snake, Tron, Connect4, Chess960, Othello, Go 9x9, Gomoku, Artillery, Poker) has a state adapter that converts internal engine state to the standardized `AGENT_INTERFACE` format agents receive.
+- **Per-game seed agents** — Functional baseline agents for each game (greedy/cautious/wall-following for Snake, center-preference for C4, corner-priority for Othello, etc.) replace the old dummy "return UP" seeds.
+- **Live tournament canvases** — The 4 mini canvases in the Auto Research right column now animate recent tournament matches frame-by-frame during local research.
+- **Automatic test match on agent creation** — When the LLM creates an agent via `create_agent` tool, a quick test match runs against a random existing agent and the result is returned in the tool response.
+
+### Fixed
+- **Tournament runner** — Rewrote `arRunTournamentRound` to use the headless match runner instead of the broken strategy-injection approach that couldn't pass custom agent functions to `game.run()`.
+- **`test_match` tool** — Now uses the headless runner instead of the broken `game.run()` call.
+- **BYOK key storage** — Provider detection from model name now falls back to prefix-based guessing when `getModelInfo()` doesn't have the model.
+- **`arSubmitToComminity` typo** — Renamed to `arSubmitToCommunity` (old name kept as alias).
+
+### Architecture
+- Engine factories (`_arNewEngine`), turn detection (`_arWhoseTurn`), step dispatchers (`_arStepEngine`), and direction/move parsers handle the 3 game categories: simultaneous (Snake/Tron), turn-based board (C4/Chess/Othello/Go/Gomoku), and physics (Artillery).
+- Poker headless not yet supported (returns draw) due to its functional/multi-round architecture.
+
+---
+
+## [1.4.0] — feat: Arena Auto Research (Phase 1)
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Added
+- **Arena Auto Research tab** — New "Auto Research" mode switcher in the Arena top nav, toggling between Match Mode (existing) and Auto Research view. Auto Research provides per-game LLM-driven agent evolution with community collaboration.
+- **Per-game research infrastructure** — 8 new DB tables: `arena_research`, `arena_agents`, `arena_games`, `arena_evolution_cycles`, `arena_comments`, `arena_program_versions`, `arena_votes`, `arena_human_sessions`. Full ELO system with provisional K-factor (K=64 for first 20 games, K=32 after).
+- **Game list with C/L buttons** — Left column shows all 9 Arena games categorized. Each game has [C] (Community) and [L] (Local) buttons for launching auto research.
+- **Leaderboard** — ELO-ranked agent table per game. Click agent name to view code. "Play ▶" button to challenge any AI agent as a human.
+- **Strategy discussion** — Threaded comment system with upvote/downvote per game. Users discuss strategies that feed into program.md evolution steering.
+- **program.md viewer/editor** — Rendered/raw/edit modes with version history. "Propose Change" starts a 10-second community vote on program.md updates.
+- **Human vs AI play** — Dialog to select time delay (250ms, 500ms, 1000ms, 2000ms, infinite). Human results tracked as `human-{delay}ms` pseudo-agents in the ELO leaderboard.
+- **Sustainability limits** — 200 active agents/game cap, random pruning of sub-1000 ELO agents on overflow, 48h history TTL (upsets exempt), 90-day game record TTL, 10 games/pair storage cap, ELO gap skip (>400), daily submission rate limits.
+- **15 new API endpoints** under `/api/arena/*` — research overview, agent CRUD, game recording, comments, program.md voting, human play submission.
+- **Service layer** (`arena_research_service.py`) — Input validation, rate limiting, orchestration.
+- **DB module** (`db_arena.py`) — All arena-specific database operations with ELO calculations, upset detection, and cleanup functions.
+
+### Architecture
+- Agents are JS code strings with `getMove(state)` interface (matches existing Arena game engines)
+- Community auto research runs server-side via Claude OAuth (Phase 3)
+- Local auto research runs in-browser with BYOK keys (Phase 2)
+- Human play uses existing JS game engines with Web Worker agent execution (Phase 4)
+- Weekly ELO anchoring planned (Glicko-2 re-rating against seed agents pinned at 1000)
+
+---
+
+## [1.3.5] — feat: Arena Agent Mode + Observatory
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Added
+- **Arena Code/Harness mode** — Each agent panel (A and B) now has an "Agent Mode" dropdown to choose between Code (built-in AI strategies) and Harness (LLM agent with full scaffolding settings). Code mode preserves the existing strategy + personality UI. Harness mode renders the same scaffolding settings as the main app (harness selector, pipeline visualizer, model select, thinking level, planning mode, compact context, BYOK keys).
+- **Arena Observatory** — Per-agent observability overlay accessible via "Observe A" / "Observe B" buttons in the match transport bar. Agent A observatory shows the obs panel on the LEFT with the game canvas on the RIGHT. Agent B observatory mirrors this (canvas LEFT, obs RIGHT). Only one agent observable at a time. Agent switch buttons at the top. "Back to Match" returns to the standard match view. Keyboard shortcut: Escape exits obs mode.
+- **Arena model loading** — Arena page now fetches `/api/llm/models` to populate harness model selects. Settings persist per-agent to localStorage.
+- **Scaffolding schemas in Arena** — `scaffolding-schemas.js` now loads in `arena.html` with server-injected `MODE` and `FEATURES` template variables.
+
+### Changed
+- Arena side panels widened from 300px to 320px to accommodate harness settings.
+- Arena server route now passes `mode` and `features` template variables (matching the main app route).
+
+---
+
+## [1.3.4] — feat: RGB (Read-Grep-Bash) harness
+*Author: Claude Opus 4.6 | 2026-03-15*
+
+### Added
+- **RGB harness** — New scaffolding option based on [alexisfox7/RGB-Agent](https://github.com/alexisfox7/RGB-Agent). Analyzer LLM reads a game prompt log using text-based Read/Grep/Bash tools, then outputs batched JSON action plans. Actions drain from a queue with zero LLM calls per step; queue flushes on score change to re-analyze.
+- **Text-based tool calling** — Tool use via `<tool_call>`/`<tool_result>` XML tags in prompt text, works with every model provider (Gemini, Groq, Mistral, LM Studio, Anthropic, OpenAI, etc.). No native tool_use API dependency.
+- **Files panel** — New Observatory panel (vertical split of the Memory area) showing the running game prompt log. Syntax-highlighted section markers, score lines, and analysis blocks. Scrubber support for stepping through log history.
+- **Action Queue** — Client-side port of RGB Agent's action_queue.py. Parses `[ACTIONS]` JSON plans, drains one per step, flushes on score change.
+
+---
+
+## [1.3.3] — feat: Arena — Artillery upgrade + Texas Hold'em Poker
+*Author: Claude Opus 4.6 | 2026-03-14*
+
+### Added
+- **Texas Hold'em Poker** — New "Incomplete Information" category. 10-hand match, 100 starting chips, blinds 1/2. Full hand evaluation (high card through straight flush), showdown comparison, seeded deck shuffle. 3 AI strategies: Tight (selective, premium-only), Aggressive (frequent raises, 25% bluff rate), Calculator (pot odds + equity math). Green felt table rendering with card faces, dealer button, pot/chip display.
+- **Artillery: Tank Movement** — Tanks can now move left/right (3 units per move) instead of only shooting. Costs a turn. AI strategies use movement tactically: Sniper dodges incoming fire, Lobber repositions to close distance, Wildcard moves chaotically ~33% of turns.
+- **Artillery: Projectile Animation** — Shots now animate with 10 sub-frames showing the shell flying along its trajectory. Glowing yellow projectile dot, growing trajectory trail, and explosion flash on impact (larger for direct hits). Movement also animates with 4 slide frames.
+- **Artillery: Wind Compensation** — All AI strategies now account for wind in their trajectory simulations (previously ignored). Shared `artSimulateShot()` helper replaces duplicated simulation code.
+
+---
+
+## [1.3.2] — feat: Arena — 4 new games (Connect Four, Tron, Othello, Go 9x9)
+*Author: Claude Opus 4.6 | 2026-03-14*
+
+### Added
+- **Connect Four** — 7x6 drop-piece game. 3 AI strategies: Dropper (greedy), Blocker (defensive), Balanced (minimax depth 5 with alpha-beta). Blue board with red/orange pieces. Turn-based.
+- **Tron (Light Cycles)** — 25x25 grid, simultaneous movement, trail claiming. 3 AI strategies: Space Max (flood fill), Aggressive (cut-off), Cautious (central/safe). Last alive wins.
+- **Othello (Reversi)** — 8x8 board with flanking captures. 3 AI strategies: Corner Grabber (positional weights), Maximizer (max flips), Positional (balanced). Green board with blue/red pieces.
+- **Go 9x9** — Full Go rules: liberties, captures, ko, Chinese scoring (area + 6.5 komi). 3 AI strategies: Territorial (corners/edges), Aggressive (invade/capture), Balanced (territory+connection). Wooden board with star points.
+- **Game tags** — Categorized all 6 Arena games: Territorial (Snake, Tron), Symbolic (Connect Four, Chess960, Othello, Go).
+- **Gomoku (5-in-a-row)** — 15x15 board, first to 5 in a line wins. 3 AI strategies: Offensive (attack-weighted), Defensive (block-weighted), Balanced (center control). Line scoring evaluates open/blocked ends. Nearby-moves optimization for fast AI on 225-cell board.
+- **Artillery** — 120x80 terrain with midpoint-displacement hills. Two tanks (HP 5) take turns shooting with angle + power. Per-turn wind shifts affect trajectories. 3 AI strategies: Sniper (precise simulation), Lobber (high arcs), Wildcard (jittered aim). Parabolic projectile physics with gravity.
+- **Dispatcher pattern** — ARENA_GAMES entries now include `run`, `render`, `preview` functions. Simplified startMatch, renderStep, renderPreview to dispatch via game entry instead of if/else chains.
+
+---
+
+## [1.3.1] — fix: resume error + browse sessions & leaderboard table redesign
+*Author: Claude Opus 4.6 | 2026-03-14*
+
+### Fixed
+- **Resume returning HTML 500** — `session_service.resume()` now wraps game reconstruction in try/except so errors return JSON instead of Flask's default HTML error page (which caused "Unexpected token '<'" parse error).
+- **`fetchJSON` resilience** — Now checks Content-Type header; throws a readable error if server returns non-JSON (e.g., HTML error pages) instead of a cryptic JSON parse failure.
+
+### Changed
+- **Browse Sessions redesigned as tables** — Human / AI / My Sessions columns now render as proper `<table>` elements with sticky headers. Columns: Timestamp, Game (with version like "td05 v5"), Result, Level, Steps, Duration, Actions.
+- **Action buttons** — Replay (play icon), Resume (for unfinished), Copy ID (clipboard icon with checkmark feedback), Delete (for local sessions). More compact than the old full-text buttons.
+- **Leaderboard redesigned** — Both main and drill-down tables now show Levels and Steps prominently. Columns: Game (with version), Result, Lv, Steps, Model/Time/By, Date. Sorted by highest levels first, then fewest steps.
+- **`game_version` in sessions & leaderboard APIs** — `/api/sessions` and `/api/leaderboard` now return the `game_version` field to show which version a session was played on.
+
+---
+
+## [1.3.0] — feat: ARC Arena — Agent vs Agent page
+*Author: Claude Opus 4.6 | 2026-03-14*
+
+### Added
+- **ARC Arena page** (`/arena`) — New standalone page for watching AI agents compete head-to-head in strategy games.
+- **Three-column layout** — Left panel (Agent A settings/logs), center (game canvas + scrubber), right panel (Agent B settings/logs). Side panels transition from settings mode (pre-match) to observatory mode (reasoning logs during match).
+- **Snake Battle game** — First AI vs AI game: two snakes on a 20x20 grid compete for food. Simultaneous moves, wall/body collisions, fully deterministic with seeded PRNG.
+- **Fischer Random Chess (Chess960)** — Full chess engine in JS: legal move generation, check/checkmate/stalemate detection, en passant, promotion. Fischer Random starting positions from seed. Two AI strategies using minimax with alpha-beta pruning (Tactician depth 3, Positional depth 2). Unicode piece rendering on ARC3-colored checkerboard. Turn-based match runner with alternating white/black moves.
+- **Per-game strategy selects** — Strategy dropdowns dynamically populate based on the selected game (snake strategies vs chess strategies).
+- **Three snake AI strategies** — Greedy (chase food), Aggressive (hunt when longer, feed when shorter), Cautious (flood-fill space analysis to avoid traps).
+- **Personality bars** — Visual indicator of each strategy's aggression, caution, and greed traits.
+- **Match scrubber** — Scrubbing the timeline renders the game state AND auto-scrolls both reasoning logs to the matching turn with highlighting.
+- **Keyboard shortcuts** — Space (play/pause), arrows (step), Home/End (jump), Escape (back to setup).
+- **Arena logo** — Two blocks pulsing alternately to convey turn-by-turn action.
+- **Nav link** — "ARC Arena" link added to the main ARC Observatory top nav.
+
+---
+
+## [1.2.9] — feat: settings UX improvements (model cascade, local token cap, diff overlay, canvas section)
+*Author: Claude Sonnet 4.6 | 2026-03-13*
+
+### Added
+- **Model cascade for sibling selects** — Changing the primary model in multi-model scaffolds (Three-System, Two-System, Agent Spawn, World Model) now automatically updates sibling selects that haven't been explicitly customized. Sibling follows until the user manually changes it.
+- **Local model token cap** — When an lmstudio or ollama model is selected, the corresponding max tokens field is automatically capped at 1024. Applies on select change and on page load/restore.
+- **Persistent Canvas section** — Diff overlay controls (show changes, opacity, highlight color) moved from the Graphics subtab (now removed) into a permanent Canvas section always visible below scaffolding settings. No more tab-switching to adjust overlays.
+- **Diff overlay on by default** — `showChanges` checkbox now defaults to `checked` in HTML. New users see change highlighting immediately.
+
+### Fixed
+- **Opacity slider persistence** — Graphics settings (opacity, color, show-changes) now persist across page reloads via `arc_graphics` localStorage key. Previously the slider reset to 40% on every load.
+
+### Removed
+- **Graphics subtab** — Removed the dedicated Graphics tab from the right panel subtab bar. Controls are now in the always-visible Canvas section.
+
+---
+
+## [1.2.8] — fix: OAuth beta header, CORS proxy, metadata identification
+*Author: Claude Opus 4.6 | 2026-03-12*
+
+### Fixed
+- **OAuth `anthropic-beta: oauth-2025-04-20` header** — OAuth tokens (`sk-ant-oat*`) require this beta header to be accepted by Anthropic's API. Without it, all OAuth calls returned 401 "OAuth authentication is currently not supported." Added to all three Anthropic call paths: proxy (`server/app.py`), server-side provider (`llm_providers_anthropic.py`), and CLI/batch runner (`agent_llm.py`).
+- **CORS proxy for OAuth tokens** — Browser-side OAuth calls can't go direct to `api.anthropic.com` (Bearer auth triggers CORS preflight that Anthropic blocks). Added `/api/llm/anthropic-proxy` server route; client-side code in `scaffolding.js` detects `sk-ant-oat` tokens and routes through the proxy automatically.
+
+### Added
+- **Request identification metadata** — All Anthropic API calls now include `User-Agent: sonpham-arc3/1.2.8 (ARC Prize research; ...)` with links to three.arcprize.org, arc.markbarney.net, and arc3.sonpham.net, plus contact email. Also sends `metadata.user_id: arc-prize-research` in the request body.
+- **Model select auto-sync** — When the main model dropdown changes, all scaffold sub-selects (RLM, Three-System, Two-System, Agent Spawn) that haven't been explicitly customized are automatically set to match. No more filling in every dropdown manually.
+- **Visible BYOK key input** — Anthropic key field changed from `type="password"` to `type="text"` with monospace font so tokens are visible and verifiable. Label updated to "API Key / Token".
+
+---
+
+## [1.2.7] — feat: Claude Code OAuth tokens, Opus 4.6, model list reorder, BYOK fix
+*Author: Claude Opus 4.6 | 2026-03-12*
+
+### Added
+- **Claude Code OAuth token support** — The app now accepts `sk-ant-oat*` OAuth tokens (from `claude setup-token`) in addition to standard `sk-ant-api*` API keys. OAuth tokens are sent as `Authorization: Bearer` instead of `x-api-key`, matching the Anthropic OAuth spec.
+  - **`server/services/auth_service.py`** — Relaxed prefix validation to accept both `sk-ant-api*` and `sk-ant-oat*`.
+  - **`llm_providers_anthropic.py`** — Added `_is_oauth_token()` helper and `_anthropic_auth_headers()` to route Bearer vs x-api-key based on token type.
+  - **`static/js/scaffolding.js`** — Client-side Anthropic calls detect `sk-ant-oat` prefix and switch to Bearer auth headers.
+  - **`agent_llm.py`** — CLI/batch runner path updated with the same OAuth token detection.
+- **Claude Opus 4.6** added to model registry (`claude-opus-4-6`, $15/$75 per 1M tok, 200k context, image+reasoning+tools).
+- **BYOK UI hint for Anthropic** — When an Anthropic model is selected, the key input shows a hint: run `claude setup-token` to get a free OAuth token from your Claude Pro/Max subscription.
+
+### Changed
+- **Model list reordered** — LM Studio (local) and Anthropic models now appear first in the dropdown. Previously Gemini was first.
+
+### Fixed
+- **BYOK key persistence** — API keys entered in the Model Keys UI were lost on page refresh because the dynamically-rendered `<input>` elements had no event listeners to save to `localStorage`. Added `input` listeners in `static/js/ui-models.js` for both `data-byok-provider` and `data-byok-extra` fields.
+
+---
+
 ## [1.2.6] — Fix: restore dropped _humanCanvasClick function
 *Author: Claude Opus 4.6 | 2026-03-12*
 

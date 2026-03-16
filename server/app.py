@@ -1,5 +1,5 @@
 # Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-# Date: 2026-03-11 13:47
+# Date: 2026-03-15 00:00
 # PURPOSE: Flask server for ARC-AGI-3 web player. Responsibilities: static file serving,
 #   session persistence (save/resume/branch via SQLite), game step proxying, model registry
 #   API (/api/llm/models), Cloudflare Workers AI proxy (/api/llm/cf-proxy), observatory,
@@ -120,23 +120,6 @@ except ImportError as e:
     app.logger.warning(f'Blueprint registration skipped: {e}')
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# FEATURE FLAGS — dual-mode gating (local vs online)
-# ═══════════════════════════════════════════════════════════════════════════
-
-FEATURES = {
-    "copilot":       {"staging": False,  "prod": False},
-    "server_llm":    {"staging": False,  "prod": False},  # removed: all LLM calls are client-side
-    "puter_js":      {"staging": True,   "prod": True},
-    "byok":          {"staging": True,   "prod": True},
-    "session_db":    {"staging": True,   "prod": True},
-    "memory_md":     {"staging": True,   "prod": False},
-    "pyodide_game":  {"staging": True,   "prod": True},
-}
-
-# Games hidden in prod mode (non-foundation games)
-HIDDEN_GAMES = ["ab", "fd", "fy", "pt", "sh"]
-
 DEV_SECRET = os.environ.get("DEV_SECRET", "arc-dev-2026")
 
 # Will be set by CLI args; default to staging
@@ -197,7 +180,225 @@ def game_ab():
     return render_template("ab01.html")
 
 
+@app.route("/arena")
+def arena():
+    mode = get_mode()
+    return render_template("arena.html", static_v=_STATIC_VERSION, mode=mode, features=get_enabled_features())
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ARENA AUTO RESEARCH API
+# ═══════════════════════════════════════════════════════════════════════════
+
+from server.services import arena_research_service as _ar_svc
+from db_arena import (
+    arena_get_comments as _ar_get_comments,
+    arena_post_comment as _ar_post_comment,
+    arena_vote_comment as _ar_vote_comment,
+    arena_get_program as _ar_get_program,
+    arena_propose_program as _ar_propose_program,
+    arena_vote_program as _ar_vote_program,
+    arena_apply_program_vote as _ar_apply_vote,
+    arena_get_agent as _ar_get_agent,
+    arena_get_recent_games as _ar_get_recent_games,
+    arena_get_game as _ar_get_game,
+)
+
+
+@app.route("/api/arena/research/<game_id>")
+def arena_research_overview(game_id):
+    result = _ar_svc.get_research_overview(game_id)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route("/api/arena/agents/<game_id>")
+def arena_agents_list(game_id):
+    ok, err = _ar_svc.validate_game_id(game_id)
+    if not ok:
+        return jsonify({"error": err}), 400
+    from db_arena import arena_get_leaderboard
+    leaderboard = arena_get_leaderboard(game_id, limit=200)
+    return jsonify(leaderboard)
+
+
+@app.route("/api/arena/agents/<game_id>/<int:agent_id>")
+def arena_agent_detail(game_id, agent_id):
+    agent = _ar_get_agent(game_id, agent_id)
+    if not agent:
+        return jsonify({"error": "Agent not found"}), 404
+    return jsonify(agent)
+
+
+@app.route("/api/arena/agents/<game_id>", methods=["POST"])
+def arena_agent_submit(game_id):
+    data = request.get_json(force=True)
+    name = data.get("name", "")
+    code = data.get("code", "")
+    contributor = data.get("contributor")
+    user = get_current_user()
+    if user:
+        contributor = contributor or user.get("id")
+    result = _ar_svc.submit_agent(game_id, name, code, contributor=contributor)
+    if isinstance(result, dict) and "error" in result:
+        return jsonify(result), 400
+    return jsonify(result), 201
+
+
+@app.route("/api/arena/games/<game_id>")
+def arena_games_list(game_id):
+    ok, err = _ar_svc.validate_game_id(game_id)
+    if not ok:
+        return jsonify({"error": err}), 400
+    limit = request.args.get("limit", 50, type=int)
+    games = _ar_get_recent_games(game_id, limit=min(limit, 200))
+    return jsonify(games)
+
+
+@app.route("/api/arena/games/<game_id>/<int:match_id>")
+def arena_game_detail(game_id, match_id):
+    game = _ar_get_game(game_id, match_id)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+    return jsonify(game)
+
+
+@app.route("/api/arena/games/<game_id>", methods=["POST"])
+def arena_game_submit(game_id):
+    data = request.get_json(force=True)
+    result = _ar_svc.submit_game_result(
+        game_id=game_id,
+        agent1_id=data.get("agent1_id"),
+        agent2_id=data.get("agent2_id"),
+        winner_id=data.get("winner_id"),
+        scores=(data.get("agent1_score", 0), data.get("agent2_score", 0)),
+        turns=data.get("turns", 0),
+        history=data.get("history"),
+    )
+    if result and "error" in result:
+        return jsonify(result), 400
+    return jsonify(result or {"ok": True})
+
+
+@app.route("/api/arena/comments/<game_id>")
+def arena_comments_list(game_id):
+    ok, err = _ar_svc.validate_game_id(game_id)
+    if not ok:
+        return jsonify({"error": err}), 400
+    comments = _ar_get_comments(game_id)
+    return jsonify(comments)
+
+
+@app.route("/api/arena/comments/<game_id>", methods=["POST"])
+def arena_comment_post(game_id):
+    ok, err = _ar_svc.validate_game_id(game_id)
+    if not ok:
+        return jsonify({"error": err}), 400
+    data = request.get_json(force=True)
+    content = data.get("content", "")
+    ok, err = _ar_svc.validate_comment(content)
+    if not ok:
+        return jsonify({"error": err}), 400
+    user = get_current_user()
+    user_id = user["id"] if user else data.get("user_id", "anon")
+    username = user.get("display_name", user.get("email", "Anon")) if user else data.get("username", "Anon")
+    comment = _ar_post_comment(
+        game_id, user_id, username, content.strip(),
+        comment_type=data.get("type", "strategy"),
+        parent_id=data.get("parent_id"),
+    )
+    return jsonify(comment), 201
+
+
+@app.route("/api/arena/comments/<game_id>/<int:comment_id>/vote", methods=["POST"])
+def arena_comment_vote(game_id, comment_id):
+    data = request.get_json(force=True)
+    vote = data.get("vote", 0)
+    if vote not in (1, -1):
+        return jsonify({"error": "vote must be 1 or -1"}), 400
+    user = get_current_user()
+    user_id = user["id"] if user else data.get("user_id", "anon")
+    result = _ar_vote_comment(comment_id, user_id, vote)
+    if not result:
+        return jsonify({"error": "Already voted same direction"}), 400
+    return jsonify(result)
+
+
+@app.route("/api/arena/program/<game_id>")
+def arena_program_get(game_id):
+    ok, err = _ar_svc.validate_game_id(game_id)
+    if not ok:
+        return jsonify({"error": err}), 400
+    return jsonify(_ar_get_program(game_id))
+
+
+@app.route("/api/arena/program/<game_id>/propose", methods=["POST"])
+def arena_program_propose(game_id):
+    ok, err = _ar_svc.validate_game_id(game_id)
+    if not ok:
+        return jsonify({"error": err}), 400
+    data = request.get_json(force=True)
+    content = data.get("content", "")
+    if not content.strip():
+        return jsonify({"error": "content required"}), 400
+    user = get_current_user()
+    author = user["id"] if user else data.get("author", "anon")
+    summary = data.get("change_summary", "")
+    vote_seconds = data.get("vote_seconds", 10)
+    proposal = _ar_propose_program(game_id, content, author, summary, vote_seconds)
+    return jsonify(proposal), 201
+
+
+@app.route("/api/arena/program/<game_id>/vote", methods=["POST"])
+def arena_program_vote(game_id):
+    data = request.get_json(force=True)
+    version_id = data.get("version_id")
+    vote = data.get("vote", 0)
+    if vote not in (1, -1):
+        return jsonify({"error": "vote must be 1 or -1"}), 400
+    user = get_current_user()
+    user_id = user["id"] if user else data.get("user_id", "anon")
+    result = _ar_vote_program(version_id, user_id, vote)
+    if isinstance(result, dict) and "error" in result:
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.route("/api/arena/program/<game_id>/apply/<int:version_id>", methods=["POST"])
+def arena_program_apply(game_id, version_id):
+    applied = _ar_apply_vote(version_id)
+    return jsonify({"applied": applied})
+
+
+@app.route("/api/arena/heartbeat/status")
+def arena_heartbeat_status():
+    from server.arena_heartbeat import get_heartbeat_status
+    return jsonify(get_heartbeat_status())
+
+
+@app.route("/api/arena/human-play/<game_id>", methods=["POST"])
+def arena_human_play(game_id):
+    data = request.get_json(force=True)
+    result = _ar_svc.submit_human_play(
+        game_id=game_id,
+        opponent_agent_id=data.get("opponent_agent_id"),
+        delay_ms=data.get("delay_ms", 1000),
+        winner=data.get("winner", "draw"),
+        turns=data.get("turns", 0),
+    )
+    if isinstance(result, dict) and "error" in result:
+        return jsonify(result), 400
+    return jsonify(result or {"ok": True})
+
+
 @app.route("/")
+def root_redirect():
+    from flask import redirect
+    return redirect("/obs#human", code=302)
+
+
+@app.route("/obs")
 @bot_protection
 def index():
     mode = get_mode()
@@ -633,6 +834,39 @@ def lmstudio_proxy():
         )
         # Forward the actual LM Studio response body and status — don't swallow error
         # details with raise_for_status() (e.g. "No user query found in messages").
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/llm/anthropic-proxy", methods=["POST"])
+@bot_protection
+@turnstile_required
+def anthropic_proxy():
+    """CORS proxy for Anthropic OAuth tokens — browser can't send Authorization: Bearer
+    to api.anthropic.com directly because the preflight OPTIONS fails (Anthropic only
+    allows direct browser access via x-api-key + anthropic-dangerous-direct-browser-access).
+    OAuth tokens (sk-ant-oat*) require Bearer auth, so we proxy server-to-server."""
+    import httpx as _hx
+    body = request.get_json(force=True) or {}
+    api_key = body.pop("api_key", "")
+    if not api_key or not api_key.startswith("sk-ant-oat"):
+        return jsonify({"error": "This proxy is for OAuth tokens (sk-ant-oat*) only"}), 400
+    if not body.get("model"):
+        return jsonify({"error": "model is required"}), 400
+    try:
+        resp = _hx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "oauth-2025-04-20",
+                "content-type": "application/json",
+                "User-Agent": "sonpham-arc3/1.2.8 (ARC Prize research; https://three.arcprize.org; https://arc.markbarney.net; https://arc3.sonpham.net; contact mark@markbarney.net)",
+            },
+            json={**body, "metadata": {"user_id": "arc-prize-research"}},
+            timeout=120.0,
+        )
         return jsonify(resp.json()), resp.status_code
     except Exception as e:
         return jsonify({"error": str(e)}), 502
@@ -1074,7 +1308,7 @@ def list_sessions():
         _sessions_query = (
             "SELECT s.id, s.game_id, s.model, s.mode, s.created_at, s.result, s.steps, s.levels, "
             "s.parent_session_id, s.branch_at_step, s.total_cost, s.player_type, s.duration_seconds, "
-            "s.live_mode, s.live_fps, "
+            "s.live_mode, s.live_fps, s.game_version, "
             "(SELECT MAX(st.timestamp) - MIN(st.timestamp) FROM session_actions st WHERE st.session_id = s.id) AS duration "
             "FROM sessions s "
         )
@@ -1258,6 +1492,39 @@ def get_session_step(session_id, step_num):
         return jsonify(d)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MEMORY SNAPSHOTS — agent memory inspection API
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/sessions/<session_id>/memory")
+@bot_protection
+def session_memory(session_id):
+    """Return all memory snapshots for a session."""
+    from db_memory import get_session_memory_snapshots
+    snapshots = get_session_memory_snapshots(session_id)
+    return jsonify({"snapshots": snapshots})
+
+
+@app.route("/api/sessions/<session_id>/memory/<int:step_num>")
+@bot_protection
+def session_memory_at_step(session_id, step_num):
+    """Return memory snapshots at a specific step."""
+    from db_memory import get_memory_at_step
+    snapshots = get_memory_at_step(session_id, step_num)
+    return jsonify({"snapshots": snapshots})
+
+
+@app.route("/api/sessions/<session_id>/memory", methods=["POST"])
+@bot_protection
+def save_session_memory(session_id):
+    """Save memory snapshots for a session (bulk)."""
+    from db_memory import bulk_save_memory_snapshots
+    payload = request.get_json(force=True)
+    snapshots = payload.get("snapshots", [])
+    count = bulk_save_memory_snapshots(session_id, snapshots)
+    return jsonify({"status": "ok", "saved": count})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1611,6 +1878,17 @@ def batch_status(batch_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ARENA HEARTBEAT — start background thread for server-side evolution
+# ═══════════════════════════════════════════════════════════════════════════
+
+try:
+    from server.arena_heartbeat import start_arena_heartbeat
+    start_arena_heartbeat()
+except Exception as _hb_err:
+    print(f"[arena] Heartbeat start failed (non-fatal): {_hb_err}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

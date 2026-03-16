@@ -221,7 +221,7 @@ def get_leaderboard(get_db_fn=None) -> tuple[dict, int]:
         ai_rows = conn.execute("""
             SELECT * FROM (
                 SELECT s.id, s.game_id, s.result, s.steps, s.levels, s.model,
-                       s.created_at, s.duration_seconds,
+                       s.created_at, s.duration_seconds, s.game_version,
                        ROW_NUMBER() OVER (
                            PARTITION BY SUBSTR(s.game_id, 1, INSTR(s.game_id || '-', '-') - 1)
                            ORDER BY s.levels DESC, s.steps ASC
@@ -230,12 +230,12 @@ def get_leaderboard(get_db_fn=None) -> tuple[dict, int]:
                 WHERE COALESCE(s.player_type, 'agent') = 'agent' AND s.steps > 0
             ) WHERE rn = 1
         """).fetchall()
-        
+
         # Best human session per game
         human_rows = conn.execute("""
             SELECT * FROM (
                 SELECT s.id, s.game_id, s.result, s.steps, s.levels,
-                       s.created_at, s.duration_seconds,
+                       s.created_at, s.duration_seconds, s.game_version,
                        COALESCE(u.display_name, SUBSTR(u.email, 1, INSTR(u.email, '@') - 1)) AS author,
                        ROW_NUMBER() OVER (
                            PARTITION BY SUBSTR(s.game_id, 1, INSTR(s.game_id || '-', '-') - 1)
@@ -278,17 +278,17 @@ def get_leaderboard_detail(game_id: str, get_db_fn=None) -> tuple[dict, int]:
         
         ai_rows = conn.execute("""
             SELECT s.id, s.game_id, s.result, s.steps, s.levels, s.model,
-                   s.created_at, s.duration_seconds
+                   s.created_at, s.duration_seconds, s.game_version
             FROM sessions s
             WHERE COALESCE(s.player_type, 'agent') = 'agent'
               AND s.steps > 0 AND s.game_id LIKE ? || '%'
             ORDER BY s.levels DESC, s.steps ASC
             LIMIT 20
         """, (game_id,)).fetchall()
-        
+
         human_rows = conn.execute("""
             SELECT s.id, s.game_id, s.result, s.steps, s.levels,
-                   s.created_at, s.duration_seconds,
+                   s.created_at, s.duration_seconds, s.game_version,
                    COALESCE(u.display_name, SUBSTR(u.email, 1, INSTR(u.email, '@') - 1)) AS author
             FROM sessions s
             LEFT JOIN users u ON s.user_id = u.id

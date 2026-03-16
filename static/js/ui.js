@@ -21,12 +21,42 @@
 // GRAPHICS LISTENERS (grid rendering functions extracted to ui-grid.js)
 // ═══════════════════════════════════════════════════════════════════════════
 
+function saveGraphicsToStorage() {
+  try {
+    const opacity = document.getElementById('changeOpacity')?.value ?? '40';
+    const color = document.getElementById('changeColor')?.value ?? '#ff0000';
+    const show = document.getElementById('showChanges')?.checked ?? true;
+    localStorage.setItem('arc_graphics', JSON.stringify({ opacity, color, show }));
+  } catch {}
+}
+
+function loadGraphicsFromStorage() {
+  try {
+    const raw = localStorage.getItem('arc_graphics');
+    if (!raw) return;
+    const g = JSON.parse(raw);
+    const opacityEl = document.getElementById('changeOpacity');
+    const opacityValEl = document.getElementById('changeOpacityVal');
+    const colorEl = document.getElementById('changeColor');
+    const showEl = document.getElementById('showChanges');
+    if (opacityEl && g.opacity != null) {
+      opacityEl.value = g.opacity;
+      if (opacityValEl) opacityValEl.textContent = g.opacity + '%';
+    }
+    if (colorEl && g.color) colorEl.value = g.color;
+    if (showEl && g.show != null) showEl.checked = !!g.show;
+  } catch {}
+}
+
 document.getElementById('changeOpacity').addEventListener('input', (e) => {
   document.getElementById('changeOpacityVal').textContent = e.target.value + '%';
+  saveGraphicsToStorage();
   redrawGrid();
 });
-document.getElementById('showChanges').addEventListener('change', redrawGrid);
-document.getElementById('changeColor').addEventListener('input', redrawGrid);
+document.getElementById('showChanges').addEventListener('change', () => { saveGraphicsToStorage(); redrawGrid(); });
+document.getElementById('changeColor').addEventListener('input', () => { saveGraphicsToStorage(); redrawGrid(); });
+
+loadGraphicsFromStorage();
 
 function showTransportDesc(text) {
   document.getElementById('transportDesc').textContent = text;
@@ -64,6 +94,11 @@ async function fetchJSON(url, body, signal) {
     body: body ? JSON.stringify(body) : undefined,
     signal: signal || undefined,
   });
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    const text = (await r.text()).slice(0, 120);
+    throw new Error(`Server returned ${r.status}: ${text}`);
+  }
   return r.json();
 }
 
@@ -177,10 +212,9 @@ async function startGame(gameId) {
   if ((data.available_actions || []).includes(6)) { action6Mode = true; canvas.style.cursor = 'crosshair'; }
   document.getElementById('emptyState').style.display = 'none';
   canvas.style.display = 'block';
-  document.getElementById('controls').style.display = 'flex';
   document.getElementById('transportBar').style.display = 'block';
   document.getElementById('reasoningContent').innerHTML =
-    '<div class="empty-state" style="height:auto;font-size:12px;">Game started. Press Agent Autoplay to let the agent play, or use the controls to play yourself.</div>';
+    '<div class="empty-state" style="height:auto;font-size:12px;">Game started. Press Agent Autoplay to begin.</div>';
 
   // ── Multi-session: reuse current tab when switching games (no moves yet) ──
   const curSession = getActiveSession();
@@ -194,6 +228,7 @@ async function startGame(gameId) {
     curSession.createdAt = Date.now() / 1000;
     curSession.callDurations = [];
     curSession.tabLabel = '';
+    curSession.gameVersion = data.game_version || '';
     sessions.set(data.session_id, curSession);
     activeSessionId = data.session_id;
     // Update Pyodide ownership to match the new session ID
@@ -204,6 +239,7 @@ async function startGame(gameId) {
     s.gameId = gameShortName(gameId);
     s.status = data.state || 'NOT_FINISHED';
     s.createdAt = Date.now() / 1000;
+    s.gameVersion = data.game_version || '';
     registerSession(data.session_id, s);
   } else {
     // Active session has moves — create a new tab
@@ -213,16 +249,16 @@ async function startGame(gameId) {
     s.gameId = gameShortName(gameId);
     s.status = data.state || 'NOT_FINISHED';
     s.createdAt = Date.now() / 1000;
+    s.gameVersion = data.game_version || '';
     sessions.set(data.session_id, s);
     activeSessionId = data.session_id;
     attachSessionView(data.session_id);
     // Re-apply DOM writes on the fresh view
     document.getElementById('emptyState').style.display = 'none';
     canvas.style.display = 'block';
-    document.getElementById('controls').style.display = 'flex';
     document.getElementById('transportBar').style.display = 'block';
     document.getElementById('reasoningContent').innerHTML =
-      '<div class="empty-state" style="height:auto;font-size:12px;">Game started. Press Agent Autoplay to let the agent play, or use the controls to play yourself.</div>';
+      '<div class="empty-state" style="height:auto;font-size:12px;">Game started. Press Agent Autoplay to begin.</div>';
     renderSessionTabs();
     saveSessionIndex();
   }
@@ -279,40 +315,7 @@ function updateUI(data) {
 // ACTIONS
 // ═══════════════════════════════════════════════════════════════════════════
 
-function showNoChangeIfSame(prevGrid, newGrid) {
-  const el = document.getElementById('noChangeMsg');
-  if (prevGrid && JSON.stringify(newGrid) === prevGrid) {
-    el.textContent = 'no state change';
-    el.className = 'no-change-flash';
-    el.style.display = '';
-    setTimeout(() => { el.style.display = 'none'; }, 2000);
-  } else {
-    el.style.display = 'none';
-  }
-}
 
-function toggleHumanLock() {
-  humanLocked = !humanLocked;
-  const ctrl = document.getElementById('controls');
-  const btn = document.getElementById('interveneBtn');
-  if (humanLocked) {
-    ctrl.classList.add('locked');
-    btn.classList.remove('active');
-    btn.innerHTML = '&#128274; Intervene as Human';
-  } else {
-    ctrl.classList.remove('locked');
-    btn.classList.add('active');
-    btn.innerHTML = '&#128275; Controls Unlocked';
-  }
-}
-
-function lockHumanControls() {
-  humanLocked = true;
-  const ctrl = document.getElementById('controls');
-  const btn = document.getElementById('interveneBtn');
-  if (ctrl) ctrl.classList.add('locked');
-  if (btn) { btn.classList.remove('active'); btn.innerHTML = '&#128274; Intervene as Human'; }
-}
 
 function lockSettings() {
   // Grey out settings controls but keep the scaffold diagram visible (it shows live call status)
@@ -332,93 +335,6 @@ function unlockSettings() {
   updateGameListLock();  // re-evaluate — may stay locked if session in progress
 }
 
-function logHumanAction(actionId, actionData, changeMap, turnId) {
-  const content = document.getElementById('reasoningContent');
-  if (content.querySelector('.empty-state')) content.innerHTML = '';
-  const entry = document.createElement('div');
-  entry.className = 'reasoning-entry';
-  if (turnId) entry.setAttribute('data-turn-id', turnId);
-  const ci = changeMap?.change_count > 0 ? ` | ${changeMap.change_count} cells changed` : '';
-  const coordStr = actionData?.x !== undefined ? ` at (${actionData.x}, ${actionData.y})` : '';
-  entry.innerHTML = `
-    <button class="branch-btn" onclick="branchFromStep(${stepCount})" title="Branch from step ${stepCount}">&#8627; branch</button>
-    <div class="step-label" style="color:var(--yellow);">Step ${stepCount} — Human</div>
-    <div class="action-rec" style="color:var(--yellow);">\u2192 Action ${actionId} (${ACTION_NAMES[actionId] || '?'})${coordStr}${ci}</div>`;
-  content.appendChild(entry);
-  annotateCoordRefs(entry);
-  scrollReasoningToBottom();
-}
-
-async function doAction(actionId, isClick) {
-  if (humanLocked) return;
-  if (!sessionId) return;
-  if (isClick || actionId === 6) {
-    action6Mode = true; canvas.style.cursor = 'crosshair'; canvas.title = 'Click grid for ACTION6';
-    return;
-  }
-  // Save undo snapshot
-  turnCounter++;
-  const currentTurnId = turnCounter;
-  undoStack.push({
-    grid: currentState.grid ? currentState.grid.map(r => [...r]) : [],
-    state: currentState.state,
-    levels_completed: currentState.levels_completed,
-    stepCount: stepCount,
-    turnId: currentTurnId,
-  });
-  stepCount++;
-  const prevGrid = currentState.grid ? JSON.stringify(currentState.grid) : null;
-  const data = await gameStep(sessionId, actionId, {}, {session_cost: sessionTotalTokens.cost});
-  if (data.error) { undoStack.pop(); alert(data.error); return; }
-  moveHistory.push({ step: stepCount, action: actionId, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId });
-  recordStepForPersistence(actionId, {}, data.grid, data.change_map, null, null, { levels_completed: data.levels_completed, result_state: data.state });
-  logHumanAction(actionId, {}, data.change_map, currentTurnId);
-  updateUI(data);
-  showNoChangeIfSame(prevGrid, data.grid);
-  updateUndoBtn();
-  checkSessionEndAndUpload();
-}
-
-canvas.addEventListener('click', async (e) => {
-  if (humanLocked) return;
-  if (!action6Mode || !sessionId) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = Math.floor((e.clientX - rect.left) * 64 / canvas.clientWidth);
-  const y = Math.floor((e.clientY - rect.top) * 64 / canvas.clientHeight);
-  // Save undo snapshot
-  turnCounter++;
-  const currentTurnId = turnCounter;
-  undoStack.push({
-    grid: currentState.grid ? currentState.grid.map(r => [...r]) : [],
-    state: currentState.state,
-    levels_completed: currentState.levels_completed,
-    stepCount: stepCount,
-    turnId: currentTurnId,
-  });
-  stepCount++;
-  const prevGrid = currentState.grid ? JSON.stringify(currentState.grid) : null;
-  const data = await gameStep(sessionId, 6, { x, y }, {session_cost: sessionTotalTokens.cost});
-  if (data.error) { undoStack.pop(); alert(data.error); return; }
-  moveHistory.push({ step: stepCount, action: 6, result_state: data.state, x, y, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId });
-  recordStepForPersistence(6, { x, y }, data.grid, data.change_map, null, null, { levels_completed: data.levels_completed, result_state: data.state });
-  logHumanAction(6, { x, y }, data.change_map, currentTurnId);
-  updateUI(data);
-  showNoChangeIfSame(prevGrid, data.grid);
-  updateUndoBtn();
-  checkSessionEndAndUpload();
-  action6Mode = (data.available_actions || []).includes(6);
-  if (!action6Mode) canvas.style.cursor = 'default';
-});
-
-document.addEventListener('keydown', (e) => {
-  if (!sessionId) return;
-  if (humanLocked) return;
-  // Don't capture keyboard when user is interacting with inputs/settings
-  const tag = document.activeElement?.tagName;
-  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-  const map = {'ArrowUp':1,'ArrowDown':2,'ArrowLeft':3,'ArrowRight':4,'w':1,'s':2,'a':3,'d':4,'z':5,'x':7,'r':0};
-  if (map[e.key] !== undefined) { e.preventDefault(); doAction(map[e.key]); }
-});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // WARN BEFORE LEAVING (active session protection)

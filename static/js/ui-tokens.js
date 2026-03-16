@@ -55,32 +55,34 @@ function getSelectedModelContextWindow() {
   return (info && info.context_window) || 128000;
 }
 
-function estimateTokens(text) {
-  // Rough estimate: ~4 chars per token for English/code
-  return Math.ceil((text || '').length / 4);
-}
+// estimateTokens() defined in utils/tokens.js (loaded first)
 
 function trimHistoryForTokens(history, maxTokens) {
   // If history fits within budget, return as-is.
-  // Otherwise drop grid snapshots from older steps, keeping last 5 with grids.
+  // Otherwise: 1) drop grid snapshots from older steps, 2) if still too large, drop oldest entries.
   const KEEP_GRIDS = 5;
   if (!history || history.length <= KEEP_GRIDS) return history;
 
-  // Estimate token cost of full history with grids
-  let totalChars = 0;
-  for (const h of history) {
-    totalChars += 60; // step line overhead
-    if (h.grid) totalChars += h.grid.length * 30; // rough RLE per row
-  }
-  const est = Math.ceil(totalChars / 4);
+  // Estimate token cost of full history
+  const _estHistTokens = (h) => Math.ceil(JSON.stringify(h).length / 4);
+  let est = _estHistTokens(history);
   if (est <= maxTokens) return history; // fits, keep all
 
-  // Strip grids from older entries, keep last KEEP_GRIDS with grids
-  return history.map((h, i) => {
+  // Phase 1: Strip grids from older entries, keep last KEEP_GRIDS with grids
+  let trimmed = history.map((h, i) => {
     if (i >= history.length - KEEP_GRIDS) return h;
     const { grid, ...rest } = h;
     return rest;
   });
+  est = _estHistTokens(trimmed);
+  if (est <= maxTokens) return trimmed;
+
+  // Phase 2: Still too large — drop oldest entries until it fits (keep at least last 10)
+  const MIN_KEEP = 10;
+  while (trimmed.length > MIN_KEEP && _estHistTokens(trimmed) > maxTokens) {
+    trimmed = trimmed.slice(Math.ceil(trimmed.length * 0.25)); // drop oldest 25%
+  }
+  return trimmed;
 }
 
 function collectObservation(resp, ss) {
@@ -189,7 +191,7 @@ async function checkInterrupt(expected, grid, changeMap) {
     const _intDur = Math.round(performance.now() - _intStart);
     const _intSs = getActiveSession();
     if (_intSs && _intSs.timelineEvents) {
-      _intSs.timelineEvents.push({ type: 'interrupt', agent_type: 'interrupt', duration: _intDur, turn: _intSs.llmCallCount, response_preview: rawResult });
+      _intSs.timelineEvents.push({ type: 'interrupt', agent_type: 'interrupt', duration: _intDur, timestamp: Date.now(), turn: _intSs.llmCallCount, response_preview: rawResult });
       emitObsEvent(_intSs, { event: 'interrupt', agent: 'interrupt', duration_ms: _intDur, summary: (rawResult || '').slice(0, 200) });
     }
     if (_intResult !== undefined) return _intResult;
@@ -261,7 +263,7 @@ Progress: Level ${_ss.currentState.levels_completed || 0}/${_ss.currentState.win
       const _compactDur = Math.round(performance.now() - _compactStart);
       const _tlTarget = ss || getActiveSession();
       if (_tlTarget && _tlTarget.timelineEvents) {
-        _tlTarget.timelineEvents.push({ type: 'compact', agent_type: 'compact', duration: _compactDur, turn: _ss.llmCallCount, response_preview: (summary || '').slice(0, 500) });
+        _tlTarget.timelineEvents.push({ type: 'compact', agent_type: 'compact', duration: _compactDur, timestamp: Date.now(), turn: _ss.llmCallCount, response_preview: (summary || '').slice(0, 500) });
         emitObsEvent(_tlTarget, { event: 'compact', agent: 'compact', duration_ms: _compactDur, summary: (summary || '').slice(0, 200) });
       }
       _ss._cachedCompactSummary = `## COMPACT CONTEXT (LLM-summarized game knowledge)\n${summary}`;

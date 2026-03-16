@@ -16,7 +16,7 @@ These should be present in the CLAUDE.md file and the agents.md file.
 4. Verify integration: validate with real services and real flows (no scaffolding).
 
 ## Plans (required)
-- Create a plan doc in `docs/` named `{YYYY-MM-DD}-{goal}-plan.md` before substantive edits.
+- Create a plan doc in `docs/` named `{DD-Mon-YYYY}-{goal}-plan.md` before substantive edits.
 - Plan content must include:
   - Scope: what is in and out.
   - Architecture: responsibilities, modules to reuse, and where new code will live.

@@ -241,6 +241,10 @@ function obsScrubUpdate() {
     dot.className = 'obs-scrub-dot is-live';
     dot.innerHTML = '&#9679; LIVE';
     document.getElementById('obsScrubBanner').style.display = 'none';
+    // Live mode: incrementally update memory panel with the latest step
+    if (typeof obsMemoryLiveStep === 'function' && total > 0 && hist[total - 1]) {
+      obsMemoryLiveStep(hist[total - 1], total - 1);
+    }
   } else {
     document.getElementById('obsScrubLabel').textContent = `Step ${_obsScrubIdx + 1} / ${total}`;
   }
@@ -286,6 +290,8 @@ function obsScrubShow(idx) {
   _obsScrubScrollToStep(idx + 1);
   // Highlight matching reasoning entry
   _obsScrubHighlightReasoning(idx + 1);
+  // Update memory panel to this step
+  if (typeof obsMemoryScrub === 'function') obsMemoryScrub(idx);
 }
 
 function _obsScrubScrollToStep(stepNum) {
@@ -323,6 +329,12 @@ function obsScrubReturnToLive() {
   document.getElementById('obsScrubBanner').style.display = 'none';
   if (currentGrid) renderGrid(currentGrid);
   obsScrubUpdate();
+  // Restore memory panel to latest step
+  let hist = moveHistory;
+  if ((!hist || !hist.length) && getActiveSession()) hist = getActiveSession().moveHistory || [];
+  if (typeof obsMemoryScrub === 'function' && hist && hist.length) {
+    obsMemoryScrub(hist.length - 1);
+  }
 }
 
 // Bind slider
@@ -365,6 +377,28 @@ function renderObsSwimlane(ss) {
     const agent = events[i].agent || 'system';
     if (!laneMap.has(agent)) laneMap.set(agent, []);
     laneMap.get(agent).push({ ev: events[i], idx: i });
+  }
+
+  // Merge consecutive executor events within the same turn into continuous blocks
+  // (executor keeps running while REPL executes — don't chop up the timeline)
+  for (const [agent, entries] of laneMap) {
+    if (agent !== 'executor' || entries.length < 2) continue;
+    const merged = [entries[0]];
+    for (let i = 1; i < entries.length; i++) {
+      const prev = merged[merged.length - 1];
+      const cur = entries[i];
+      // Merge if same turn (executor paused for REPL then resumed)
+      if (prev.ev.turn != null && cur.ev.turn === prev.ev.turn) {
+        // Extend previous entry to span through this one
+        const prevEnd = (prev.ev.elapsed_s || 0) + (prev.ev.duration_ms ? prev.ev.duration_ms / 1000 : 0.1);
+        const curEnd = (cur.ev.elapsed_s || 0) + (cur.ev.duration_ms ? cur.ev.duration_ms / 1000 : 0.1);
+        const spanEnd = Math.max(prevEnd, curEnd);
+        prev.ev = { ...prev.ev, duration_ms: (spanEnd - (prev.ev.elapsed_s || 0)) * 1000, _merged: true };
+      } else {
+        merged.push(cur);
+      }
+    }
+    laneMap.set(agent, merged);
   }
 
   let labelsHtml = '';
