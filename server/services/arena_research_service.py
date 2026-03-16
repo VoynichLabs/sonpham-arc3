@@ -29,8 +29,7 @@ from db_arena import (
     arena_submit_human_result,
     arena_get_or_create_human_agent,
     arena_get_research_stats,
-    arena_strip_old_history,
-    arena_delete_old_games,
+    arena_strip_excess_history,
     MAX_ACTIVE_AGENTS_PER_GAME,
     ELO_GAP_SKIP,
 )
@@ -199,9 +198,8 @@ def submit_human_play(game_id, opponent_agent_id, delay_ms, winner, turns):
 
 
 def run_cleanup(game_id=None):
-    """Run maintenance: strip old history, delete old games, prune agents."""
-    arena_strip_old_history(game_id)
-    arena_delete_old_games(game_id)
+    """Run maintenance: strip excess history (FIFO), prune agents. Game records kept forever."""
+    arena_strip_excess_history(game_id)
     if game_id:
         stats = arena_get_research_stats(game_id)
         if stats["agent_count"] > MAX_ACTIVE_AGENTS_PER_GAME:

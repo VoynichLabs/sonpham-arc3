@@ -844,37 +844,53 @@ _last_export_time = 0
 
 
 def run_export(game_id='snake'):
-    """Export all arena data to JSON files on the persistent volume.
-    Keeps last EXPORT_MAX_KEPT exports with timestamps."""
+    """Export all arena data to the Railway persistent volume (/data/arena_exports/).
+
+    Permanent files (never deleted):
+      agents/<name>.py  — each agent's code as a standalone Python file
+      agents/index.json — all agent metadata (ELO, W/L/D, contributor)
+
+    Rotating snapshots (last 5):
+      snapshots/export_<ts>/games.json  — match outcomes
+      snapshots/export_<ts>/program.md  — evolution program
+    """
     global _last_export_time
 
-    export_dir = os.path.join(os.environ.get('DB_DATA_DIR', '.'), 'arena_exports')
-    os.makedirs(export_dir, exist_ok=True)
+    base_dir = os.path.join(os.environ.get('DB_DATA_DIR', '.'), 'arena_exports')
+    agents_dir = os.path.join(base_dir, 'agents')
+    snapshots_dir = os.path.join(base_dir, 'snapshots')
+    os.makedirs(agents_dir, exist_ok=True)
+    os.makedirs(snapshots_dir, exist_ok=True)
 
     ts = time.strftime('%Y%m%d_%H%M%S')
-    snapshot_dir = os.path.join(export_dir, f'export_{ts}')
-    os.makedirs(snapshot_dir, exist_ok=True)
 
     try:
-        # 1. Export all agents (code + stats)
+        # 1. Permanent: export each agent as a .py file + index.json
         agents = arena_get_leaderboard(game_id, limit=500)
-        agent_data = []
+        agent_index = []
         for a in agents:
             full = arena_get_agent(game_id, a['id'])
-            agent_data.append({
+            code = full.get('code', '') if full else ''
+            # Save code as individual .py file (permanent, overwrites with latest)
+            if code and a.get('name'):
+                safe_name = re.sub(r'[^\w]', '_', a['name'])
+                with open(os.path.join(agents_dir, f'{safe_name}.py'), 'w') as f:
+                    f.write(code)
+            agent_index.append({
                 'id': a['id'], 'name': a['name'],
-                'code': full.get('code', '') if full else '',
                 'elo': round(a['elo'], 1), 'peak_elo': round(a.get('peak_elo', a['elo']), 1),
                 'games_played': a['games_played'],
                 'wins': a['wins'], 'losses': a['losses'], 'draws': a['draws'],
                 'contributor': a.get('contributor', ''),
                 'is_anchor': a.get('is_anchor', 0),
-                'is_human': a.get('is_human', 0),
             })
-        with open(os.path.join(snapshot_dir, 'agents.json'), 'w') as f:
-            json.dump({'game_id': game_id, 'exported_at': ts, 'count': len(agent_data), 'agents': agent_data}, f, indent=1)
+        with open(os.path.join(agents_dir, 'index.json'), 'w') as f:
+            json.dump({'game_id': game_id, 'exported_at': ts, 'agents': agent_index}, f, indent=1)
 
-        # 2. Export match results (no frame history — just outcomes)
+        # 2. Rotating snapshot: match outcomes + program.md
+        snap_dir = os.path.join(snapshots_dir, f'export_{ts}')
+        os.makedirs(snap_dir, exist_ok=True)
+
         games = arena_get_recent_games(game_id, limit=10000)
         game_data = [{
             'id': g['id'],
@@ -884,27 +900,25 @@ def run_export(game_id='snake'):
             'turns': g['turns'], 'is_upset': g.get('is_upset', 0),
             'created_at': g.get('created_at', 0),
         } for g in games]
-        with open(os.path.join(snapshot_dir, 'games.json'), 'w') as f:
+        with open(os.path.join(snap_dir, 'games.json'), 'w') as f:
             json.dump({'game_id': game_id, 'exported_at': ts, 'count': len(game_data), 'games': game_data}, f, indent=1)
 
-        # 3. Export program.md
         program_data = arena_get_program(game_id)
         program_content = (program_data.get('content') if program_data else '') or _load_default_program()
-        with open(os.path.join(snapshot_dir, 'program.md'), 'w') as f:
+        with open(os.path.join(snap_dir, 'program.md'), 'w') as f:
             f.write(program_content)
 
         _last_export_time = time.time()
-        print(f'[export] Snapshot saved to {snapshot_dir} ({len(agent_data)} agents, {len(game_data)} games)')
+        print(f'[export] Saved {len(agent_index)} agents to {agents_dir}, snapshot to {snap_dir} ({len(game_data)} games)')
 
-        # Rotate old exports
-        existing = sorted([d for d in os.listdir(export_dir) if d.startswith('export_')])
+        # Rotate old snapshots
+        existing = sorted([d for d in os.listdir(snapshots_dir) if d.startswith('export_')])
         while len(existing) > EXPORT_MAX_KEPT:
             old = existing.pop(0)
-            old_path = os.path.join(export_dir, old)
+            old_path = os.path.join(snapshots_dir, old)
             for fname in os.listdir(old_path):
                 os.remove(os.path.join(old_path, fname))
             os.rmdir(old_path)
-            print(f'[export] Rotated old export: {old}')
 
     except Exception as exc:
         print(f'[export] Export failed: {exc}')
@@ -912,25 +926,34 @@ def run_export(game_id='snake'):
 
 
 def get_latest_export():
-    """Return the latest export snapshot as a dict for the API endpoint."""
-    export_dir = os.path.join(os.environ.get('DB_DATA_DIR', '.'), 'arena_exports')
-    if not os.path.isdir(export_dir):
-        return None
-    existing = sorted([d for d in os.listdir(export_dir) if d.startswith('export_')])
-    if not existing:
-        return None
-    latest = os.path.join(export_dir, existing[-1])
-    result = {'snapshot': existing[-1]}
-    for fname in ['agents.json', 'games.json']:
-        fpath = os.path.join(latest, fname)
-        if os.path.exists(fpath):
-            with open(fpath) as f:
-                result[fname.replace('.json', '')] = json.load(f)
-    prog_path = os.path.join(latest, 'program.md')
-    if os.path.exists(prog_path):
-        with open(prog_path) as f:
-            result['program'] = f.read()
-    return result
+    """Return the latest export as a dict for the API endpoint."""
+    base_dir = os.path.join(os.environ.get('DB_DATA_DIR', '.'), 'arena_exports')
+    agents_dir = os.path.join(base_dir, 'agents')
+    snapshots_dir = os.path.join(base_dir, 'snapshots')
+    result = {}
+
+    # Agent index (permanent)
+    idx_path = os.path.join(agents_dir, 'index.json')
+    if os.path.exists(idx_path):
+        with open(idx_path) as f:
+            result['agents'] = json.load(f)
+
+    # Latest snapshot (games + program)
+    if os.path.isdir(snapshots_dir):
+        existing = sorted([d for d in os.listdir(snapshots_dir) if d.startswith('export_')])
+        if existing:
+            latest = os.path.join(snapshots_dir, existing[-1])
+            result['snapshot'] = existing[-1]
+            games_path = os.path.join(latest, 'games.json')
+            if os.path.exists(games_path):
+                with open(games_path) as f:
+                    result['games'] = json.load(f)
+            prog_path = os.path.join(latest, 'program.md')
+            if os.path.exists(prog_path):
+                with open(prog_path) as f:
+                    result['program'] = f.read()
+
+    return result if result else None
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -1556,8 +1556,8 @@ function arRenderEloChart(gameId, agents) {
   if (!canvas || !agents || !agents.length) return;
   if (typeof Chart === 'undefined') return;
 
-  // Sort by ELO descending
-  const sorted = [...agents].sort((a, b) => b.elo - a.elo).slice(0, 20);
+  // Sort by creation time (id is auto-increment, so lower id = created earlier)
+  const sorted = [...agents].sort((a, b) => a.id - b.id).slice(-20);
   const labels = sorted.map(a => a.name.length > 14 ? a.name.slice(0, 13) + '…' : a.name);
   const data = sorted.map(a => Math.round(a.elo));
   const meta = sorted.map(a => ({

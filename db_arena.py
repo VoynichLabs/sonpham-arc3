@@ -26,8 +26,7 @@ MAX_ACTIVE_AGENTS_PER_GAME = 200
 ELO_GAP_SKIP = 400
 UPSET_ELO_GAP = 200
 MAX_UPSET_RECORDS = 500
-HISTORY_TTL_SECONDS = 48 * 3600  # 48 hours
-GAME_RECORD_TTL_SECONDS = 90 * 24 * 3600  # 90 days
+MAX_GAMES_WITH_HISTORY = 500  # FIFO — keep frame history for last N games only
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -659,35 +658,35 @@ def arena_submit_human_result(game_id, opponent_agent_id, delay_ms, winner, turn
 # CLEANUP / MAINTENANCE
 # ═══════════════════════════════════════════════════════════════════════════
 
-def arena_strip_old_history(game_id=None):
-    """Strip history JSON from games older than 48h (keep upsets)."""
-    cutoff = time.time() - HISTORY_TTL_SECONDS
+def arena_strip_excess_history(game_id=None):
+    """FIFO: strip frame history from all but the most recent N games.
+    Game records (outcomes) are kept forever — only the heavy history blob is cleared."""
     with _db() as conn:
         if game_id:
-            conn.execute(
-                """UPDATE arena_games SET history = '[]'
-                   WHERE game_id = ? AND created_at < ? AND is_upset = 0
-                         AND history != '[]'""",
-                (game_id, cutoff)
-            )
+            # Find the Nth newest game with history
+            row = conn.execute(
+                """SELECT id FROM arena_games
+                   WHERE game_id = ? AND history != '[]'
+                   ORDER BY created_at DESC LIMIT 1 OFFSET ?""",
+                (game_id, MAX_GAMES_WITH_HISTORY)
+            ).fetchone()
+            if row:
+                conn.execute(
+                    """UPDATE arena_games SET history = '[]'
+                       WHERE game_id = ? AND id <= ? AND is_upset = 0
+                             AND history != '[]'""",
+                    (game_id, row['id'])
+                )
         else:
-            conn.execute(
-                """UPDATE arena_games SET history = '[]'
-                   WHERE created_at < ? AND is_upset = 0 AND history != '[]'""",
-                (cutoff,)
-            )
-
-
-def arena_delete_old_games(game_id=None):
-    """Delete game records older than 90 days."""
-    cutoff = time.time() - GAME_RECORD_TTL_SECONDS
-    with _db() as conn:
-        if game_id:
-            conn.execute(
-                "DELETE FROM arena_games WHERE game_id = ? AND created_at < ?",
-                (game_id, cutoff)
-            )
-        else:
-            conn.execute(
-                "DELETE FROM arena_games WHERE created_at < ?", (cutoff,)
-            )
+            row = conn.execute(
+                """SELECT id FROM arena_games
+                   WHERE history != '[]'
+                   ORDER BY created_at DESC LIMIT 1 OFFSET ?""",
+                (MAX_GAMES_WITH_HISTORY,)
+            ).fetchone()
+            if row:
+                conn.execute(
+                    """UPDATE arena_games SET history = '[]'
+                       WHERE id <= ? AND is_upset = 0 AND history != '[]'""",
+                    (row['id'],)
+                )

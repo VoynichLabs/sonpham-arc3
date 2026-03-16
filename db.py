@@ -699,8 +699,7 @@ from db_arena import (
     arena_submit_human_result,
     arena_get_or_create_human_agent,
     arena_get_research_stats,
-    arena_strip_old_history,
-    arena_delete_old_games,
+    arena_strip_excess_history,
 )
 
 # Facade exports
