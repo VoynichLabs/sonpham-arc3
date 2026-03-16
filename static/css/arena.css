@@ -1,5 +1,5 @@
 /* Author: Claude Opus 4.6
-   Date: 2026-03-16 20:00
+   Date: 2026-03-16 21:30
    PURPOSE: Styles for AutoResearch Arena — Agent vs Agent page. Three-column layout with
    side panels (agent settings/logs) and center panel (game selection/match canvas).
    Supports Code mode (built-in AI strategies) and Harness mode (LLM scaffolding).
@@ -126,6 +126,14 @@
 .agent-panel-b .harness-settings-container .triswitch label:has(input:checked) {
   background: var(--red) !important; color: #fff !important; font-weight: 600;
 }
+.agent-panel-b .harness-settings-container .quadswitch input:checked + span,
+.agent-panel-b .harness-settings-container .triswitch input:checked + span {
+  background: var(--red) !important; color: #fff !important;
+}
+.agent-panel-b .harness-settings-container .quadswitch label:has(input:checked) span,
+.agent-panel-b .harness-settings-container .triswitch label:has(input:checked) span {
+  color: #fff !important;
+}
 .agent-panel-b .harness-settings-container .opt-header .chevron { color: var(--red); }
 .agent-panel-b .harness-settings-container .opt-section.open .opt-header span:first-child { color: var(--red); }
 
@@ -237,7 +245,7 @@
 }
 .harness-settings-container .opt-row {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 4px 0; gap: 8px;
+  padding: 2px 0; gap: 8px;
 }
 .harness-settings-container .opt-label {
   font-size: 11px; color: var(--text-dim);
@@ -245,7 +253,7 @@
 .harness-settings-container .sub-header {
   font-size: 10px; font-weight: 600; color: var(--text-dim);
   text-transform: uppercase; letter-spacing: 0.5px;
-  padding: 8px 0 4px; border-top: 1px solid var(--border); margin-top: 8px;
+  padding: 6px 0 3px; border-top: 1px solid var(--border); margin-top: 4px;
 }
 .harness-settings-container .sub-header:first-child {
   border-top: none; margin-top: 0;
@@ -863,12 +871,16 @@
   padding: 8px 6px; flex-shrink: 0; text-align: center;
   border-top: 1px solid var(--border);
 }
+.ar-bmac-thanks {
+  font-size: 11px; color: var(--text-dim); margin-bottom: 6px;
+  line-height: 1.4;
+}
 .ar-bmac-link { display: inline-block; }
 .ar-bmac-img { height: 36px; border-radius: 6px; }
 
 /* ── ELO Chart ── */
 .ar-elo-chart-wrap {
-  padding: 6px; flex: 1 1 auto; min-height: 160px; position: relative;
+  padding: 6px; flex: 0 0 auto; height: 160px; position: relative;
 }
 .ar-elo-chart-wrap canvas {
   width: 100%; height: 100%; display: block; border-radius: 3px;

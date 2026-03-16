@@ -125,7 +125,7 @@ def get_research_overview(game_id):
         return {"error": err}
     arena_get_or_create_research(game_id)
     stats = arena_get_research_stats(game_id)
-    leaderboard = arena_get_leaderboard(game_id, limit=50)
+    leaderboard = arena_get_leaderboard(game_id, limit=200)
     program = arena_get_program(game_id)
     return {
         **stats,
