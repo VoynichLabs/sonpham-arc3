@@ -816,8 +816,8 @@ def _evolution_loop():
             _heartbeat_state['last_error'] = str(e)
             print(f'[evolution] Tick error: {e}')
             traceback.print_exc()
-        # Periodic export (every hour)
-        if time.time() - _last_export_time >= EXPORT_INTERVAL:
+        # Export after agent creation or on hourly schedule
+        if created or time.time() - _last_export_time >= EXPORT_INTERVAL:
             try:
                 run_export('snake')
             except Exception as exc:
