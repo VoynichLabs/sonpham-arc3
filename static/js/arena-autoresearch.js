@@ -1543,66 +1543,86 @@ function _arRenderMiniFrame(canvas, gameId, frame) {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ELO Chart — bar chart of agent ratings
+   ELO Chart — Chart.js line graph, orange, with hover tooltips
    ═══════════════════════════════════════════════════════════════════════════ */
+
+let _arEloChart = null;
 
 function arRenderEloChart(gameId, agents) {
   const canvas = document.getElementById('arEloChart');
   if (!canvas || !agents || !agents.length) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  const PAD = { top: 10, right: 10, bottom: 30, left: 40 };
+  if (typeof Chart === 'undefined') return;
 
-  ctx.fillStyle = '#0c0c18';
-  ctx.fillRect(0, 0, W, H);
+  // Sort by ELO descending
+  const sorted = [...agents].sort((a, b) => b.elo - a.elo).slice(0, 20);
+  const labels = sorted.map(a => a.name.length > 14 ? a.name.slice(0, 13) + '…' : a.name);
+  const data = sorted.map(a => Math.round(a.elo));
+  const meta = sorted.map(a => ({
+    name: a.name, elo: Math.round(a.elo),
+    wld: `${a.wins}/${a.losses}/${a.draws}`,
+    games: a.games_played, by: a.contributor || '—',
+  }));
 
-  // Sort by ELO descending, take top 15
-  const sorted = [...agents].sort((a, b) => b.elo - a.elo).slice(0, 15);
-  if (!sorted.length) return;
-
-  const minElo = Math.min(...sorted.map(a => a.elo)) - 20;
-  const maxElo = Math.max(...sorted.map(a => a.elo)) + 20;
-  const range = maxElo - minElo || 1;
-
-  const chartW = W - PAD.left - PAD.right;
-  const chartH = H - PAD.top - PAD.bottom;
-  const barW = Math.max(4, chartW / sorted.length - 2);
-  const gap = (chartW - barW * sorted.length) / (sorted.length + 1);
-
-  // Y axis labels
-  ctx.fillStyle = '#555';
-  ctx.font = '9px monospace';
-  ctx.textAlign = 'right';
-  for (let i = 0; i <= 4; i++) {
-    const elo = Math.round(minElo + (range * i / 4));
-    const y = PAD.top + chartH - (chartH * i / 4);
-    ctx.fillText(elo, PAD.left - 4, y + 3);
-    ctx.strokeStyle = '#ffffff08';
-    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+  if (_arEloChart) {
+    _arEloChart.data.labels = labels;
+    _arEloChart.data.datasets[0].data = data;
+    _arEloChart.data.datasets[0]._meta = meta;
+    _arEloChart.update('none');
+    return;
   }
 
-  // Bars
-  const colors = ['#00ff87', '#00b4d8', '#ff006e', '#FFDC00', '#A356D6', '#FF851B', '#88D8F1', '#4FCC30'];
-  for (let i = 0; i < sorted.length; i++) {
-    const a = sorted[i];
-    const x = PAD.left + gap + i * (barW + gap);
-    const barH = ((a.elo - minElo) / range) * chartH;
-    const y = PAD.top + chartH - barH;
-
-    ctx.fillStyle = colors[i % colors.length];
-    ctx.fillRect(x, y, barW, barH);
-
-    // Agent name (rotated)
-    ctx.save();
-    ctx.translate(x + barW / 2, PAD.top + chartH + 4);
-    ctx.rotate(Math.PI / 4);
-    ctx.fillStyle = '#888';
-    ctx.font = '7px monospace';
-    ctx.textAlign = 'left';
-    const label = a.name.length > 12 ? a.name.slice(0, 11) + '…' : a.name;
-    ctx.fillText(label, 0, 0);
-    ctx.restore();
-  }
+  _arEloChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        _meta: meta,
+        borderColor: '#FF851B',
+        backgroundColor: '#FF851B44',
+        borderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 7,
+        pointBackgroundColor: '#FF851B',
+        pointBorderColor: '#FF851B',
+        tension: 0.1,
+        fill: true,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const m = ctx.dataset._meta?.[ctx.dataIndex];
+              if (!m) return `ELO: ${ctx.parsed.y}`;
+              return `${m.name}: ELO ${m.elo} | W/L/D ${m.wld} | ${m.games} games | by ${m.by}`;
+            },
+          },
+          backgroundColor: '#1a1a2e',
+          titleColor: '#FF851B',
+          bodyColor: '#ccc',
+          borderColor: '#FF851B44',
+          borderWidth: 1,
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: '#ffffff08' },
+          ticks: { color: '#666', font: { size: 8, family: 'monospace' }, maxRotation: 45, autoSkip: true, maxTicksLimit: 15 },
+        },
+        y: {
+          title: { display: true, text: 'ELO', color: '#888', font: { size: 10 } },
+          grid: { color: '#ffffff08' },
+          ticks: { color: '#666', font: { size: 9 } },
+        },
+      },
+    },
+  });
 }
 
 
