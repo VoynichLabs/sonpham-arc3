@@ -201,12 +201,13 @@ const FEATURES = {{ features | tojson }};
   <!-- ══ Auto Research View (hidden by default) ═══════════════════════════ -->
   <div class="ar-layout" id="arResearchView" style="display:none;">
 
-    <!-- Col 1: Game List -->
-    <div class="ar-left-col" id="arLeftCol">
-      <div class="ar-game-list" id="arGameList"></div>
-    </div>
+    <!-- Game tab bar -->
+    <div class="ar-game-tabs" id="arGameTabs"></div>
 
-    <!-- Col 2: Program MD (top) + Tabbed Panel (bottom) -->
+    <!-- Content area (3 columns) -->
+    <div class="ar-content" id="arContent">
+
+    <!-- Col 1: Program MD (top) + Tabbed Panel (bottom) -->
     <div class="ar-center" id="arCenter">
       <!-- Program.md viewer — read-only, top area -->
       <div class="ar-program-area" id="arProgramArea">
@@ -303,6 +304,8 @@ const FEATURES = {{ features | tojson }};
         <canvas id="arEloChart" width="400" height="200"></canvas>
       </div>
     </div>
+
+    </div><!-- /ar-content -->
   </div>
 
   <!-- Status Bar (Auto Research) -->

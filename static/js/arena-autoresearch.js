@@ -1,5 +1,5 @@
 // Author: Claude Opus 4.6
-// Date: 2026-03-16 20:00
+// Date: 2026-03-16 22:00
 // PURPOSE: Arena Auto Research — in-browser evolution + tournament engine.
 //   Phase 2: headless match runner, per-game state adapters, live tournament canvases.
 //   Phase 4: human vs AI play mode — keyboard/click input, timed moves, result submission.
@@ -7,6 +7,7 @@
 //   Tournament: runs game matches headlessly via game engine classes from arena.js.
 //   Swiss matchmaking, ELO tracking, agent validation, safety sandbox.
 //   Text-based tool calling (XML tags) for cross-provider compatibility.
+//   Mini-frame renderer: snake (custom), chess960 (wooden board + Unicode pieces), ARC3 fallback.
 // SRP/DRY check: Pass — reuses callLLM() from scaffolding.js, game engines from arena.js
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1533,6 +1534,55 @@ function _arRenderMiniFrame(canvas, gameId, frame) {
     return;
   }
 
+  // Chess960: proper wooden board with Unicode pieces
+  if (gameId === 'chess960' && frame.board) {
+    const board = frame.board;
+    const rows = 8, cols = 8;
+    const sq = w / cols;
+    const lm = frame.lastMove; // [fr,fc,tr,tc] or null
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const isLight = (r + c) % 2 === 0;
+        const highlight = lm && ((r===lm[0]&&c===lm[1])||(r===lm[2]&&c===lm[3]));
+        ctx.fillStyle = highlight
+          ? (isLight ? '#F6F669' : '#BACA2B')
+          : (isLight ? '#F0D9B5' : '#B58863');
+        ctx.fillRect(c*sq, r*sq, sq, sq);
+
+        const piece = board[r][c];
+        if (piece !== 0) {
+          const _MINI_PIECE = {1:'\u2654',2:'\u2655',3:'\u2656',4:'\u2657',5:'\u2658',6:'\u2659',
+                               '-1':'\u265A','-2':'\u265B','-3':'\u265C','-4':'\u265D','-5':'\u265E','-6':'\u265F'};
+          const ch = _MINI_PIECE[piece] || '';
+          ctx.font = `${sq * 0.82}px serif`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          // Shadow
+          ctx.fillStyle = 'rgba(0,0,0,0.35)';
+          ctx.fillText(ch, c*sq+sq/2+1, r*sq+sq/2+1);
+          // Piece color
+          ctx.fillStyle = piece > 0 ? '#FFFFFF' : '#1a1a1a';
+          ctx.fillText(ch, c*sq+sq/2, r*sq+sq/2);
+        }
+      }
+    }
+
+    // Material score at bottom
+    if (frame.scoreA !== undefined && frame.scoreB !== undefined) {
+      ctx.font = `bold ${Math.max(9, sq * 0.55 | 0)}px monospace`;
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(String(frame.scoreA || 0), 3, h - 3);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#1a1a1a';
+      ctx.strokeStyle = '#999';
+      ctx.lineWidth = 0.5;
+      ctx.strokeText(String(frame.scoreB || 0), w - 3, h - 3);
+      ctx.fillText(String(frame.scoreB || 0), w - 3, h - 3);
+    }
+    return;
+  }
+
   // Fallback: ARC3 grid format
   const grid = frame.grid || frame.board;
   if (!grid || !grid.length) {
@@ -1558,8 +1608,15 @@ let _arEloChart = null;
 
 function arRenderEloChart(gameId, agents) {
   const canvas = document.getElementById('arEloChart');
-  if (!canvas || !agents || !agents.length) return;
+  if (!canvas) return;
   if (typeof Chart === 'undefined') return;
+  // Destroy old chart when switching games or no data — prevents stale data
+  if (!agents || !agents.length) {
+    if (_arEloChart) { _arEloChart.destroy(); _arEloChart = null; }
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
 
   // Sort by creation time (id is auto-increment, so lower id = created earlier)
   const sorted = [...agents].sort((a, b) => a.id - b.id);

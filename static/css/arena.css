@@ -1,10 +1,10 @@
 /* Author: Claude Opus 4.6
-   Date: 2026-03-16 21:30
+   Date: 2026-03-16 22:00
    PURPOSE: Styles for AutoResearch Arena — Agent vs Agent page. Three-column layout with
    side panels (agent settings/logs) and center panel (game selection/match canvas).
    Supports Code mode (built-in AI strategies) and Harness mode (LLM scaffolding).
    Includes arena observatory overlay for per-agent observability.
-   Auto Research: four-column layout — left (game list with canvas thumbnails),
+   Auto Research: horizontal game tab bar at top, then three-column layout —
    center (program.md viewer + tabbed panel: Create New Agent / AI Heartbeat),
    mid (leaderboard, recent games), right (live tournament, ELO chart).
    Local config dialog, human vs AI play dialog.
@@ -648,49 +648,41 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .ar-layout {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0;
+}
+
+/* ── Game Tab Bar (horizontal, above columns) ── */
+.ar-game-tabs {
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  flex-shrink: 0; overflow-x: auto;
+}
+.ar-game-tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px; cursor: pointer;
+  background: var(--bg); border: 1.5px solid var(--border); border-radius: 20px;
+  transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
+}
+.ar-game-tab:hover { border-color: var(--text-dim); background: var(--surface2); }
+.ar-game-tab.active { border-color: var(--accent); background: var(--accent); color: #000; }
+.ar-game-tab.active .ar-game-tab-title { color: #000; }
+.ar-game-tab-icon {
+  font-size: 16px; line-height: 1;
+}
+.ar-game-tab-title {
+  font-size: 12px; font-weight: 700; color: var(--text);
+}
+.ar-game-tab-preview {
+  width: 22px; height: 22px; border-radius: 4px; flex-shrink: 0;
+  image-rendering: pixelated;
+}
+
+/* ── Content area (3 columns row) ── */
+.ar-content {
   flex: 1; display: flex; overflow: hidden; min-height: 0;
 }
 
-/* ── Col 1: Game List ── */
-.ar-left-col {
-  width: 260px; flex-shrink: 0; display: flex; flex-direction: column;
-  background: var(--surface); border-right: 1px solid var(--border);
-  overflow-y: auto;
-}
-
-.ar-game-list {
-  flex: 1; padding: 8px; overflow-y: auto;
-}
-.ar-game-cat { margin-bottom: 8px; }
-.ar-game-cat-label {
-  font-size: 10px; font-weight: 700; color: var(--text-dim);
-  text-transform: uppercase; letter-spacing: 0.8px;
-  padding: 6px 4px 4px; border-bottom: 1px solid var(--border);
-}
-/* Card-style game items with canvas thumbnails */
-.ar-game-item {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 8px; margin: 6px 0; cursor: pointer;
-  background: var(--bg); border: 2px solid var(--border); border-radius: 10px;
-  transition: all 0.15s;
-}
-.ar-game-item:hover { border-color: var(--text-dim); background: var(--surface2); }
-.ar-game-item.active { border-color: var(--accent); background: var(--surface2); }
-.ar-game-item.active .ar-game-item-name { color: var(--accent); }
-.ar-game-item-preview {
-  width: 64px; height: 64px; border-radius: 6px; flex-shrink: 0;
-  image-rendering: pixelated; border: 1px solid var(--border);
-}
-.ar-game-item-meta { flex: 1; min-width: 0; }
-.ar-game-item-name { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
-.ar-game-item-desc { font-size: 10px; color: var(--text-dim); line-height: 1.3; }
-.ar-game-item-tags { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
-.ar-game-item-tag {
-  font-size: 9px; padding: 1px 6px; border-radius: 8px;
-  border: 1px solid var(--border); color: var(--text-dim);
-}
-
-/* ── Col 2: Program MD (2/3) + Discussion (1/3) ── */
+/* ── Col 1: Program MD (2/3) + Discussion (1/3) ── */
 .ar-center {
   flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
 }
@@ -814,7 +806,7 @@
 .ar-hb-body { font-size: 12px; line-height: 1.5; color: var(--text); white-space: pre-wrap; }
 .ar-hb-votes { margin-left: auto; display: flex; gap: 2px; }
 
-/* ── Col 3: Leaderboard + Recent Games (narrow ~10%) ── */
+/* ── Col 2: Leaderboard + Recent Games (narrow ~10%) ── */
 .ar-mid-col {
   width: 20%; min-width: 280px; max-width: 480px;
   flex-shrink: 0; display: flex; flex-direction: column;
@@ -839,7 +831,7 @@
 .ar-rg-result.ar-draw { color: var(--text-dim); }
 .ar-rg-turns { color: var(--text-dim); flex-shrink: 0; }
 
-/* ── Col 4: Live Tournament (30%) ── */
+/* ── Col 3: Live Tournament (30%) ── */
 .ar-right-col {
   flex: 0 0 30%; display: flex; flex-direction: column;
   background: var(--surface); border-left: 1px solid var(--border);
@@ -1162,23 +1154,18 @@
 
 @media (max-width: 1400px) {
   .arena-side-panel { width: 360px; }
-  .ar-left-col { width: 220px; }
   .ar-mid-col { min-width: 180px; }
   .ar-right-col { min-width: 180px; }
 }
 @media (max-width: 1100px) {
   .arena-side-panel { width: 300px; }
   .arena-obs-panel { width: 320px; }
-  .ar-left-col { width: 180px; }
-  .ar-game-item-desc, .ar-game-item-tags { display: none; }
-  .ar-game-item-preview { width: 48px; height: 48px; }
   .ar-mid-col { min-width: 160px; }
   .ar-right-col { min-width: 160px; width: 20%; }
 }
 @media (max-width: 900px) {
   .arena-side-panel { width: 260px; }
   .arena-obs-panel { width: 280px; }
-  .ar-left-col { width: 160px; }
   .ar-mid-col { display: none; }
   .ar-right-col { width: 30%; min-width: 150px; }
 }
@@ -1193,8 +1180,9 @@
   .arena-center { order: 2; }
   .arena-obs-body { flex-direction: column; }
   .arena-obs-panel { width: 100%; max-height: 200px; border: none !important; border-bottom: 1px solid var(--border) !important; }
-  .ar-layout { flex-direction: column; }
-  .ar-left-col, .ar-right-col, .ar-mid-col { width: 100%; max-height: 250px; }
+  .ar-content { flex-direction: column; }
+  .ar-right-col, .ar-mid-col { width: 100%; max-height: 250px; }
   .ar-mid-col { display: flex; }
   .ar-live-games { grid-template-columns: 1fr 1fr; }
+  .ar-game-tabs { flex-wrap: wrap; }
 }

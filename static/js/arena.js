@@ -1,5 +1,5 @@
 // Author: Claude Opus 4.6
-// Date: 2026-03-16 20:00
+// Date: 2026-03-16 22:00
 // PURPOSE: AutoResearch Arena — Agent vs Agent game engine, AI strategies, match runner,
 //   and UI controller. Manages the three-column layout with side panels (agent
 //   settings → observatory logs) and center panel (game selection → match canvas).
@@ -10,8 +10,9 @@
 //   Othello, Go 9x9, Gomoku, Artillery, Poker. Each has engine, AI, rendering, match runner.
 //   Dispatcher pattern: ARENA_GAMES entries have run/render/preview functions.
 //   Arena Observatory: per-agent observability overlay (Agent A obs LEFT, Agent B obs RIGHT).
-//   Auto Research: mode switcher, per-game community/local research, leaderboard,
-//   strategy discussion, program.md viewer/editor/voting, human vs AI play dialog.
+//   Auto Research: horizontal game tab bar replaces left column, per-game community/local
+//   research, leaderboard, program.md viewer/editor/voting, human vs AI play dialog.
+//   Chess rendering uses classic wooden board colors (#F0D9B5/#B58863) with depth shadows.
 // SRP/DRY check: Pass — self-contained arena module, no overlap with main app JS
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -639,41 +640,48 @@ function renderChessFrame(ctx, frame, size) {
   const board = frame.board;
   const lm = frame.lastMove; // [fr,fc,tr,tc] or null
 
+  // Board border
+  ctx.save();
+  ctx.strokeStyle = '#8B6E4E';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, 0, size, size);
+  ctx.restore();
+
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const isLight = (r + c) % 2 === 0;
       let highlight = lm && ((r===lm[0]&&c===lm[1])||(r===lm[2]&&c===lm[3]));
       ctx.fillStyle = highlight
         ? (isLight ? '#F6F669' : '#BACA2B')
-        : (isLight ? ARC3[0] : ARC3[2]);
+        : (isLight ? '#F0D9B5' : '#B58863');
       ctx.fillRect(c*sq, r*sq, sq, sq);
 
       const piece = board[r][c];
       if (piece !== 0) {
         const ch = PIECE_UNICODE[piece];
-        ctx.font = `${sq * 0.78}px serif`;
+        ctx.font = `${sq * 0.82}px serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        // Shadow for contrast
-        ctx.fillStyle = 'rgba(0,0,0,0.25)';
-        ctx.fillText(ch, c*sq+sq/2+1, r*sq+sq/2+1);
+        // Shadow for depth
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillText(ch, c*sq+sq/2+1.5, r*sq+sq/2+1.5);
         // Piece
-        ctx.fillStyle = piece > 0 ? '#FFFFFF' : '#111111';
+        ctx.fillStyle = piece > 0 ? '#FFFFFF' : '#1a1a1a';
         ctx.fillText(ch, c*sq+sq/2, r*sq+sq/2);
       }
     }
   }
-  // File/rank labels
+  // File/rank labels — use board colors for contrast
   ctx.font = `bold ${sq*0.18}px monospace`;
   ctx.textBaseline = 'bottom';
   for (let c = 0; c < 8; c++) {
-    ctx.fillStyle = (7+c)%2===0 ? ARC3[2] : ARC3[0];
+    ctx.fillStyle = (7+c)%2===0 ? '#B58863' : '#F0D9B5';
     ctx.textAlign = 'left';
     ctx.fillText(String.fromCharCode(97+c), c*sq+2, size-2);
   }
   ctx.textBaseline = 'top';
   for (let r = 0; r < 8; r++) {
-    ctx.fillStyle = (r)%2===0 ? ARC3[2] : ARC3[0];
+    ctx.fillStyle = (r)%2===0 ? '#B58863' : '#F0D9B5';
     ctx.textAlign = 'right';
     ctx.fillText(String(8-r), sq-2, r*sq+2);
   }
@@ -686,14 +694,24 @@ function renderChessPreview(canvas, config) {
   canvas.width = size; canvas.height = size;
   const ctx = canvas.getContext('2d');
   const sq = size / 8;
+
+  // Board border
+  ctx.strokeStyle = '#8B6E4E';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, size, size);
+
   for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
-    ctx.fillStyle = (r+c)%2===0 ? ARC3[0] : ARC3[2];
+    ctx.fillStyle = (r+c)%2===0 ? '#F0D9B5' : '#B58863';
     ctx.fillRect(c*sq, r*sq, sq, sq);
     const p = board[r][c];
     if (p !== 0) {
-      ctx.font = `${sq*0.75}px serif`;
+      ctx.font = `${sq*0.82}px serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = p > 0 ? '#FFFFFF' : '#111111';
+      // Shadow for depth
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillText(PIECE_UNICODE[p], c*sq+sq/2+0.8, r*sq+sq/2+0.8);
+      // Piece
+      ctx.fillStyle = p > 0 ? '#FFFFFF' : '#1a1a1a';
       ctx.fillText(PIECE_UNICODE[p], c*sq+sq/2, r*sq+sq/2);
     }
   }
@@ -4320,7 +4338,7 @@ function switchArenaMode(mode, skipHash) {
     layout.style.display = 'none';
     researchView.style.display = 'flex';
     statusBar.style.display = 'flex';
-    arBuildGameList();
+    arBuildGameTabs();
     if (!AR.selectedGame) {
       // Auto-select first game (snake) on initial load
       const firstGame = ARENA_GAMES[0];
@@ -4336,52 +4354,45 @@ function switchArenaMode(mode, skipHash) {
   }
 }
 
-function arBuildGameList() {
-  const container = document.getElementById('arGameList');
+const _GAME_TAB_ICONS = {
+  snake: '\u{1F40D}',     // snake emoji
+  chess960: '\u265A',      // chess king
+  tron: '\u26A1',          // lightning
+  connect4: '\u{1F534}',  // red circle
+  othello: '\u26AB',       // black circle
+  go9: '\u26AA',           // white circle
+  gomoku: '\u2B55',        // hollow circle
+  artillery: '\u{1F4A3}', // bomb
+  poker: '\u{1F0CF}',     // playing card
+};
+
+function arBuildGameTabs() {
+  const container = document.getElementById('arGameTabs');
   container.innerHTML = '';
 
-  const categories = [];
-  const catMap = {};
   for (const game of ARENA_GAMES) {
-    const cat = game.category || 'Other';
-    if (!catMap[cat]) { catMap[cat] = []; categories.push(cat); }
-    catMap[cat].push(game);
-  }
+    const tab = document.createElement('div');
+    tab.className = 'ar-game-tab' + (AR.selectedGame === game.id ? ' active' : '');
+    tab.dataset.game = game.id;
 
-  for (const cat of categories) {
-    const catDiv = document.createElement('div');
-    catDiv.className = 'ar-game-cat';
-    catDiv.innerHTML = `<div class="ar-game-cat-label">${escHtml(cat)}</div>`;
+    // Small canvas preview
+    const canvas = document.createElement('canvas');
+    canvas.className = 'ar-game-tab-preview';
+    canvas.width = 44; canvas.height = 44;
+    tab.appendChild(canvas);
 
-    for (const game of catMap[cat]) {
-      const item = document.createElement('div');
-      item.className = 'ar-game-item' + (AR.selectedGame === game.id ? ' active' : '');
-      item.dataset.game = game.id;
-      const tagsHtml = (game.tags || []).map(t => `<span class="ar-game-item-tag">${escHtml(t)}</span>`).join('');
+    const title = document.createElement('span');
+    title.className = 'ar-game-tab-title';
+    title.textContent = game.title;
+    tab.appendChild(title);
 
-      // Canvas thumbnail — rendered with the game's preview function
-      const canvas = document.createElement('canvas');
-      canvas.className = 'ar-game-item-preview';
-      canvas.width = 64; canvas.height = 64;
-      item.appendChild(canvas);
+    tab.addEventListener('click', () => arSelectGame(game.id, 'community'));
+    container.appendChild(tab);
 
-      const meta = document.createElement('div');
-      meta.className = 'ar-game-item-meta';
-      meta.innerHTML =
-        `<div class="ar-game-item-name">${escHtml(game.title)}</div>` +
-        `<div class="ar-game-item-desc">${escHtml(game.desc || '')}</div>` +
-        (tagsHtml ? `<div class="ar-game-item-tags">${tagsHtml}</div>` : '');
-      item.appendChild(meta);
-
-      item.addEventListener('click', () => arSelectGame(game.id, 'community'));
-      catDiv.appendChild(item);
-
-      // Render preview using the game's preview function (ARC-style grid)
-      if (game.preview) {
-        try { game.preview(canvas, game.config); } catch (e) { /* skip */ }
-      }
+    // Render preview
+    if (game.preview) {
+      try { game.preview(canvas, game.config); } catch (e) { /* skip */ }
     }
-    container.appendChild(catDiv);
   }
 }
 
@@ -4389,8 +4400,8 @@ async function arSelectGame(gameId, mode) {
   AR.selectedGame = gameId;
   AR.mode = mode || 'community';
 
-  // Highlight in game list
-  document.querySelectorAll('.ar-game-item').forEach(el => {
+  // Highlight active tab
+  document.querySelectorAll('.ar-game-tab').forEach(el => {
     el.classList.toggle('active', el.dataset.game === gameId);
   });
 
