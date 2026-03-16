@@ -1543,6 +1543,306 @@ function _arRenderMiniFrame(canvas, gameId, frame) {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   ELO Chart — bar chart of agent ratings
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function arRenderEloChart(gameId, agents) {
+  const canvas = document.getElementById('arEloChart');
+  if (!canvas || !agents || !agents.length) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const PAD = { top: 10, right: 10, bottom: 30, left: 40 };
+
+  ctx.fillStyle = '#0c0c18';
+  ctx.fillRect(0, 0, W, H);
+
+  // Sort by ELO descending, take top 15
+  const sorted = [...agents].sort((a, b) => b.elo - a.elo).slice(0, 15);
+  if (!sorted.length) return;
+
+  const minElo = Math.min(...sorted.map(a => a.elo)) - 20;
+  const maxElo = Math.max(...sorted.map(a => a.elo)) + 20;
+  const range = maxElo - minElo || 1;
+
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+  const barW = Math.max(4, chartW / sorted.length - 2);
+  const gap = (chartW - barW * sorted.length) / (sorted.length + 1);
+
+  // Y axis labels
+  ctx.fillStyle = '#555';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const elo = Math.round(minElo + (range * i / 4));
+    const y = PAD.top + chartH - (chartH * i / 4);
+    ctx.fillText(elo, PAD.left - 4, y + 3);
+    ctx.strokeStyle = '#ffffff08';
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+  }
+
+  // Bars
+  const colors = ['#00ff87', '#00b4d8', '#ff006e', '#FFDC00', '#A356D6', '#FF851B', '#88D8F1', '#4FCC30'];
+  for (let i = 0; i < sorted.length; i++) {
+    const a = sorted[i];
+    const x = PAD.left + gap + i * (barW + gap);
+    const barH = ((a.elo - minElo) / range) * chartH;
+    const y = PAD.top + chartH - barH;
+
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(x, y, barW, barH);
+
+    // Agent name (rotated)
+    ctx.save();
+    ctx.translate(x + barW / 2, PAD.top + chartH + 4);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#888';
+    ctx.font = '7px monospace';
+    ctx.textAlign = 'left';
+    const label = a.name.length > 12 ? a.name.slice(0, 11) + '…' : a.name;
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Populate Model Select for Agent Creation
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function _arPopulateCreateModels() {
+  const sel = document.getElementById('arCreateModel');
+  if (!sel) return;
+
+  // Use modelsData from state.js if available
+  const models = window.modelsData || {};
+  const providers = ['anthropic', 'gemini', 'groq', 'mistral', 'openai'];
+  const options = [];
+
+  for (const [key, info] of Object.entries(models)) {
+    if (providers.includes(info.provider)) {
+      options.push({ key, label: key, provider: info.provider });
+    }
+  }
+
+  if (!options.length) {
+    // Fallback — hardcode common models
+    options.push(
+      { key: 'claude-sonnet-4-6', label: 'claude-sonnet-4.6', provider: 'anthropic' },
+      { key: 'claude-haiku-4-5', label: 'claude-haiku-4.5', provider: 'anthropic' },
+      { key: 'gemini-2.5-flash', label: 'gemini-2.5-flash', provider: 'gemini' },
+    );
+  }
+
+  sel.innerHTML = options.map(o =>
+    `<option value="${o.key}">${o.label}</option>`
+  ).join('');
+
+  // Restore saved key
+  const savedKey = localStorage.getItem('arc_arena_create_api_key');
+  const keyInput = document.getElementById('arCreateApiKey');
+  if (savedKey && keyInput) keyInput.value = savedKey;
+
+  // Auto-fill key from BYOK if available
+  sel.addEventListener('change', () => {
+    const info = models[sel.value];
+    if (info && keyInput) {
+      const byokKey = localStorage.getItem(`byok_key_${info.provider}`);
+      if (byokKey) keyInput.value = byokKey;
+    }
+  });
+  // Trigger initial fill
+  sel.dispatchEvent(new Event('change'));
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Client-Side Agent Creation — runs LLM tool-calling loop in browser
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+async function arCreateAgentLocal() {
+  const btn = document.getElementById('arCreateAgentBtn');
+  const log = document.getElementById('arCreateAgentLog');
+  const modelSel = document.getElementById('arCreateModel');
+  const keyInput = document.getElementById('arCreateApiKey');
+  if (!modelSel || !keyInput) return;
+
+  const model = modelSel.value;
+  const apiKey = keyInput.value.trim();
+  if (!apiKey) { alert('Please enter an API key'); return; }
+
+  // Save key for next time
+  localStorage.setItem('arc_arena_create_api_key', apiKey);
+  const info = window.modelsData?.[model];
+  if (info) localStorage.setItem(`byok_key_${info.provider}`, apiKey);
+
+  const gameId = AR.selectedGame || 'snake';
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  log.style.display = 'block';
+  log.innerHTML = '<div style="color:#00ff87">Starting agent creation...</div>';
+
+  const _log = (msg, color = '#ccc') => {
+    log.innerHTML += `<div style="color:${color}">${msg}</div>`;
+    log.scrollTop = log.scrollHeight;
+  };
+
+  try {
+    // Load program.md + leaderboard
+    const research = await fetch(`/api/arena/research/${gameId}`).then(r => r.json());
+    const programMd = research.program?.content || _AR_DEFAULT_PROGRAM;
+    const leaderboard = research.leaderboard || [];
+
+    // Build leaderboard text
+    let lbText = '';
+    if (leaderboard.length) {
+      lbText = 'Current leaderboard:\n';
+      for (let i = 0; i < Math.min(5, leaderboard.length); i++) {
+        const a = leaderboard[i];
+        lbText += `  #${i + 1} ${a.name} ELO=${Math.round(a.elo)} W/L/D=${a.wins}/${a.losses}/${a.draws}\n`;
+      }
+      // Include top agent code
+      if (leaderboard[0]) {
+        try {
+          const topAgent = await fetch(`/api/arena/agents/${gameId}/${leaderboard[0].id}`).then(r => r.json());
+          if (topAgent.code) lbText += `\nBest agent code (${leaderboard[0].name}):\n\`\`\`python\n${topAgent.code}\n\`\`\`\n`;
+        } catch (e) {}
+      }
+    }
+
+    const gen = (research.generation || 0) + 1;
+    const systemPrompt = programMd + '\n\nCall create_agent with name and complete Python code.\nThe agent must have a get_move(state) function.\nOnly standard library imports (random, math, collections).\nMust return in <100ms.';
+    const userMessage = `Generation ${gen}. ${lbText}\nCreate ONE agent. Name it gen${gen}_<strategy>.\nStudy the top agents and create a counter-strategy.\nCall create_agent with name and full Python code.`;
+
+    _log(`Using ${model}`, '#00b4d8');
+    _log(`Sending prompt to LLM...`);
+
+    // Anthropic tool-calling loop (direct browser fetch)
+    const tools = [
+      { name: 'create_agent', description: 'Create a new agent. Code must define get_move(state).', input_schema: {
+        type: 'object', properties: { name: { type: 'string' }, code: { type: 'string' } }, required: ['name', 'code']
+      }},
+      { name: 'read_agent', description: "Read an agent's source code by name.", input_schema: {
+        type: 'object', properties: { agent_name: { type: 'string' } }, required: ['agent_name']
+      }},
+      { name: 'test_match', description: 'Run a test match between two agents.', input_schema: {
+        type: 'object', properties: { agent1_name: { type: 'string' }, agent2_name: { type: 'string' } }, required: ['agent1_name', 'agent2_name']
+      }},
+    ];
+
+    let messages = [{ role: 'user', content: userMessage }];
+    let createdAgent = null;
+
+    for (let round = 0; round < 6; round++) {
+      const isAnthropic = model.startsWith('claude');
+      const provider = info?.provider || (isAnthropic ? 'anthropic' : 'gemini');
+
+      let data;
+      if (provider === 'anthropic') {
+        const headers = { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST', headers,
+          body: JSON.stringify({ model: info?.api_model || model, max_tokens: 8192, system: systemPrompt, tools, messages }),
+        });
+        data = await resp.json();
+        if (!resp.ok) { _log(`API error: ${data.error?.message || resp.status}`, '#F93C31'); break; }
+      } else {
+        // For non-Anthropic, use callLLM (no tool calling, parse text)
+        const fullPrompt = [{ role: 'system', content: systemPrompt }, ...messages];
+        const text = await callLLM(fullPrompt, model, { maxTokens: 8192 });
+        _log(`LLM responded (text mode). Parsing for create_agent call...`);
+        // Try to parse XML-style tool call
+        const nameMatch = text.match(/create_agent.*?name['":\s]+(\w+)/s);
+        const codeMatch = text.match(/```python\n([\s\S]*?)```/);
+        if (nameMatch && codeMatch) {
+          data = { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tc_1', name: 'create_agent', input: { name: nameMatch[1], code: codeMatch[1] } }] };
+        } else {
+          _log('Could not parse agent from LLM response', '#F93C31');
+          break;
+        }
+      }
+
+      // Extract text
+      const textParts = (data.content || []).filter(b => b.type === 'text' && b.text);
+      for (const t of textParts) _log(t.text.substring(0, 200));
+
+      messages.push({ role: 'assistant', content: data.content });
+
+      if (data.stop_reason !== 'tool_use') {
+        _log('LLM finished without creating an agent', '#FFDC00');
+        break;
+      }
+
+      // Process tool calls
+      const toolResults = [];
+      for (const block of data.content) {
+        if (block.type !== 'tool_use') continue;
+        _log(`Tool: ${block.name}(${JSON.stringify(block.input).substring(0, 80)}...)`, '#00b4d8');
+
+        let result;
+        if (block.name === 'create_agent') {
+          // Submit to server
+          try {
+            const resp = await fetch(`/api/arena/agents/${gameId}`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: block.input.name, code: block.input.code, contributor: model }),
+            });
+            const r = await resp.json();
+            if (resp.ok && !r.error) {
+              createdAgent = { name: block.input.name, ...r };
+              result = JSON.stringify({ success: true, message: `Agent '${block.input.name}' created!` });
+              _log(`Agent '${block.input.name}' created and registered!`, '#00ff87');
+            } else {
+              result = JSON.stringify({ error: r.error || 'Submit failed' });
+              _log(`Submit failed: ${r.error || 'Unknown error'}`, '#F93C31');
+            }
+          } catch (e) {
+            result = JSON.stringify({ error: e.message });
+            _log(`Submit error: ${e.message}`, '#F93C31');
+          }
+        } else if (block.name === 'read_agent') {
+          try {
+            const a = leaderboard.find(x => x.name === block.input.agent_name);
+            if (a) {
+              const full = await fetch(`/api/arena/agents/${gameId}/${a.id}`).then(r => r.json());
+              result = full.code || '(no code)';
+            } else {
+              result = JSON.stringify({ error: 'Agent not found' });
+            }
+          } catch (e) { result = JSON.stringify({ error: e.message }); }
+          _log(`  → ${(result || '').substring(0, 100)}...`);
+        } else if (block.name === 'test_match') {
+          result = JSON.stringify({ message: 'Test matches not available in browser mode. Agent was auto-tested on submit.' });
+          _log('  → Test match skipped (browser mode)');
+        } else {
+          result = JSON.stringify({ error: `Unknown tool: ${block.name}` });
+        }
+
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result || '' });
+      }
+      messages.push({ role: 'user', content: toolResults });
+
+      if (createdAgent) break;
+    }
+
+    if (createdAgent) {
+      _log(`\nDone! Agent "${createdAgent.name}" is now on the leaderboard.`, '#00ff87');
+      // Refresh leaderboard
+      const data = await fetch(`/api/arena/research/${gameId}`).then(r => r.json());
+      if (!data.error) arRenderResearch(gameId, data);
+    } else {
+      _log('\nNo agent was created this round.', '#FFDC00');
+    }
+  } catch (e) {
+    _log(`Error: ${e.message}`, '#F93C31');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Agent';
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
    Human vs AI Play — Phase 4
    ═══════════════════════════════════════════════════════════════════════════ */
 

@@ -4434,6 +4434,9 @@ function arRenderResearch(gameId, data) {
 
   // Live tournament canvases (server-side matches)
   if (typeof arFetchLiveTournament === 'function') arFetchLiveTournament(gameId);
+
+  // ELO chart
+  if (typeof arRenderEloChart === 'function') arRenderEloChart(gameId, data.leaderboard || []);
 }
 
 // Default program.md for snake (shown when server has no program yet)
@@ -4526,25 +4529,8 @@ function arRenderProgram(program) {
   if (editEl) editEl.style.display = 'none';
   view.style.display = '';
 
-  // Version selector
-  const sel = document.getElementById('arProgramVersion');
-  if (sel) {
-    sel.innerHTML = '';
-    if (program && program.versions) {
-      for (const v of program.versions) {
-        const opt = document.createElement('option');
-        opt.value = v.version;
-        opt.textContent = `v${v.version}` + (v.author ? ` (${v.author})` : '');
-        sel.appendChild(opt);
-      }
-    }
-  }
-
-  // Active proposal indicator
-  if (program && program.active_proposal) {
-    const remaining = Math.max(0, Math.ceil((program.active_proposal.vote_deadline - Date.now()/1000)));
-    view.innerHTML += `<div class="ar-vote-banner">Active proposal: ${remaining}s left — For: ${program.active_proposal.votes_for} Against: ${program.active_proposal.votes_against}</div>`;
-  }
+  // Populate model select for agent creation
+  _arPopulateCreateModels();
 }
 
 function arToggleEdit() {
@@ -4665,7 +4651,8 @@ function arRenderLeaderboard(gameId, agents) {
       <td>${a.wins}/${a.losses}/${a.draws}</td>
       <td>${a.games_played}</td>
       <td class="ar-contributor">${escHtml(a.contributor || '—')}</td>
-      <td>
+      <td style="white-space:nowrap">
+        <button class="ar-btn ar-btn-xs" onclick="arShowAgentCode('${gameId}',${a.id},'${escHtml(a.name)}')">Code</button>
         ${a.is_human ? '' : `<button class="ar-btn ar-btn-xs" onclick="arShowHumanDialog('${gameId}',${a.id},'${escHtml(a.name)}',${Math.round(a.elo)})">Play ▶</button>`}
       </td>
     </tr>`;

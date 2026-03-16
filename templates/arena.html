@@ -207,8 +207,8 @@ const FEATURES = {{ features | tojson }};
       <!-- Program.md viewer/editor — 2/3 height -->
       <div class="ar-program-area" id="arProgramArea">
         <div class="ar-section-header">
-          <span>program.md <button class="ar-btn ar-btn-xs" id="arProgramEditBtn" onclick="arToggleEdit()" style="margin-left:6px">Edit</button></span>
-          <select class="ar-small-select" id="arProgramVersion"></select>
+          <span>program.md</span>
+          <button class="ar-btn ar-btn-xs" id="arProgramEditBtn" onclick="arToggleEdit()">Edit</button>
         </div>
         <div class="ar-program-view" id="arProgramView">
           <div class="ar-no-data">Select a game to view its evolution program</div>
@@ -220,6 +220,15 @@ const FEATURES = {{ features | tojson }};
             <input type="text" id="arProgramSummary" placeholder="Change summary..." class="ar-input">
             <button class="ar-btn ar-btn-accept" onclick="arProposeProgram()">Accept Changes</button>
             <button class="ar-btn ar-btn-xs" onclick="arCancelEdit()">Cancel</button>
+          </div>
+          <div class="ar-create-agent-area" id="arCreateAgentArea">
+            <div class="ar-section-header"><span>Create New Code Agent</span></div>
+            <div class="ar-create-agent-controls">
+              <select id="arCreateModel" class="ar-small-select" style="flex:1"><option>Loading models...</option></select>
+              <input type="password" id="arCreateApiKey" class="ar-input" placeholder="API key" style="flex:1">
+              <button class="ar-btn ar-btn-primary" id="arCreateAgentBtn" onclick="arCreateAgentLocal()">Create Agent</button>
+            </div>
+            <div class="ar-create-agent-log" id="arCreateAgentLog" style="display:none;"></div>
           </div>
         </div>
       </div>
@@ -270,6 +279,10 @@ const FEATURES = {{ features | tojson }};
         <div class="ar-live-cell"><canvas id="arLive1" width="400" height="400"></canvas><div class="ar-live-info" id="arLiveInfo1"></div></div>
         <div class="ar-live-cell"><canvas id="arLive2" width="400" height="400"></canvas><div class="ar-live-info" id="arLiveInfo2"></div></div>
         <div class="ar-live-cell"><canvas id="arLive3" width="400" height="400"></canvas><div class="ar-live-info" id="arLiveInfo3"></div></div>
+      </div>
+      <div class="ar-section-header"><span>ELO Ratings</span></div>
+      <div class="ar-elo-chart-wrap">
+        <canvas id="arEloChart" width="400" height="200"></canvas>
       </div>
     </div>
   </div>

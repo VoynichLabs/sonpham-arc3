@@ -829,6 +829,30 @@
 }
 
 
+/* ── ELO Chart ── */
+.ar-elo-chart-wrap {
+  padding: 6px; flex-shrink: 0;
+}
+.ar-elo-chart-wrap canvas {
+  width: 100%; height: auto; display: block; border-radius: 3px;
+}
+
+/* ── Create Agent Area ── */
+.ar-create-agent-area {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+}
+.ar-create-agent-controls {
+  display: flex; gap: 4px; align-items: center; padding: 4px 0;
+}
+.ar-create-agent-controls select, .ar-create-agent-controls input {
+  font-size: 11px; padding: 4px 6px;
+}
+.ar-create-agent-log {
+  max-height: 200px; overflow-y: auto; background: #0a0a12; border: 1px solid var(--border);
+  border-radius: 3px; padding: 6px; margin-top: 4px; font-size: 10px; font-family: monospace;
+  line-height: 1.4;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Auto Research Components
    ═══════════════════════════════════════════════════════════════════════════ */

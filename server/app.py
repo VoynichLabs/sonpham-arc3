@@ -383,6 +383,19 @@ def arena_live_tournament(game_id):
     return jsonify(get_live_matches(game_id))
 
 
+@app.route("/api/arena/elo-history/<game_id>")
+def arena_elo_history(game_id):
+    from db_arena import arena_get_leaderboard
+    agents = arena_get_leaderboard(game_id, limit=50)
+    # Return current snapshot — each agent's name, elo, games_played, contributor
+    # Frontend can track history over time via polling
+    return jsonify([{
+        'name': a['name'], 'elo': round(a['elo'], 1),
+        'games': a['games_played'], 'by': a.get('contributor', ''),
+        'wins': a['wins'], 'losses': a['losses'],
+    } for a in agents])
+
+
 @app.route("/api/arena/human-play/<game_id>", methods=["POST"])
 def arena_human_play(game_id):
     data = request.get_json(force=True)
