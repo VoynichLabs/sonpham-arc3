@@ -523,8 +523,9 @@ def arena_human_play(game_id):
 
 
 def _is_arena_host():
-    """True when the request arrives on arena.* subdomain."""
-    return request.host.split(":")[0].startswith("arena.")
+    """True when the request arrives on an arena subdomain (arena.* or staging-arena.*)."""
+    host = request.host.split(":")[0]
+    return host.startswith("arena.") or host.startswith("staging-arena.")
 
 
 def _render_observatory():
