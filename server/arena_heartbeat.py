@@ -39,6 +39,7 @@ from db_arena import (
     arena_update_elo,
     arena_count_pair_games,
     arena_post_comment,
+    arena_strip_excess_history,
     MAX_STORED_GAMES_PER_PAIR,
     _db,
 )
@@ -1439,6 +1440,7 @@ def _tournament_grinder(game_id):
 
     total = 0
     consecutive_zeros = 0
+    last_cleanup = time.time()
     while _heartbeat_state['running']:
         try:
             played = _run_tournament(game_id=game_id, match_count=TOURNAMENT_BATCH)
@@ -1462,6 +1464,14 @@ def _tournament_grinder(game_id):
             traceback.print_exc()
             time.sleep(10)
             continue
+
+        # Periodic cleanup — strip old history blobs every 10 min
+        if time.time() - last_cleanup > 600:
+            try:
+                arena_strip_excess_history(game_id)
+            except Exception:
+                pass
+            last_cleanup = time.time()
 
 
 def _tournament_loop():
