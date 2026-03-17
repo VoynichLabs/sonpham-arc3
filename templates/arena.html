@@ -368,13 +368,12 @@ let currentUser = null;
         <div class="ar-human-opponent" id="arHumanOpponent"></div>
         <label>Your Time Per Move</label>
         <div class="ar-delay-options" id="arDelayOptions">
-          <label class="ar-delay-opt"><input type="radio" name="arDelay" value="250"> <span>Fast (250ms)</span> <small>reflex mode</small></label>
-          <label class="ar-delay-opt"><input type="radio" name="arDelay" value="500"> <span>Normal (500ms)</span> <small>competitive</small></label>
-          <label class="ar-delay-opt"><input type="radio" name="arDelay" value="1000" checked> <span>Relaxed (1000ms)</span> <small>strategic</small></label>
-          <label class="ar-delay-opt"><input type="radio" name="arDelay" value="2000"> <span>Slow (2000ms)</span> <small>careful analysis</small></label>
+          <label class="ar-delay-opt"><input type="radio" name="arDelay" value="120"> <span>0.12s</span> <small>reflex mode</small></label>
+          <label class="ar-delay-opt"><input type="radio" name="arDelay" value="250" checked> <span>0.25s</span> <small>competitive</small></label>
+          <label class="ar-delay-opt"><input type="radio" name="arDelay" value="1000"> <span>1s</span> <small>strategic</small></label>
           <label class="ar-delay-opt"><input type="radio" name="arDelay" value="0"> <span>Infinite</span> <small>unlimited thinking</small></label>
         </div>
-        <div class="ar-human-label-preview">You appear as: <strong id="arHumanLabel">human-1000ms</strong></div>
+        <div class="ar-human-label-preview">You appear as: <strong id="arHumanLabel">human-250ms</strong></div>
         <div class="ar-dialog-actions">
           <button class="ar-btn" onclick="arCloseHumanDialog()">Cancel</button>
           <button class="ar-btn ar-btn-primary" onclick="arStartHumanPlay()">Start Game</button>
