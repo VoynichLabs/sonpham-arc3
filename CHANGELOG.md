@@ -18,7 +18,20 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
-<<<<<<< Updated upstream
+## [1.9.5] — feat: Snake agent memory dict + Program.md versioning
+*Author: Claude Opus 4.6 | 2026-03-17*
+
+### Added
+- **Agent memory dict** — All 4 snake variants (classic, random, royale, 2v2) now expose `state['memory']` — a persistent `{}` dict per agent that survives across all turns within a game. Agents can store arbitrary data (enemy models, caches, strategy state). Capped at 500KB serialized; exceeding wipes to `{}`.
+- **Program.md versioning** — Each game's Program.md now has dated copies (`snake_random_program-2026-03-17.md`, etc.) in `server/arena_seeds/`. The `_resolve_program_file()` function finds the latest dated version for each game.
+- **Agent → Program.md linkage** — New `program_file` TEXT column on `arena_agents` table stores which Program.md file was active when the agent was created during evolution. Enables tracing agent lineage to specific program versions.
+
+### Changed
+- **Program.md files** — All 4 snake program files updated with new `## Agent Memory` section documenting both `prev_moves` (list) and `memory` (dict). State key comments in Agent Interface sections now list `memory`.
+- **Validation test states** — All test scenarios across 4 variants include `'memory': {}` to match the new state shape.
+
+---
+
 ## [1.9.3] — feat: Snake variants server-side activation (tournament + evolution)
 *Author: Claude Opus 4.6 | 2026-03-17*
 
@@ -203,7 +216,7 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 - **RLE encoding** — no longer used in any LLM prompt (grid or diff). `compressRowJS()` kept for backward compat but not called by any scaffolding.
 
 ---
-=======
+
 ## [1.7.3] — feat: Tower Siege game (ts01)
 *Author: Claude Sonnet 4.6 | 2026-03-17*
 
@@ -211,8 +224,6 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 - New game `ts01` Tower Siege: 5-level click-only siege puzzle with 3 unit types (Sapper/bomb, Scout/grapple+2-cell-move, Soldier/contact-kill) unlocking progressively across levels. Gate timing, gap grappling, and guard avoidance are introduced one mechanic per level. Fully deterministic; all 5 levels verified by automated smoke test.
 
 ---
-
->>>>>>> Stashed changes
 ## [1.7.2] — feat: Arena Auto Research layout overhaul
 *Author: Claude Opus 4.6 | 2026-03-16*
 

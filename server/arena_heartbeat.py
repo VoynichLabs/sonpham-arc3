@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-17 22:30
+# Date: 2026-03-17 23:30
 # PURPOSE: Server-side arena heartbeat — runs evolution + tournament for multiple games.
 #   Supports snake (classic + random maps + royale + 2v2), chess960, othello.
 #   Game engines dispatched via _ACTIVE_GAMES.
@@ -8,6 +8,7 @@
 #   Tournament: single thread round-robins all games (prevents SQLite corruption).
 #   Evolution: one thread per game (LLM-bound, mostly idle waiting on API).
 #   Chess960 uses random position each match (time-seeded for true randomization).
+#   Program.md versioning: dated files per game, tracked via program_file on agents.
 #   Monitor via /api/arena/heartbeat/status endpoint.
 # SRP/DRY check: Pass — reuses existing db_arena functions, game engines, arena_tool_runner
 
@@ -115,6 +116,24 @@ def _load_default_program(game_id='snake'):
         with open(path) as f:
             return f.read()
     return _GAME_PROGRAM_FALLBACKS.get(game_id, "Create agents with a get_move(state) function.")
+
+
+def _resolve_program_file(game_id='snake'):
+    """Resolve the actual program file used for a game_id.
+
+    Checks for a dated version first (e.g. snake_random_program-2026-03-17.md),
+    falling back to the base filename. Returns the filename (not full path).
+    """
+    import glob as _glob
+    base = _GAME_PROGRAM_FILES.get(game_id, 'default_program.md')
+    stem = base.rsplit('.', 1)[0]  # e.g. 'snake_random_program'
+
+    # Find all dated versions, pick the latest
+    pattern = os.path.join(_SEEDS_DIR, f'{stem}-*.md')
+    dated = sorted(_glob.glob(pattern))
+    if dated:
+        return os.path.basename(dated[-1])
+    return base
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -544,7 +563,7 @@ Call create_agent with name and full Python code."""
     set_monitor_context(game_id=game_id, generation=generation)
     created = []
 
-    # Track program version for agent lineage
+    # Track program version + file for agent lineage
     program_version_id = None
     if program_data and program_data.get('versions'):
         # Find the most recently applied version
@@ -553,9 +572,12 @@ Call create_agent with name and full Python code."""
                 program_version_id = v['id']
                 break
 
+    program_file = _resolve_program_file(game_id)
+
     def tool_handler(name, args):
         return _handle_tool(name, args, game_id, agents, created,
-                           contributor=model_label, program_version_id=program_version_id)
+                           contributor=model_label, program_version_id=program_version_id,
+                           program_file=program_file)
 
     try:
         run_tool_loop(
@@ -576,7 +598,8 @@ Call create_agent with name and full Python code."""
 
 
 def _handle_tool(name, args, game_id, agents, created_list,
-                  contributor='arena_heartbeat', program_version_id=None):
+                  contributor='arena_heartbeat', program_version_id=None,
+                  program_file=None):
     """Handle tool calls during evolution. Supports all 8 tools."""
 
     if name == 'query_db':
@@ -605,7 +628,8 @@ def _handle_tool(name, args, game_id, agents, created_list,
 
     if name == 'create_agent':
         return _tool_create_agent(args, game_id, agents, created_list,
-                                  contributor=contributor, program_version_id=program_version_id)
+                                  contributor=contributor, program_version_id=program_version_id,
+                                  program_file=program_file)
 
     if name == 'edit_current_agent':
         agent_name = args.get('name', '')
@@ -741,18 +765,18 @@ def _handle_tool(name, args, game_id, agents, created_list,
 _VALID_MOVES = {'UP', 'DOWN', 'LEFT', 'RIGHT'}
 
 _TEST_STATES = [
-    ('center', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5], [12, 8], [18, 2]], 'turn': 50, 'prev_moves': []}),
-    ('near_top_wall', {'grid_size': (20, 20), 'my_snake': [[10, 0], [10, 1], [10, 2]], 'my_direction': 'UP', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5], [12, 8]], 'turn': 30, 'prev_moves': []}),
-    ('near_bottom_wall', {'grid_size': (20, 20), 'my_snake': [[10, 19], [10, 18], [10, 17]], 'my_direction': 'DOWN', 'enemy_snake': [[5, 5], [4, 5], [3, 5]], 'enemy_direction': 'RIGHT', 'food': [[15, 10]], 'turn': 100, 'prev_moves': []}),
-    ('near_left_wall', {'grid_size': (20, 20), 'my_snake': [[0, 10], [1, 10], [2, 10]], 'my_direction': 'LEFT', 'enemy_snake': [[19, 10], [18, 10], [17, 10]], 'enemy_direction': 'RIGHT', 'food': [[10, 10]], 'turn': 75, 'prev_moves': []}),
-    ('corner_top_left', {'grid_size': (20, 20), 'my_snake': [[0, 0], [1, 0], [2, 0]], 'my_direction': 'LEFT', 'enemy_snake': [[19, 19], [18, 19], [17, 19]], 'enemy_direction': 'LEFT', 'food': [[10, 10]], 'turn': 10, 'prev_moves': []}),
-    ('corner_bottom_right', {'grid_size': (20, 20), 'my_snake': [[19, 19], [18, 19], [17, 19]], 'my_direction': 'RIGHT', 'enemy_snake': [[0, 0], [1, 0], [2, 0]], 'enemy_direction': 'RIGHT', 'food': [[10, 10]], 'turn': 10, 'prev_moves': []}),
-    ('long_snake', {'grid_size': (20, 20), 'my_snake': [[10, 10], [10, 11], [10, 12], [10, 13], [10, 14], [10, 15], [10, 16], [10, 17], [9, 17], [8, 17], [7, 17], [6, 17], [5, 17], [4, 17], [3, 17]], 'my_direction': 'UP', 'enemy_snake': [[5, 5], [4, 5], [3, 5]], 'enemy_direction': 'RIGHT', 'food': [[15, 5], [2, 2], [18, 18]], 'turn': 200, 'prev_moves': []}),
-    ('enemy_adjacent', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[12, 10], [13, 10], [14, 10]], 'enemy_direction': 'LEFT', 'food': [[10, 5], [10, 15]], 'turn': 80, 'prev_moves': []}),
-    ('enemy_dead', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [], 'enemy_direction': None, 'food': [[15, 15], [5, 5]], 'turn': 300, 'prev_moves': []}),
-    ('tight_space', {'grid_size': (20, 20), 'my_snake': [[5, 5], [5, 6], [5, 7], [4, 7], [3, 7], [3, 6], [3, 5], [4, 5]], 'my_direction': 'UP', 'enemy_snake': [[15, 15], [16, 15]], 'enemy_direction': 'LEFT', 'food': [[10, 10]], 'turn': 150, 'prev_moves': []}),
-    ('start_of_game', {'grid_size': (20, 20), 'my_snake': [[3, 3], [2, 3], [1, 3]], 'my_direction': 'RIGHT', 'enemy_snake': [[16, 16], [17, 16], [18, 16]], 'enemy_direction': 'LEFT', 'food': [[10, 5], [7, 12], [15, 3]], 'turn': 0, 'prev_moves': []}),
-    ('late_game', {'grid_size': (20, 20), 'my_snake': [[10, 10], [10, 11], [10, 12], [10, 13], [10, 14], [10, 15]], 'my_direction': 'UP', 'enemy_snake': [[5, 5], [5, 6], [5, 7], [5, 8], [5, 9], [5, 10], [5, 11]], 'enemy_direction': 'UP', 'food': [[18, 18], [1, 1], [15, 3]], 'turn': 450, 'prev_moves': []}),
+    ('center', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5], [12, 8], [18, 2]], 'turn': 50, 'prev_moves': [], 'memory': {}}),
+    ('near_top_wall', {'grid_size': (20, 20), 'my_snake': [[10, 0], [10, 1], [10, 2]], 'my_direction': 'UP', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5], [12, 8]], 'turn': 30, 'prev_moves': [], 'memory': {}}),
+    ('near_bottom_wall', {'grid_size': (20, 20), 'my_snake': [[10, 19], [10, 18], [10, 17]], 'my_direction': 'DOWN', 'enemy_snake': [[5, 5], [4, 5], [3, 5]], 'enemy_direction': 'RIGHT', 'food': [[15, 10]], 'turn': 100, 'prev_moves': [], 'memory': {}}),
+    ('near_left_wall', {'grid_size': (20, 20), 'my_snake': [[0, 10], [1, 10], [2, 10]], 'my_direction': 'LEFT', 'enemy_snake': [[19, 10], [18, 10], [17, 10]], 'enemy_direction': 'RIGHT', 'food': [[10, 10]], 'turn': 75, 'prev_moves': [], 'memory': {}}),
+    ('corner_top_left', {'grid_size': (20, 20), 'my_snake': [[0, 0], [1, 0], [2, 0]], 'my_direction': 'LEFT', 'enemy_snake': [[19, 19], [18, 19], [17, 19]], 'enemy_direction': 'LEFT', 'food': [[10, 10]], 'turn': 10, 'prev_moves': [], 'memory': {}}),
+    ('corner_bottom_right', {'grid_size': (20, 20), 'my_snake': [[19, 19], [18, 19], [17, 19]], 'my_direction': 'RIGHT', 'enemy_snake': [[0, 0], [1, 0], [2, 0]], 'enemy_direction': 'RIGHT', 'food': [[10, 10]], 'turn': 10, 'prev_moves': [], 'memory': {}}),
+    ('long_snake', {'grid_size': (20, 20), 'my_snake': [[10, 10], [10, 11], [10, 12], [10, 13], [10, 14], [10, 15], [10, 16], [10, 17], [9, 17], [8, 17], [7, 17], [6, 17], [5, 17], [4, 17], [3, 17]], 'my_direction': 'UP', 'enemy_snake': [[5, 5], [4, 5], [3, 5]], 'enemy_direction': 'RIGHT', 'food': [[15, 5], [2, 2], [18, 18]], 'turn': 200, 'prev_moves': [], 'memory': {}}),
+    ('enemy_adjacent', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[12, 10], [13, 10], [14, 10]], 'enemy_direction': 'LEFT', 'food': [[10, 5], [10, 15]], 'turn': 80, 'prev_moves': [], 'memory': {}}),
+    ('enemy_dead', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [], 'enemy_direction': None, 'food': [[15, 15], [5, 5]], 'turn': 300, 'prev_moves': [], 'memory': {}}),
+    ('tight_space', {'grid_size': (20, 20), 'my_snake': [[5, 5], [5, 6], [5, 7], [4, 7], [3, 7], [3, 6], [3, 5], [4, 5]], 'my_direction': 'UP', 'enemy_snake': [[15, 15], [16, 15]], 'enemy_direction': 'LEFT', 'food': [[10, 10]], 'turn': 150, 'prev_moves': [], 'memory': {}}),
+    ('start_of_game', {'grid_size': (20, 20), 'my_snake': [[3, 3], [2, 3], [1, 3]], 'my_direction': 'RIGHT', 'enemy_snake': [[16, 16], [17, 16], [18, 16]], 'enemy_direction': 'LEFT', 'food': [[10, 5], [7, 12], [15, 3]], 'turn': 0, 'prev_moves': [], 'memory': {}}),
+    ('late_game', {'grid_size': (20, 20), 'my_snake': [[10, 10], [10, 11], [10, 12], [10, 13], [10, 14], [10, 15]], 'my_direction': 'UP', 'enemy_snake': [[5, 5], [5, 6], [5, 7], [5, 8], [5, 9], [5, 10], [5, 11]], 'enemy_direction': 'UP', 'food': [[18, 18], [1, 1], [15, 3]], 'turn': 450, 'prev_moves': [], 'memory': {}}),
 ]
 
 
@@ -954,18 +978,18 @@ def _validate_othello_code(code):
 # ═══════════════════════════════════════════════════════════════════════════
 
 _TEST_STATES_RANDOM = [
-    ('center_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5], [12, 8]], 'walls': [[7, 7], [7, 8], [7, 9], [12, 5], [13, 5]], 'turn': 50, 'prev_moves': []}),
-    ('wall_above', {'grid_size': (20, 20), 'my_snake': [[10, 5], [10, 6], [10, 7]], 'my_direction': 'UP', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5]], 'walls': [[10, 4], [9, 4], [11, 4]], 'turn': 30, 'prev_moves': []}),
-    ('wall_corridor', {'grid_size': (20, 20), 'my_snake': [[5, 10], [4, 10], [3, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 10], [16, 10], [17, 10]], 'enemy_direction': 'LEFT', 'food': [[10, 5]], 'walls': [[5, 9], [6, 9], [7, 9], [5, 11], [6, 11], [7, 11]], 'turn': 60, 'prev_moves': []}),
-    ('near_border', {'grid_size': (20, 20), 'my_snake': [[1, 10], [2, 10], [3, 10]], 'my_direction': 'LEFT', 'enemy_snake': [[18, 10], [17, 10], [16, 10]], 'enemy_direction': 'RIGHT', 'food': [[10, 10]], 'walls': [[5, 5], [5, 6]], 'turn': 40, 'prev_moves': []}),
-    ('corner_walls', {'grid_size': (20, 20), 'my_snake': [[2, 2], [3, 2], [4, 2]], 'my_direction': 'LEFT', 'enemy_snake': [[17, 17], [16, 17], [15, 17]], 'enemy_direction': 'RIGHT', 'food': [[10, 10]], 'walls': [[3, 3], [3, 4], [4, 3]], 'turn': 20, 'prev_moves': []}),
-    ('many_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5]], 'walls': [[3, 3], [3, 4], [3, 5], [7, 7], [7, 8], [12, 3], [12, 4], [12, 5], [15, 8], [15, 9], [15, 10]], 'turn': 100, 'prev_moves': []}),
-    ('wall_trap', {'grid_size': (20, 20), 'my_snake': [[8, 8], [8, 9], [8, 10]], 'my_direction': 'UP', 'enemy_snake': [[15, 15], [14, 15], [13, 15]], 'enemy_direction': 'RIGHT', 'food': [[12, 12]], 'walls': [[7, 7], [8, 7], [9, 7], [9, 8]], 'turn': 80, 'prev_moves': []}),
-    ('enemy_near_wall', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[12, 10], [13, 10], [14, 10]], 'enemy_direction': 'LEFT', 'food': [[10, 5]], 'walls': [[11, 9], [11, 11]], 'turn': 90, 'prev_moves': []}),
-    ('enemy_dead_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [], 'enemy_direction': None, 'food': [[15, 15]], 'walls': [[5, 5], [5, 6], [6, 5]], 'turn': 150, 'prev_moves': []}),
-    ('no_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5]], 'walls': [], 'turn': 10, 'prev_moves': []}),
-    ('start_walls', {'grid_size': (20, 20), 'my_snake': [[3, 3], [2, 3], [1, 3]], 'my_direction': 'RIGHT', 'enemy_snake': [[16, 16], [17, 16], [18, 16]], 'enemy_direction': 'LEFT', 'food': [[10, 5]], 'walls': [[5, 3], [5, 4], [5, 5], [10, 10], [11, 10]], 'turn': 0, 'prev_moves': []}),
-    ('late_game_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [10, 11], [10, 12], [10, 13], [10, 14]], 'my_direction': 'UP', 'enemy_snake': [[5, 5], [5, 6], [5, 7], [5, 8]], 'enemy_direction': 'UP', 'food': [[18, 18]], 'walls': [[8, 8], [8, 9], [9, 8], [12, 12], [12, 13]], 'turn': 180, 'prev_moves': []}),
+    ('center_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5], [12, 8]], 'walls': [[7, 7], [7, 8], [7, 9], [12, 5], [13, 5]], 'turn': 50, 'prev_moves': [], 'memory': {}}),
+    ('wall_above', {'grid_size': (20, 20), 'my_snake': [[10, 5], [10, 6], [10, 7]], 'my_direction': 'UP', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5]], 'walls': [[10, 4], [9, 4], [11, 4]], 'turn': 30, 'prev_moves': [], 'memory': {}}),
+    ('wall_corridor', {'grid_size': (20, 20), 'my_snake': [[5, 10], [4, 10], [3, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 10], [16, 10], [17, 10]], 'enemy_direction': 'LEFT', 'food': [[10, 5]], 'walls': [[5, 9], [6, 9], [7, 9], [5, 11], [6, 11], [7, 11]], 'turn': 60, 'prev_moves': [], 'memory': {}}),
+    ('near_border', {'grid_size': (20, 20), 'my_snake': [[1, 10], [2, 10], [3, 10]], 'my_direction': 'LEFT', 'enemy_snake': [[18, 10], [17, 10], [16, 10]], 'enemy_direction': 'RIGHT', 'food': [[10, 10]], 'walls': [[5, 5], [5, 6]], 'turn': 40, 'prev_moves': [], 'memory': {}}),
+    ('corner_walls', {'grid_size': (20, 20), 'my_snake': [[2, 2], [3, 2], [4, 2]], 'my_direction': 'LEFT', 'enemy_snake': [[17, 17], [16, 17], [15, 17]], 'enemy_direction': 'RIGHT', 'food': [[10, 10]], 'walls': [[3, 3], [3, 4], [4, 3]], 'turn': 20, 'prev_moves': [], 'memory': {}}),
+    ('many_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5]], 'walls': [[3, 3], [3, 4], [3, 5], [7, 7], [7, 8], [12, 3], [12, 4], [12, 5], [15, 8], [15, 9], [15, 10]], 'turn': 100, 'prev_moves': [], 'memory': {}}),
+    ('wall_trap', {'grid_size': (20, 20), 'my_snake': [[8, 8], [8, 9], [8, 10]], 'my_direction': 'UP', 'enemy_snake': [[15, 15], [14, 15], [13, 15]], 'enemy_direction': 'RIGHT', 'food': [[12, 12]], 'walls': [[7, 7], [8, 7], [9, 7], [9, 8]], 'turn': 80, 'prev_moves': [], 'memory': {}}),
+    ('enemy_near_wall', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[12, 10], [13, 10], [14, 10]], 'enemy_direction': 'LEFT', 'food': [[10, 5]], 'walls': [[11, 9], [11, 11]], 'turn': 90, 'prev_moves': [], 'memory': {}}),
+    ('enemy_dead_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [], 'enemy_direction': None, 'food': [[15, 15]], 'walls': [[5, 5], [5, 6], [6, 5]], 'turn': 150, 'prev_moves': [], 'memory': {}}),
+    ('no_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [9, 10], [8, 10]], 'my_direction': 'RIGHT', 'enemy_snake': [[15, 15], [16, 15], [17, 15]], 'enemy_direction': 'LEFT', 'food': [[5, 5]], 'walls': [], 'turn': 10, 'prev_moves': [], 'memory': {}}),
+    ('start_walls', {'grid_size': (20, 20), 'my_snake': [[3, 3], [2, 3], [1, 3]], 'my_direction': 'RIGHT', 'enemy_snake': [[16, 16], [17, 16], [18, 16]], 'enemy_direction': 'LEFT', 'food': [[10, 5]], 'walls': [[5, 3], [5, 4], [5, 5], [10, 10], [11, 10]], 'turn': 0, 'prev_moves': [], 'memory': {}}),
+    ('late_game_walls', {'grid_size': (20, 20), 'my_snake': [[10, 10], [10, 11], [10, 12], [10, 13], [10, 14]], 'my_direction': 'UP', 'enemy_snake': [[5, 5], [5, 6], [5, 7], [5, 8]], 'enemy_direction': 'UP', 'food': [[18, 18]], 'walls': [[8, 8], [8, 9], [9, 8], [12, 12], [12, 13]], 'turn': 180, 'prev_moves': [], 'memory': {}}),
 ]
 
 
@@ -1239,7 +1263,8 @@ def _validate_code(game_id, code):
 
 
 def _tool_create_agent(args, game_id, agents, created_list,
-                       contributor='arena_heartbeat', program_version_id=None):
+                       contributor='arena_heartbeat', program_version_id=None,
+                       program_file=None):
     """Handle the create_agent tool call."""
     agent_name = args.get('name', '')
     code = args.get('code', '')
@@ -1253,7 +1278,8 @@ def _tool_create_agent(args, game_id, agents, created_list,
 
     try:
         result = arena_submit_agent(game_id, agent_name, code, contributor=contributor,
-                                    program_version_id=program_version_id)
+                                    program_version_id=program_version_id,
+                                    program_file=program_file)
         if isinstance(result, str):
             return json.dumps({'error': result})
         created_list.append(agent_name)

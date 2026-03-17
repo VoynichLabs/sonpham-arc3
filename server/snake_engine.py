@@ -1,14 +1,20 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-17 15:00
+# Date: 2026-03-17 18:00
 # PURPOSE: Core snake game engines for Arena. 2-player SnakeGame, 2-player SnakeRandomGame
 #   (with procedural walls), and 4-player SnakeGame4P (Battle Royale & 2v2 Teams).
+#   All variants expose state['memory'] — a persistent dict per agent (capped at 500KB).
 #   Used by server heartbeat and batch runner.
 # SRP/DRY check: Pass — game engine logic only, no DB or API calls
 """Core snake game engines for 2-player, random-maps, and 4-player competitive snake."""
 
+import json
 import random
 from collections import deque
 from typing import List, Tuple, Dict, Optional, Set
+
+# Max serialized size of a single agent's memory dict (bytes).
+# Prevents runaway RAM usage from agents stuffing arbitrary data.
+MEMORY_MAX_BYTES = 500_000  # 500 KB
 
 DIRECTIONS = {
     'UP': (0, -1),
@@ -16,6 +22,20 @@ DIRECTIONS = {
     'LEFT': (-1, 0),
     'RIGHT': (1, 0),
 }
+
+
+def _enforce_memory_cap(memory_list, idx):
+    """If an agent's memory dict exceeds MEMORY_MAX_BYTES, wipe it to prevent RAM abuse."""
+    mem = memory_list[idx]
+    if not mem:
+        return
+    try:
+        size = len(json.dumps(mem, default=str))
+    except (TypeError, ValueError, OverflowError):
+        memory_list[idx] = {}
+        return
+    if size > MEMORY_MAX_BYTES:
+        memory_list[idx] = {}
 
 OPPOSITE = {'UP': 'DOWN', 'DOWN': 'UP', 'LEFT': 'RIGHT', 'RIGHT': 'LEFT'}
 
@@ -59,7 +79,8 @@ class SnakeGame:
         self.history: List[Dict] = []
         self.game_over = False
         self.winner: Optional[int] = None
-        self.prev_moves: List[List] = [[], []]  # Per-agent persistent memory
+        self.prev_moves: List[List] = [[], []]  # Per-agent persistent move history
+        self.memory: List[Dict] = [{}, {}]  # Per-agent persistent dict (capped at 500KB)
 
     def setup(self):
         s1 = Snake([(3, 3), (2, 3), (1, 3)], 'RIGHT')
@@ -95,7 +116,8 @@ class SnakeGame:
             'enemy_direction': enemy.direction if enemy.alive else None,
             'food': [list(p) for p in self.food],
             'turn': self.turn,
-            'prev_moves': self.prev_moves[player_idx],  # Agent's persistent memory
+            'prev_moves': self.prev_moves[player_idx],  # Agent's persistent move history
+            'memory': self.memory[player_idx],  # Agent's persistent dict (survives across turns)
         }
 
     def get_full_state(self) -> Dict:
@@ -205,6 +227,7 @@ class SnakeGame:
                             move = self.snakes[i].direction
                     except Exception:
                         move = self.snakes[i].direction
+                    _enforce_memory_cap(self.memory, i)
                 else:
                     move = 'UP'
                 moves.append(move)
@@ -473,6 +496,7 @@ class SnakeGame4P:
         self.game_over = False
         self.winner = None  # int (player index), 'team0', 'team1', or None (draw)
         self.prev_moves: List[List] = [[], [], [], []]
+        self.memory: List[Dict] = [{}, {}, {}, {}]  # Per-agent persistent dict (capped at 500KB)
         self.corpses: List[Dict] = []  # [{body: [(x,y),...], player_idx: int}, ...]
 
     def setup(self):
@@ -518,6 +542,7 @@ class SnakeGame4P:
             'food': [list(p) for p in self.food],
             'turn': self.turn,
             'prev_moves': self.prev_moves[player_idx],
+            'memory': self.memory[player_idx],  # Agent's persistent dict (survives across turns)
         }
         for i, s in enumerate(self.snakes):
             state['snakes'].append({
@@ -692,6 +717,7 @@ class SnakeGame4P:
                             move = self.snakes[i].direction
                     except Exception:
                         move = self.snakes[i].direction
+                    _enforce_memory_cap(self.memory, i)
                 else:
                     move = 'UP'
                 moves.append(move)

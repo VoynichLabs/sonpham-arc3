@@ -1,11 +1,11 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-17 23:00
+# Date: 2026-03-17 23:30
 # PURPOSE: Database operations for Arena Auto Research. Manages arena_agents,
 #   arena_games, arena_research, arena_comments, arena_program_versions,
 #   arena_votes, arena_human_sessions, and arena_llm_calls tables. Handles ELO
 #   calculations, agent pruning, game storage limits, upset detection, and LLM
-#   call monitoring/stats. Supports program_version_id on agents for snake variant
-#   program tracking.
+#   call monitoring/stats. Supports program_version_id and program_file on agents
+#   for snake variant program tracking.
 # SRP/DRY check: Pass — arena-specific DB ops only, follows db_sessions/db_auth pattern
 """Arena Auto Research database operations."""
 
@@ -112,7 +112,7 @@ def arena_get_leaderboard(game_id, limit=100):
             SELECT id, game_id, name, generation, elo, peak_elo,
                    games_played, wins, losses, draws, contributor,
                    is_human, is_anchor, active, created_at,
-                   program_version_id,
+                   program_version_id, program_file,
                    CASE WHEN games_played > 0
                         THEN ROUND(wins * 100.0 / games_played, 1)
                         ELSE 0 END as win_pct
@@ -124,7 +124,8 @@ def arena_get_leaderboard(game_id, limit=100):
 
 
 def arena_submit_agent(game_id, name, code, generation=0, contributor=None,
-                       is_human=0, is_anchor=0, program_version_id=None):
+                       is_human=0, is_anchor=0, program_version_id=None,
+                       program_file=None):
     """Submit a new agent or update existing. Returns agent dict or error string."""
     with _db() as conn:
         # Check active agent cap (skip for human pseudo-agents)
@@ -145,17 +146,17 @@ def arena_submit_agent(game_id, name, code, generation=0, contributor=None,
         ).fetchone()
         if existing:
             conn.execute(
-                "UPDATE arena_agents SET code = ?, generation = ?, contributor = ?, program_version_id = ?, active = 1 WHERE id = ?",
-                (code, generation, contributor, program_version_id, existing["id"])
+                "UPDATE arena_agents SET code = ?, generation = ?, contributor = ?, program_version_id = ?, program_file = ?, active = 1 WHERE id = ?",
+                (code, generation, contributor, program_version_id, program_file, existing["id"])
             )
             agent_id = existing["id"]
         else:
             conn.execute(
                 """INSERT INTO arena_agents
-                   (game_id, name, code, generation, elo, peak_elo, contributor, is_human, is_anchor, program_version_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (game_id, name, code, generation, elo, peak_elo, contributor, is_human, is_anchor, program_version_id, program_file)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (game_id, name, code, generation, ELO_START, ELO_START,
-                 contributor, is_human, is_anchor, program_version_id)
+                 contributor, is_human, is_anchor, program_version_id, program_file)
             )
             agent_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 

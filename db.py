@@ -352,6 +352,7 @@ def _init_db():
             is_anchor INTEGER DEFAULT 0,
             active INTEGER DEFAULT 1,
             program_version_id INTEGER DEFAULT NULL,
+            program_file TEXT DEFAULT NULL,
             created_at REAL DEFAULT (unixepoch('now')),
             UNIQUE(game_id, name)
         );
@@ -680,6 +681,15 @@ def _migrate_schema(conn):
         try:
             conn.execute("ALTER TABLE arena_agents ADD COLUMN program_version_id INTEGER DEFAULT NULL")
             log.info("Migrated arena_agents: added program_version_id")
+        except Exception:
+            pass
+
+    # ── 7. arena_agents: add program_file for Program.md filename tracking ──
+    arena_agent_cols = _get_table_columns(conn, "arena_agents")
+    if "program_file" not in arena_agent_cols and arena_agent_cols:
+        try:
+            conn.execute("ALTER TABLE arena_agents ADD COLUMN program_file TEXT DEFAULT NULL")
+            log.info("Migrated arena_agents: added program_file")
         except Exception:
             pass
 
