@@ -517,6 +517,9 @@ function toggleTheme() {
 // Hash-based routing — always opens Auto Research (matchup tab hidden)
 const _ARENA_VIEW_TO_HASH = { research: 'autoresearch' };
 function _arenaRouteFromHash() {
+  if (!location.hash || location.hash === '#') {
+    history.replaceState(null, '', '#autoresearch');
+  }
   if (typeof switchArenaMode === 'function') switchArenaMode('research', true);
 }
 window.addEventListener('hashchange', _arenaRouteFromHash);
