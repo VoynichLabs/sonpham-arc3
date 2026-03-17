@@ -5364,7 +5364,9 @@ const AR = {
 };
 
 function switchArenaMode(mode, skipHash) {
-  const matchBtn = document.getElementById('modeBtnMatch');
+  // Matchup tab is hidden — always force research mode
+  mode = 'research';
+
   const researchBtn = document.getElementById('modeBtnResearch');
   const layout = document.getElementById('arenaLayout');
   const researchView = document.getElementById('arResearchView');
@@ -5372,29 +5374,18 @@ function switchArenaMode(mode, skipHash) {
 
   // Update URL hash
   if (!skipHash && typeof _ARENA_VIEW_TO_HASH !== 'undefined') {
-    const hash = _ARENA_VIEW_TO_HASH[mode] || 'matchup';
+    const hash = _ARENA_VIEW_TO_HASH[mode] || 'autoresearch';
     if (location.hash !== '#' + hash) history.replaceState(null, '', '#' + hash);
   }
 
-  if (mode === 'research') {
-    matchBtn.classList.remove('active');
-    researchBtn.classList.add('active');
-    layout.style.display = 'none';
-    researchView.style.display = 'flex';
-    statusBar.style.display = 'flex';
-    arBuildGameTabs();
-    if (!AR.selectedGame) {
-      // Auto-select first game (snake) on initial load
-      const firstGame = ARENA_GAMES[0];
-      if (firstGame) arSelectGame(firstGame.id, 'community');
-    }
-  } else {
-    researchBtn.classList.remove('active');
-    matchBtn.classList.add('active');
-    layout.style.display = 'flex';
-    researchView.style.display = 'none';
-    statusBar.style.display = 'none';
-    arStopPolling();
+  if (researchBtn) researchBtn.classList.add('active');
+  if (layout) layout.style.display = 'none';
+  if (researchView) researchView.style.display = 'flex';
+  if (statusBar) statusBar.style.display = 'flex';
+  arBuildGameTabs();
+  if (!AR.selectedGame) {
+    const firstGame = ARENA_GAMES[0];
+    if (firstGame) arSelectGame(firstGame.id, 'community');
   }
 }
 
@@ -5581,9 +5572,10 @@ async function arSelectGame(gameId, mode) {
 
   try {
     // Fire all fetches in parallel — wait for all before rendering
-    const [researchData, liveTournamentData] = await Promise.all([
+    const [researchData, liveTournamentData, recentGamesData] = await Promise.all([
       fetch(`/api/arena/research/${gameId}`).then(r => r.json()).catch(() => null),
       fetch(`/api/arena/live-tournament/${gameId}`).then(r => r.json()).catch(() => []),
+      fetch(`/api/arena/games/${gameId}?limit=20`).then(r => r.json()).catch(() => []),
     ]);
 
     if (researchData && researchData.error) {
@@ -5591,8 +5583,8 @@ async function arSelectGame(gameId, mode) {
       return;
     }
 
-    // Render everything at once
-    if (researchData) arRenderResearch(gameId, researchData);
+    // Render everything at once — all data pre-fetched so nothing pops in late
+    if (researchData) arRenderResearch(gameId, researchData, recentGamesData);
 
     // Live tournament canvases
     if (Array.isArray(liveTournamentData) && liveTournamentData.length > 0) {
@@ -5609,7 +5601,7 @@ async function arSelectGame(gameId, mode) {
   }
 }
 
-function arRenderResearch(gameId, data) {
+function arRenderResearch(gameId, data, recentGamesData) {
   const game = ARENA_GAMES.find(g => g.id === gameId);
   const title = game ? game.title : gameId;
 
@@ -5635,11 +5627,12 @@ function arRenderResearch(gameId, data) {
   arRenderLeaderboard(gameId, data.leaderboard || []);
   document.getElementById('arAgentCount').textContent = `${data.agent_count} agents`;
 
-  // AI Heartbeat chat (load separately for freshness)
+  // AI Heartbeat chat (secondary tab — lazy load is fine)
   arLoadHeartbeat(gameId);
 
-  // Recent games
-  arLoadRecentGames(gameId);
+  // Recent games — use pre-fetched data if available, else fetch
+  if (recentGamesData) arRenderRecentGames(recentGamesData);
+  else arLoadRecentGames(gameId);
 
   // Live tournament canvases (server-side matches)
   if (typeof arFetchLiveTournament === 'function') arFetchLiveTournament(gameId);
@@ -6059,22 +6052,27 @@ function _arAnimateAgentCanvas(canvas, gameId, history) {
   AR.agentViewTimers.push(timer);
 }
 
+function arRenderRecentGames(games) {
+  const container = document.getElementById('arRecentGames');
+  if (!container) return;
+  if (!games || !games.length) {
+    container.innerHTML = '<div class="ar-no-data">No games yet</div>';
+    return;
+  }
+  container.innerHTML = games.map(g => {
+    const winnerClass = g.winner_name === 'Draw' ? 'ar-draw' : '';
+    return `<div class="ar-recent-game">
+      <span class="ar-rg-agents">${escHtml(g.agent1_name)} vs ${escHtml(g.agent2_name)}</span>
+      <span class="ar-rg-result ${winnerClass}">${escHtml(g.winner_name)}</span>
+      <span class="ar-rg-turns">${g.turns}t</span>
+    </div>`;
+  }).join('');
+}
+
 async function arLoadRecentGames(gameId) {
   try {
     const games = await fetch(`/api/arena/games/${gameId}?limit=20`).then(r => r.json());
-    const container = document.getElementById('arRecentGames');
-    if (!games.length) {
-      container.innerHTML = '<div class="ar-no-data">No games yet</div>';
-      return;
-    }
-    container.innerHTML = games.map(g => {
-      const winnerClass = g.winner_name === 'Draw' ? 'ar-draw' : '';
-      return `<div class="ar-recent-game">
-        <span class="ar-rg-agents">${escHtml(g.agent1_name)} vs ${escHtml(g.agent2_name)}</span>
-        <span class="ar-rg-result ${winnerClass}">${escHtml(g.winner_name)}</span>
-        <span class="ar-rg-turns">${g.turns}t</span>
-      </div>`;
-    }).join('');
+    arRenderRecentGames(games);
   } catch (e) {
     // Silently fail
   }

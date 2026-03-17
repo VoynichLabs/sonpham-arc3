@@ -47,8 +47,7 @@ let currentUser = null;
       </svg>
       <span class="app-title-text">AutoResearch Arena<a class="logo-sub-link to-obs" href="{{ observatory_url }}">&#8594; to Observatory</a></span>
     </span>
-    <a class="nav-link active" id="modeBtnResearch" href="#autoresearch" onclick="switchArenaMode('research');return false;">Auto Research</a>
-    <a class="nav-link" id="modeBtnMatch" href="#matchup" onclick="switchArenaMode('match');return false;">Create Match-up</a>
+    <a class="nav-link active" id="modeBtnResearch" href="#autoresearch">Auto Research</a>
     <span style="flex:1"></span>
     <a class="nav-switch-btn to-obs" href="{{ observatory_url }}">&#8592; to Observatory</a>
     {% if google_client_id %}
@@ -515,13 +514,10 @@ function toggleTheme() {
   localStorage.setItem('arc-theme', t || '');
 }
 
-// Hash-based routing: arena#matchup, arena#autoresearch
-const _ARENA_HASH_MAP = { matchup: 'match', autoresearch: 'research' };
-const _ARENA_VIEW_TO_HASH = { match: 'matchup', research: 'autoresearch' };
+// Hash-based routing — always opens Auto Research (matchup tab hidden)
+const _ARENA_VIEW_TO_HASH = { research: 'autoresearch' };
 function _arenaRouteFromHash() {
-  const h = location.hash.replace('#', '');
-  const mode = _ARENA_HASH_MAP[h] || 'research'; // default to Auto Research
-  if (typeof switchArenaMode === 'function') switchArenaMode(mode, true);
+  if (typeof switchArenaMode === 'function') switchArenaMode('research', true);
 }
 window.addEventListener('hashchange', _arenaRouteFromHash);
 // Route on load (after DOMContentLoaded, handled in arena.js init)
