@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-16 12:00
+# Date: 2026-03-17 23:00
 # PURPOSE: Database operations for Arena Auto Research. Manages arena_agents,
 #   arena_games, arena_research, arena_comments, arena_program_versions,
 #   arena_votes, arena_human_sessions, and arena_llm_calls tables. Handles ELO
@@ -666,8 +666,10 @@ def arena_get_or_create_human_agent(game_id, delay_ms):
         return dict(row)
 
 
-def arena_submit_human_result(game_id, opponent_agent_id, delay_ms, winner, turns):
-    """Submit a human vs AI game result. Updates ELO for both."""
+def arena_submit_human_result(game_id, opponent_agent_id, delay_ms, winner, turns,
+                              history=None):
+    """Submit a human vs AI game result. Updates ELO for both.
+    Always stores full history — human games are never stripped."""
     human_agent = arena_get_or_create_human_agent(game_id, delay_ms)
     human_id = human_agent["id"]
 
@@ -685,6 +687,7 @@ def arena_submit_human_result(game_id, opponent_agent_id, delay_ms, winner, turn
         winner_id=winner_id,
         scores=(1 if winner == "human" else 0, 1 if winner == "ai" else 0),
         turns=turns,
+        history=history,
     )
 
     # Also log to human sessions table
@@ -705,8 +708,17 @@ def arena_submit_human_result(game_id, opponent_agent_id, delay_ms, winner, turn
 
 def arena_strip_excess_history(game_id=None):
     """FIFO: strip frame history from all but the most recent N games.
-    Game records (outcomes) are kept forever — only the heavy history blob is cleared."""
+    Game records (outcomes) are kept forever — only the heavy history blob is cleared.
+    Exceptions (history is NEVER stripped):
+      - Upset games (is_upset = 1)
+      - Human vs AI games (either agent has is_human = 1)
+    """
     with _db() as conn:
+        # Collect IDs of all human agents so we can exclude their games
+        human_ids = {r[0] for r in conn.execute(
+            "SELECT id FROM arena_agents WHERE is_human = 1"
+        ).fetchall()}
+
         if game_id:
             # Find the Nth newest game with history
             row = conn.execute(
@@ -716,12 +728,21 @@ def arena_strip_excess_history(game_id=None):
                 (game_id, MAX_GAMES_WITH_HISTORY)
             ).fetchone()
             if row:
-                conn.execute(
-                    """UPDATE arena_games SET history = '[]'
+                # Get candidate games to strip
+                candidates = conn.execute(
+                    """SELECT id, agent1_id, agent2_id FROM arena_games
                        WHERE game_id = ? AND id <= ? AND is_upset = 0
                              AND history != '[]'""",
                     (game_id, row['id'])
-                )
+                ).fetchall()
+                strip_ids = [c['id'] for c in candidates
+                             if c['agent1_id'] not in human_ids
+                             and c['agent2_id'] not in human_ids]
+                if strip_ids:
+                    conn.execute(
+                        f"UPDATE arena_games SET history = '[]' WHERE id IN ({','.join('?' * len(strip_ids))})",
+                        strip_ids
+                    )
         else:
             row = conn.execute(
                 """SELECT id FROM arena_games
@@ -730,11 +751,19 @@ def arena_strip_excess_history(game_id=None):
                 (MAX_GAMES_WITH_HISTORY,)
             ).fetchone()
             if row:
-                conn.execute(
-                    """UPDATE arena_games SET history = '[]'
+                candidates = conn.execute(
+                    """SELECT id, agent1_id, agent2_id FROM arena_games
                        WHERE id <= ? AND is_upset = 0 AND history != '[]'""",
                     (row['id'],)
-                )
+                ).fetchall()
+                strip_ids = [c['id'] for c in candidates
+                             if c['agent1_id'] not in human_ids
+                             and c['agent2_id'] not in human_ids]
+                if strip_ids:
+                    conn.execute(
+                        f"UPDATE arena_games SET history = '[]' WHERE id IN ({','.join('?' * len(strip_ids))})",
+                        strip_ids
+                    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -516,6 +516,7 @@ def arena_human_play(game_id):
         delay_ms=data.get("delay_ms", 1000),
         winner=data.get("winner", "draw"),
         turns=data.get("turns", 0),
+        history=data.get("history"),
     )
     if isinstance(result, dict) and "error" in result:
         return jsonify(result), 400

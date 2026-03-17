@@ -220,7 +220,8 @@ def should_skip_match(agent1_id, agent2_id, game_id):
     return False
 
 
-def submit_human_play(game_id, opponent_agent_id, delay_ms, winner, turns):
+def submit_human_play(game_id, opponent_agent_id, delay_ms, winner, turns,
+                      history=None):
     """Validate and submit a human play result."""
     ok, err = validate_game_id(game_id)
     if not ok:
@@ -229,7 +230,8 @@ def submit_human_play(game_id, opponent_agent_id, delay_ms, winner, turns):
         return {"error": "winner must be 'human', 'ai', or 'draw'"}
     if delay_ms not in (0, 250, 500, 1000, 2000):
         return {"error": "delay_ms must be 0 (infinite), 250, 500, 1000, or 2000"}
-    return arena_submit_human_result(game_id, opponent_agent_id, delay_ms, winner, turns)
+    return arena_submit_human_result(game_id, opponent_agent_id, delay_ms, winner, turns,
+                                     history=history)
 
 
 def run_cleanup(game_id=None):
