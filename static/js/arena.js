@@ -457,7 +457,7 @@ class SnakeRandomGame extends SnakeGame {
     };
     drawSnake(this.snakeA, C.A_HEAD, C.A_BODY);
     drawSnake(this.snakeB, C.B_HEAD, C.B_BODY);
-    if (this.food) grid[this.food[1]][this.food[0]] = C.FOOD;
+    for (const [fx, fy] of this.food) grid[fy][fx] = C.FOOD;
     return grid;
   }
 
