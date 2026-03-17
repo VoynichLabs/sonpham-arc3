@@ -48,9 +48,10 @@ from db_arena import (
 #   Config
 # ═══════════════════════════════════════════════════════════════════════════
 
-HEARTBEAT_INTERVAL_FAST_FILL = 3 * 60   # 3 minutes — spawn agent every 3min
-HEARTBEAT_INTERVAL_NORMAL = 3 * 60     # 3 minutes — keep it consistent
-HEARTBEAT_INTERVAL_FAST = 3 * 60       # 3 minutes when new user feedback
+HEARTBEAT_INTERVAL_FAST_FILL = 6 * 60   # 6 minutes per game until 100 agents
+HEARTBEAT_INTERVAL_NORMAL = 6 * 60     # 6 minutes per game steady state
+HEARTBEAT_INTERVAL_FAST = 6 * 60       # 6 minutes (same — haiku is cheap)
+EVOLUTION_STAGGER_SECS = 60            # offset between per-game threads to avoid burst
 TOURNAMENT_GAMES_PER_TICK = 20
 EVOLUTION_AGENTS_PER_TICK = 1
 MAX_TOOL_ROUNDS = 6
@@ -1485,35 +1486,26 @@ def _seed_if_empty(game_id):
     print(f'[tournament] Seeding complete for {game_id}')
 
 
-def _evolution_loop():
-    _heartbeat_state['last_comment_check'] = time.time()
-    print(f'[evolution] Evolution heartbeat started (games: {_ACTIVE_GAMES})')
-    time.sleep(10)
+def _evolution_loop_for_game(game_id, stagger_secs):
+    """Per-game evolution loop. Each game gets its own thread, staggered to avoid API bursts."""
+    time.sleep(10 + stagger_secs)
+    print(f'[evolution:{game_id}] Started (stagger={stagger_secs}s, interval={HEARTBEAT_INTERVAL_NORMAL}s)')
 
-    evo_game_idx = 0
     while _heartbeat_state['running']:
         api_key = os.environ.get('ARENA_CLAUDE_KEY', '')
         if not api_key:
             time.sleep(HEARTBEAT_INTERVAL_NORMAL)
             continue
 
-        # Round-robin across active games
-        game_id = _ACTIVE_GAMES[evo_game_idx % len(_ACTIVE_GAMES)]
-        evo_game_idx += 1
         created = []
-
         try:
             tick_start = time.time()
             _heartbeat_state['ticks'] += 1
-            has_feedback = _has_new_feedback(game_id)
-            if has_feedback:
-                print(f'[evolution] Tick #{_heartbeat_state["ticks"]} ({game_id} FAST — new user feedback)')
-            else:
-                print(f'[evolution] Tick #{_heartbeat_state["ticks"]} ({game_id}) starting...')
+            print(f'[evolution:{game_id}] Tick starting...')
             created = _run_evolution(api_key, game_id=game_id)
             _heartbeat_state['agents_created'] += len(created)
             if created:
-                print(f'[evolution] Created {len(created)} {game_id} agent(s): {", ".join(created)}')
+                print(f'[evolution:{game_id}] Created {len(created)} agent(s): {", ".join(created)}')
                 try:
                     gen = _heartbeat_state['ticks']
                     msg = f"Gen {gen}: created {len(created)} new agent(s) — {', '.join(created)}"
@@ -1524,27 +1516,39 @@ def _evolution_loop():
             elapsed = time.time() - tick_start
             _heartbeat_state['last_tick'] = time.time()
             _heartbeat_state['last_error'] = None
-            print(f'[evolution] Tick #{_heartbeat_state["ticks"]} ({game_id}) done in {elapsed:.1f}s')
+            print(f'[evolution:{game_id}] Done in {elapsed:.1f}s')
         except Exception as e:
-            _heartbeat_state['last_error'] = str(e)
-            print(f'[evolution] Tick error ({game_id}): {e}')
+            _heartbeat_state['last_error'] = f'{game_id}: {e}'
+            print(f'[evolution:{game_id}] Error: {e}')
             traceback.print_exc()
 
         if created or time.time() - _last_export_time >= EXPORT_INTERVAL:
             try:
                 run_export(game_id)
             except Exception as exc:
-                print(f'[evolution] Export error (non-fatal): {exc}')
+                print(f'[evolution:{game_id}] Export error (non-fatal): {exc}')
 
-        # 2min until 100 agents, then 10min. 1min if new user feedback.
         agent_count = len(arena_get_leaderboard(game_id, limit=200))
-        if _has_new_feedback(game_id):
-            interval = HEARTBEAT_INTERVAL_FAST
-        elif agent_count < 100:
+        if agent_count < 100:
             interval = HEARTBEAT_INTERVAL_FAST_FILL
         else:
             interval = HEARTBEAT_INTERVAL_NORMAL
         time.sleep(interval)
+
+
+def _evolution_loop():
+    """Spawns one evolution thread per game, staggered by EVOLUTION_STAGGER_SECS."""
+    _heartbeat_state['last_comment_check'] = time.time()
+    print(f'[evolution] Launching per-game evolution threads (games: {_ACTIVE_GAMES}, stagger: {EVOLUTION_STAGGER_SECS}s)')
+    for i, game_id in enumerate(_ACTIVE_GAMES):
+        stagger = i * EVOLUTION_STAGGER_SECS
+        t = threading.Thread(
+            target=_evolution_loop_for_game,
+            args=(game_id, stagger),
+            daemon=True,
+            name=f'arena-evo-{game_id}',
+        )
+        t.start()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
