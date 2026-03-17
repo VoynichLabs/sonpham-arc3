@@ -1,7 +1,7 @@
 # Plan: APP_MODE Split — Observatory & Arena as Separate Services
 
 **Author:** Claude Opus 4.6 | 2026-03-16
-**Status:** Phase 1 complete — Phase 2 (Railway setup) is manual
+**Status:** Complete — using single-service subdomain routing (Railway volumes can't be shared across services)
 
 ---
 

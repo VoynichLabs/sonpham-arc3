@@ -5,15 +5,14 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
-## [1.9.1] — feat: APP_MODE split — Observatory & Arena as separate services
+## [1.9.1] — feat: Subdomain routing — Observatory & Arena at separate domains
 *Author: Claude Opus 4.6 | 2026-03-16*
 
 ### Changed
-- **APP_MODE env var** — `APP_MODE=observatory` (default) serves Observatory at `/`, `APP_MODE=arena` serves Arena at `/`. Two Railway services from the same repo, each with its own domain (`arc3.sonpham.net` / `arena.sonpham.net`).
-- **Cross-links** — Observatory ↔ Arena navigation uses `OBSERVATORY_URL` / `ARENA_URL` env vars instead of hardcoded `/obs` / `/arena` paths. Works across domains in prod, falls back to old paths in local dev.
+- **Subdomain routing** — `arc3.sonpham.net/` serves Observatory, `arena.sonpham.net/` serves Arena. Single Railway service, hostname detection at request time.
+- **Cross-links** — Observatory ↔ Arena navigation uses `OBSERVATORY_URL` / `ARENA_URL` env vars for full domain cross-links instead of hardcoded `/obs` / `/arena` paths.
 - **Temporary aliases** — `/obs` and `/arena` still work as 302 redirects for backward compatibility.
-- **Arena Monitor** — Now accessible at `/monitor` (on arena service). `/arena/monitor` redirects.
-- **Heartbeat safety** — Arena heartbeat background thread only starts when `APP_MODE=arena`, preventing duplicate evolution cycles when both services share the same database.
+- **Arena Monitor** — Now accessible at `/monitor`. `/arena/monitor` redirects to `/monitor`.
 
 ---
 

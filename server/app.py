@@ -111,10 +111,12 @@ app.logger.setLevel(logging.INFO)
 
 DEV_SECRET = os.environ.get("DEV_SECRET", "arc-dev-2026")
 
-# ── APP_MODE: observatory (arc3.sonpham.net) or arena (arena.sonpham.net) ──
-APP_MODE = os.environ.get("APP_MODE", "observatory")
-OBSERVATORY_URL = os.environ.get("OBSERVATORY_URL", "/obs")
-ARENA_URL = os.environ.get("ARENA_URL", "/arena")
+# ── Subdomain routing (single service, both domains) ─────────────────────
+# arena.sonpham.net  →  /  serves Arena
+# arc3.sonpham.net   →  /  serves Observatory
+# Both domains point to the same Railway service + volume.
+OBSERVATORY_URL = os.environ.get("OBSERVATORY_URL", "https://arc3.sonpham.net")
+ARENA_URL = os.environ.get("ARENA_URL", "https://arena.sonpham.net")
 
 # Will be set by CLI args; default to staging
 _server_mode = "staging"
@@ -469,12 +471,9 @@ def _require_arena_admin():
 
 @app.route("/arena/monitor")
 def arena_monitor_legacy():
-    """Legacy path — redirect to /monitor on arena service, or cross-link."""
-    if APP_MODE == "arena":
-        qs = f"?key={request.args['key']}" if request.args.get("key") else ""
-        return redirect(f"/monitor{qs}", code=302)
-    key = request.args.get("key", "")
-    return redirect(f"{ARENA_URL}/monitor{'?key=' + key if key else ''}", code=302)
+    """Legacy path — redirect to /monitor."""
+    qs = f"?key={request.args['key']}" if request.args.get("key") else ""
+    return redirect(f"/monitor{qs}", code=302)
 
 
 @app.route("/monitor")
@@ -523,6 +522,11 @@ def arena_human_play(game_id):
     return jsonify(result or {"ok": True})
 
 
+def _is_arena_host():
+    """True when the request arrives on arena.* subdomain."""
+    return request.host.split(":")[0].startswith("arena.")
+
+
 def _render_observatory():
     """Render the Observatory (index.html) page."""
     mode = get_mode()
@@ -550,8 +554,8 @@ def _render_arena():
 @app.route("/")
 @bot_protection
 def root_page():
-    """Serve the primary page based on APP_MODE."""
-    if APP_MODE == "arena":
+    """Serve Arena on arena.*, Observatory on everything else."""
+    if _is_arena_host():
         return _render_arena()
     return _render_observatory()
 
@@ -559,16 +563,16 @@ def root_page():
 @app.route("/obs")
 @bot_protection
 def obs_alias():
-    """Temporary alias — redirects based on APP_MODE."""
-    if APP_MODE == "observatory":
-        return redirect("/#human", code=302)
-    return redirect(OBSERVATORY_URL, code=302)
+    """Temporary alias — redirect to root on observatory, cross-link on arena."""
+    if _is_arena_host():
+        return redirect(OBSERVATORY_URL, code=302)
+    return redirect("/#human", code=302)
 
 
 @app.route("/arena")
 def arena_alias():
-    """Temporary alias — redirects based on APP_MODE."""
-    if APP_MODE == "arena":
+    """Temporary alias — redirect to root on arena, cross-link on observatory."""
+    if _is_arena_host():
         return redirect("/", code=302)
     return redirect(ARENA_URL, code=302)
 
@@ -2044,17 +2048,13 @@ def batch_status(batch_id):
 # ARENA HEARTBEAT — start background thread for server-side evolution
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Heartbeat only runs on the arena service to avoid duplicate evolution/ELO races
-if APP_MODE == "arena":
-    # HEARTBEAT DISABLED — paused during snake variants implementation (2026-03-16)
-    # try:
-    #     from server.arena_heartbeat import start_arena_heartbeat
-    #     start_arena_heartbeat()
-    # except Exception as _hb_err:
-    #     print(f"[arena] Heartbeat start failed (non-fatal): {_hb_err}")
-    print("[arena] Heartbeat auto-start DISABLED — re-enable after snake variants ship")
-else:
-    print(f"[app] APP_MODE={APP_MODE} — heartbeat skipped (arena-only)")
+# HEARTBEAT DISABLED — paused during snake variants implementation (2026-03-16)
+# try:
+#     from server.arena_heartbeat import start_arena_heartbeat
+#     start_arena_heartbeat()
+# except Exception as _hb_err:
+#     print(f"[arena] Heartbeat start failed (non-fatal): {_hb_err}")
+print("[arena] Heartbeat auto-start DISABLED — re-enable after snake variants ship")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
