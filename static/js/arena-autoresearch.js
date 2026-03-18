@@ -1,5 +1,5 @@
 // Author: Claude Opus 4.6
-// Date: 2026-03-17 15:00
+// Date: 2026-03-17 22:00
 // PURPOSE: Arena Auto Research — in-browser evolution + tournament engine.
 //   Phase 2: headless match runner, per-game state adapters, live tournament canvases.
 //   Phase 4: human vs AI play mode — keyboard/click input, timed moves, result submission.
@@ -2488,21 +2488,78 @@ function _hpSetupSimultaneous() {
   else if (gameId === 'tron') HumanPlay.humanDir = engine.dirA;
   else HumanPlay.humanDir = 0;
 
-  // Keyboard handler
+  // Shared tick logic — executes one game step with the current humanDir
+  const agents = HumanPlay.agents;
+  let _tickBusy = false; // guard against double-taps while AI is thinking
+
+  async function _hpSimulTick() {
+    if (_tickBusy || !HumanPlay.active || engine.over) {
+      if (engine.over) _hpGameOver();
+      return;
+    }
+    _tickBusy = true;
+
+    try {
+      if (is4P) {
+        const [raw1, raw2, raw3] = await Promise.all([
+          _hpFetchAiMove(_hpBuildPythonState(engine, 1, 0), agents[0]),
+          _hpFetchAiMove(_hpBuildPythonState(engine, 2, 1), agents[1]),
+          _hpFetchAiMove(_hpBuildPythonState(engine, 3, 2), agents[2]),
+        ]);
+        const dirs = [_arParseDir(raw1), _arParseDir(raw2), _arParseDir(raw3)];
+        dirs.forEach((d, i) => HumanPlay.aiPrevMoves[i].push(DIR_NAME[d]));
+
+        if (!HumanPlay.active) return;
+        engine.step([HumanPlay.humanDir, dirs[0], dirs[1], dirs[2]]);
+      } else {
+        const aiState = _hpBuildPythonState(engine, 1, 0);
+        const aiRaw = await _hpFetchAiMove(aiState, agents[0]);
+        const aiDir = _arParseDir(aiRaw);
+        HumanPlay.aiPrevMoves[0].push(DIR_NAME[aiDir]);
+
+        if (!HumanPlay.active) return;
+        engine.step(HumanPlay.humanDir, aiDir);
+      }
+      HumanPlay.turns++;
+      HumanPlay.history.push(_hpBuildFrame(gameId, engine));
+
+      _hpRender();
+      _hpUpdateStatus(`Turn ${HumanPlay.turns}`);
+    } finally {
+      _tickBusy = false;
+    }
+  }
+
+  // Infinite mode (delayMs === 0): true turn-based — arrow key commits direction + steps game
+  const isInfinite = delayMs === 0;
+
   const keyHandler = (e) => {
     if (!HumanPlay.active) return;
+    let dir = null;
     switch (e.key) {
-      case 'ArrowUp': case 'w': case 'W': HumanPlay.humanDir = 0; e.preventDefault(); break;
-      case 'ArrowRight': case 'd': case 'D': HumanPlay.humanDir = 1; e.preventDefault(); break;
-      case 'ArrowDown': case 's': case 'S': HumanPlay.humanDir = 2; e.preventDefault(); break;
-      case 'ArrowLeft': case 'a': case 'A': HumanPlay.humanDir = 3; e.preventDefault(); break;
-      case 'Escape': arHumanQuit(); break;
+      case 'ArrowUp': case 'w': case 'W': dir = 0; break;
+      case 'ArrowRight': case 'd': case 'D': dir = 1; break;
+      case 'ArrowDown': case 's': case 'S': dir = 2; break;
+      case 'ArrowLeft': case 'a': case 'A': dir = 3; break;
+      case 'Escape': arHumanQuit(); return;
+    }
+    if (dir === null) return;
+    e.preventDefault();
+    HumanPlay.humanDir = dir;
+
+    // In infinite mode, each keypress triggers one step immediately
+    if (isInfinite && !_tickBusy) {
+      _hpSimulTick();
     }
   };
   document.addEventListener('keydown', keyHandler);
   HumanPlay._keyHandler = keyHandler;
 
-  _hpUpdateStatus('Arrow keys or WASD to move. Game starts in 1s...');
+  if (isInfinite) {
+    _hpUpdateStatus('Arrow keys or WASD to move. Each keypress = 1 step.');
+  } else {
+    _hpUpdateStatus('Arrow keys or WASD to move. Game starts in 1s...');
+  }
   if (is4P) {
     const label = gameId === 'snake_2v2' ? 'You are GREEN (top-left). Your ally is bottom-left.' : 'You are GREEN (top-left). Free for all!';
     _hpUpdateHint(label);
@@ -2510,52 +2567,22 @@ function _hpSetupSimultaneous() {
     _hpUpdateHint('You are the GREEN snake (top-left)');
   }
 
-  // Start game loop after 1s — async because AI moves are fetched from server
-  const tickRate = delayMs > 0 ? Math.max(delayMs, 150) : 200;
-  const agents = HumanPlay.agents;
+  // Timed modes: auto-tick loop. Infinite mode: no loop — human keypress drives steps.
+  if (!isInfinite) {
+    const tickRate = Math.max(delayMs, 150);
 
-  async function _hpSimulTick() {
-    if (!HumanPlay.active || engine.over) {
-      if (engine.over) _hpGameOver();
-      return;
+    async function _hpAutoTick() {
+      await _hpSimulTick();
+      if (HumanPlay.active && !engine.over) {
+        HumanPlay.timer = setTimeout(_hpAutoTick, tickRate);
+      }
     }
 
-    if (is4P) {
-      // 4P: fetch moves for agents at player indices 1, 2, 3 in parallel
-      const [raw1, raw2, raw3] = await Promise.all([
-        _hpFetchAiMove(_hpBuildPythonState(engine, 1, 0), agents[0]),
-        _hpFetchAiMove(_hpBuildPythonState(engine, 2, 1), agents[1]),
-        _hpFetchAiMove(_hpBuildPythonState(engine, 3, 2), agents[2]),
-      ]);
-      const dirs = [_arParseDir(raw1), _arParseDir(raw2), _arParseDir(raw3)];
-      dirs.forEach((d, i) => HumanPlay.aiPrevMoves[i].push(DIR_NAME[d]));
-
+    setTimeout(() => {
       if (!HumanPlay.active) return;
-      engine.step([HumanPlay.humanDir, dirs[0], dirs[1], dirs[2]]);
-    } else {
-      // 2P: fetch single AI move
-      const aiState = _hpBuildPythonState(engine, 1, 0);
-      const aiRaw = await _hpFetchAiMove(aiState, agents[0]);
-      const aiDir = _arParseDir(aiRaw);
-      HumanPlay.aiPrevMoves[0].push(DIR_NAME[aiDir]);
-
-      if (!HumanPlay.active) return;
-      engine.step(HumanPlay.humanDir, aiDir);
-    }
-    HumanPlay.turns++;
-    HumanPlay.history.push(_hpBuildFrame(gameId, engine));
-
-    _hpRender();
-    _hpUpdateStatus(`Turn ${HumanPlay.turns}`);
-
-    // Schedule next tick (recursive setTimeout avoids pileup from slow server calls)
-    HumanPlay.timer = setTimeout(_hpSimulTick, tickRate);
+      _hpAutoTick();
+    }, 1000);
   }
-
-  setTimeout(() => {
-    if (!HumanPlay.active) return;
-    _hpSimulTick();
-  }, 1000);
 }
 
 
