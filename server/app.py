@@ -2106,8 +2106,12 @@ def batch_status(batch_id):
 # ═══════════════════════════════════════════════════════════════════════════
 
 try:
-    from server.arena_heartbeat import start_arena_heartbeat
-    start_arena_heartbeat()
+    _server_mode = os.environ.get("SERVER_MODE", "")
+    if _server_mode == "prod":
+        from server.arena_heartbeat import start_arena_heartbeat
+        start_arena_heartbeat()
+    else:
+        print(f"[arena] Heartbeat disabled (SERVER_MODE={_server_mode!r}, only runs in prod)")
 except Exception as _hb_err:
     print(f"[arena] Heartbeat start failed (non-fatal): {_hb_err}")
 
