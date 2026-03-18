@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-18 15:00
+# Date: 2026-03-18 17:00
 # PURPOSE: Server-side arena heartbeat — runs evolution + tournament for multiple games.
 #   Supports snake (classic + random maps + royale + 2v2), chess960, othello.
 #   Game engines dispatched via _ACTIVE_GAMES.
@@ -57,7 +57,7 @@ HEARTBEAT_INTERVAL_FAST_FILL = 6 * 60   # 6 minutes per game until 100 agents
 HEARTBEAT_INTERVAL_NORMAL = 6 * 60     # 6 minutes per game steady state
 HEARTBEAT_INTERVAL_FAST = 6 * 60       # 6 minutes (same — haiku is cheap)
 EVOLUTION_STAGGER_SECS = 60            # offset between per-game threads to avoid burst
-EVOLUTION_ENABLED = os.environ.get('ARENA_EVOLUTION_ENABLED', '').lower() in ('1', 'true', 'yes')
+EVOLUTION_ENABLED = os.environ.get('SERVER_MODE', '') == 'prod'
 TOURNAMENT_GAMES_PER_TICK = 20
 EVOLUTION_AGENTS_PER_TICK = 1
 MAX_TOOL_ROUNDS = 6
@@ -65,14 +65,14 @@ ELO_START = 1000.0
 ELO_K = 32
 ANALYSIS_EVERY_N_EVOS = 10  # post AI analysis comment every N evolutions per game
 
-# Agent evolution model rotation: 3 haiku, 1 sonnet, 1 opus, 1 gemini
+# Agent evolution model rotation: 3 haiku, 2 gemini (flash-lite + pro)
+# Sonnet/Opus removed — all agents using them failed.
 # (model_id, label, provider)
 _EVOLUTION_MODELS = [
     ('claude-haiku-4-5-20251001', 'claude-haiku-4.5', 'anthropic'),
     ('claude-haiku-4-5-20251001', 'claude-haiku-4.5', 'anthropic'),
     ('claude-haiku-4-5-20251001', 'claude-haiku-4.5', 'anthropic'),
-    ('claude-sonnet-4-6', 'claude-sonnet-4.6', 'anthropic'),
-    ('claude-opus-4-6', 'claude-opus-4.6', 'anthropic'),
+    ('gemini-3.1-flash-lite-preview', 'gemini-3.1-flash-lite', 'gemini'),
     ('gemini-3.1-pro-preview', 'gemini-3.1-pro', 'gemini'),
 ]
 
