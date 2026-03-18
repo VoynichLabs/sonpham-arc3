@@ -4449,8 +4449,8 @@ function initArena() {
     }
   }
 
-  // Route from URL hash (arena#matchup, arena#autoresearch)
-  if (typeof _arenaRouteFromHash === 'function') _arenaRouteFromHash();
+  // Always init in research mode (clean URL, no hash routing)
+  if (typeof switchArenaMode === 'function') switchArenaMode('research', true);
 }
 
 function renderPreview(canvas, game) {

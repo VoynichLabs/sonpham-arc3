@@ -516,11 +516,7 @@ function toggleTheme() {
   localStorage.setItem('arc-theme', t || '');
 }
 
-// Clean URL routing — no hash needed, always Auto Research mode
-function _arenaRouteFromHash() {
-  if (typeof switchArenaMode === 'function') switchArenaMode('research', true);
-}
-// Init on load (after DOMContentLoaded, handled in arena.js init)
+// No hash routing — clean URLs (/games, /code)
 </script>
 <!-- LLM calling infrastructure (callLLM, provider routing, BYOK keys) -->
 <script src="/static/js/scaffolding.js?v={{ static_v }}"></script>
