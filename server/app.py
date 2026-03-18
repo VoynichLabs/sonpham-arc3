@@ -548,6 +548,69 @@ def _require_arena_admin():
     return None
 
 
+@app.route("/api/arena/migrate-to-pg", methods=["POST"])
+def arena_migrate_to_pg():
+    """One-time migration: copy arena data from SQLite to PostgreSQL.
+    Requires admin key. Only works if DATABASE_URL is set."""
+    err = _require_arena_admin()
+    if err:
+        return err
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        return jsonify({"error": "DATABASE_URL not set"}), 400
+    try:
+        import sqlite3 as _sq
+        from db import DB_PATH
+        from db_arena import _init_pg_schema
+        import psycopg2
+        from psycopg2.extras import execute_batch
+
+        # Connect to both
+        sq = _sq.connect(str(DB_PATH))
+        sq.row_factory = _sq.Row
+        pg = psycopg2.connect(database_url)
+
+        # Create PG schema
+        _init_pg_schema(pg)
+
+        tables = [
+            'arena_research', 'arena_agents', 'arena_evolution_cycles',
+            'arena_program_versions', 'arena_games', 'arena_comments',
+            'arena_votes', 'arena_human_sessions', 'arena_evolution_sessions',
+            'arena_llm_calls', 'arena_library_requests',
+        ]
+        results = {}
+        cur = pg.cursor()
+        for table in tables:
+            try:
+                cols_info = sq.execute(f"PRAGMA table_info({table})").fetchall()
+                cols = [r[1] for r in cols_info]
+                rows = sq.execute(f"SELECT * FROM {table}").fetchall()
+                if not rows:
+                    results[table] = 0
+                    continue
+                cur.execute(f"DELETE FROM {table}")
+                col_list = ', '.join(cols)
+                placeholders = ', '.join(['%s'] * len(cols))
+                batch = [tuple(row[c] for c in cols) for row in rows]
+                execute_batch(cur, f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})", batch, page_size=500)
+                # Reset sequence
+                if 'id' in cols:
+                    cur.execute(f"SELECT MAX(id) FROM {table}")
+                    max_id = cur.fetchone()[0]
+                    if max_id:
+                        cur.execute(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), %s)", (max_id,))
+                results[table] = len(rows)
+            except Exception as e:
+                results[table] = f"ERROR: {e}"
+        pg.commit()
+        sq.close()
+        pg.close()
+        return jsonify({"status": "ok", "tables": results})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/arena/monitor")
 def arena_monitor_legacy():
     """Legacy path — redirect to /monitor."""
