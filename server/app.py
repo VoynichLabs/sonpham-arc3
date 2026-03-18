@@ -290,6 +290,16 @@ def arena_agent_profile(game_id, agent_id):
     return jsonify(profile)
 
 
+@app.route("/api/arena/agents/<game_id>/<int:agent_id>/evolution")
+def arena_agent_evolution(game_id, agent_id):
+    """Lazy-load evolution log for an agent (heavy — full conversation)."""
+    from db_arena import arena_get_agent_evolution_log
+    result = arena_get_agent_evolution_log(game_id, agent_id)
+    if not result:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(result)
+
+
 @app.route("/api/arena/agents/<game_id>", methods=["POST"])
 def arena_agent_submit(game_id):
     data = request.get_json(force=True)

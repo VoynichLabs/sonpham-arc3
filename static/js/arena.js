@@ -5616,32 +5616,36 @@ async function arSelectGame(gameId, mode) {
   document.getElementById('arStatusText').textContent = `Loading ${game ? game.title : gameId}...`;
 
   try {
-    // Fire all fetches in parallel — wait for all before rendering
-    const [researchData, liveTournamentData, recentGamesData] = await Promise.all([
-      fetch(`/api/arena/research/${gameId}`).then(r => r.json()).catch(() => null),
-      fetch(`/api/arena/live-tournament/${gameId}`).then(r => r.json()).catch(() => []),
-      fetch(`/api/arena/games/${gameId}?limit=20`).then(r => r.json()).catch(() => []),
-    ]);
+    // Priority fetch: research data (program.md, leaderboard, stats) — render immediately
+    const researchData = await fetch(`/api/arena/research/${gameId}`).then(r => r.json()).catch(() => null);
 
     if (researchData && researchData.error) {
       document.getElementById('arStatusText').textContent = `Error: ${researchData.error}`;
       return;
     }
 
-    // Render everything at once — all data pre-fetched so nothing pops in late
-    if (researchData) arRenderResearch(gameId, researchData, recentGamesData);
+    // Render core content immediately (program.md, leaderboard, status bar)
+    if (researchData) arRenderResearch(gameId, researchData, null);
 
-    // Live tournament canvases
-    if (Array.isArray(liveTournamentData) && liveTournamentData.length > 0) {
-      LocalResearch.liveMatches = liveTournamentData;
-      if (typeof arRenderLiveCanvases === 'function') arRenderLiveCanvases();
-    }
+    // Hide loading overlay — main content is visible now
+    if (overlay) overlay.style.display = 'none';
+
+    // Lazy load secondary content (non-blocking, renders when ready)
+    fetch(`/api/arena/games/${gameId}?limit=20`).then(r => r.json()).then(data => {
+      if (Array.isArray(data)) arRenderRecentGames(data);
+    }).catch(() => {});
+
+    fetch(`/api/arena/live-tournament/${gameId}`).then(r => r.json()).then(data => {
+      if (Array.isArray(data) && data.length > 0) {
+        LocalResearch.liveMatches = data;
+        if (typeof arRenderLiveCanvases === 'function') arRenderLiveCanvases();
+      }
+    }).catch(() => {});
 
     arStartPolling(gameId);
   } catch (e) {
     document.getElementById('arStatusText').textContent = `Failed to load: ${e.message}`;
   } finally {
-    // Hide loading overlay
     if (overlay) overlay.style.display = 'none';
   }
 }
@@ -5675,12 +5679,8 @@ function arRenderResearch(gameId, data, recentGamesData) {
   // AI Heartbeat chat (secondary tab — lazy load is fine)
   arLoadHeartbeat(gameId);
 
-  // Recent games — use pre-fetched data if available, else fetch
+  // Recent games — use pre-fetched data if available, else lazy-load
   if (recentGamesData) arRenderRecentGames(recentGamesData);
-  else arLoadRecentGames(gameId);
-
-  // Live tournament canvases (server-side matches)
-  if (typeof arFetchLiveTournament === 'function') arFetchLiveTournament(gameId);
 
   // ELO chart
   if (typeof arRenderEloChart === 'function') arRenderEloChart(gameId, data.leaderboard || []);
@@ -6040,7 +6040,7 @@ function arSwitchProfileTab(gameId, tab, btn) {
   if (tab === 'games') arRenderProfileGamesTab(gameId, data);
   else if (tab === 'code') arRenderProfileCodeTab(data);
   else if (tab === 'program') arRenderProfileProgramTab(data);
-  else if (tab === 'evolution') arRenderProfileEvolutionTab(data);
+  else if (tab === 'evolution') arLazyLoadEvolutionTab(gameId, data);
 }
 
 function arRenderProfileGamesTab(gameId, data) {
@@ -6124,6 +6124,34 @@ function arRenderProfileProgramTab(data) {
   }
   html += `<div class="ar-profile-program">${escHtml(programFile || (programVersion && programVersion.content) || '(empty)')}</div>`;
   container.innerHTML = html;
+}
+
+async function arLazyLoadEvolutionTab(gameId, data) {
+  const container = document.getElementById('arProfileTabContent');
+  if (!container) return;
+
+  if (!data.has_evolution_log && !data.evolution_log) {
+    container.innerHTML = '<div class="ar-no-data" style="padding:12px">No evolution log (seed or offline agent)</div>';
+    return;
+  }
+
+  // If already cached from a previous load, render directly
+  if (data.evolution_log) {
+    arRenderProfileEvolutionTab(data);
+    return;
+  }
+
+  // Lazy-load the full evolution cycle
+  container.innerHTML = '<div class="ar-no-data" style="padding:12px">Loading evolution log...</div>';
+  try {
+    const cycleId = data.evolution_meta?.id;
+    if (!cycleId) { container.innerHTML = '<div class="ar-no-data" style="padding:12px">No evolution cycle ID</div>'; return; }
+    const cycle = await fetch(`/api/arena/agents/${gameId}/${data.agent.id}/evolution`).then(r => r.json());
+    data.evolution_log = cycle.evolution_log || [];
+    arRenderProfileEvolutionTab(data);
+  } catch (e) {
+    container.innerHTML = '<div class="ar-no-data" style="padding:12px">Failed to load evolution log</div>';
+  }
 }
 
 function arRenderProfileEvolutionTab(data) {
