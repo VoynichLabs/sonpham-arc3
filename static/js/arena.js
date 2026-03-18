@@ -5892,7 +5892,8 @@ function arRenderLeaderboard(gameId, agents) {
     const anchorBadge = a.is_anchor ? ' <span class="ar-badge-anchor">⚓</span>' : '';
     const selectedClass = AR.selectedAgentId === a.id ? ' ar-lb-selected' : '';
     const humanClass = a.is_human ? ' ar-lb-human' : '';
-    return `<tr class="ar-lb-row${selectedClass}${humanClass}" data-agent-id="${a.id}" onclick="arSelectAgent('${gameId}',${a.id})" style="cursor:pointer">
+    const anchorClass = a.is_anchor ? ' ar-lb-anchor' : '';
+    return `<tr class="ar-lb-row${selectedClass}${humanClass}${anchorClass}" data-agent-id="${a.id}" onclick="arSelectAgent('${gameId}',${a.id})" style="cursor:pointer">
       <td>${i + 1}</td>
       <td>
         <span class="ar-agent-name">${escHtml(a.name)}</span>

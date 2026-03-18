@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-18 18:00
+# Date: 2026-03-18 21:00
 # PURPOSE: Database operations for Arena Auto Research. Manages arena_agents,
 #   arena_games, arena_research, arena_comments, arena_program_versions,
 #   arena_votes, arena_human_sessions, arena_evolution_sessions,
@@ -10,6 +10,7 @@
 #   Supports program_version_id, program_file, and evolution_cycle_id on agents.
 #   arena_clear_all_agents() wipes agents+games.
 #   Monitor stats now read from arena_evolution_sessions (not legacy arena_llm_calls).
+#   arena_get_all_pair_counts() — bulk pair count query (replaces O(n^2) individual calls).
 # SRP/DRY check: Pass — arena-specific DB ops only, follows db_sessions/db_auth pattern
 """Arena Auto Research database operations."""
 
@@ -402,6 +403,31 @@ def _count_pair(conn, id1, id2):
         (id1, id2, id2, id1)
     ).fetchone()
     return row["cnt"] if row else 0
+
+
+def arena_get_all_pair_counts(game_id, agent_ids):
+    """Bulk-fetch pair game counts for a set of agents. Returns dict of (id1, id2) -> count.
+    Single query replaces O(n^2) individual arena_count_pair_games calls."""
+    if not agent_ids:
+        return {}
+    with _db() as conn:
+        placeholders = ','.join('?' * len(agent_ids))
+        rows = conn.execute(f"""
+            SELECT
+                CASE WHEN agent1_id < agent2_id THEN agent1_id ELSE agent2_id END as lo,
+                CASE WHEN agent1_id < agent2_id THEN agent2_id ELSE agent1_id END as hi,
+                COUNT(*) as cnt
+            FROM arena_games
+            WHERE game_id = ?
+              AND agent1_id IN ({placeholders})
+              AND agent2_id IN ({placeholders})
+            GROUP BY lo, hi
+        """, [game_id] + list(agent_ids) + list(agent_ids)).fetchall()
+        result = {}
+        for r in rows:
+            result[(r['lo'], r['hi'])] = r['cnt']
+            result[(r['hi'], r['lo'])] = r['cnt']
+        return result
 
 
 def arena_get_recent_games(game_id, limit=50):

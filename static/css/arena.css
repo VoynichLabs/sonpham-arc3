@@ -963,6 +963,11 @@
 .ar-lb-row.ar-lb-human:hover { background: #A356D622; }
 .ar-lb-row.ar-lb-human .ar-agent-name { color: #A356D6; }
 
+/* ── Anchor/Benchmark Agent Rows (blue tint) ── */
+.ar-lb-row.ar-lb-anchor { background: #1E93FF0A; }
+.ar-lb-row.ar-lb-anchor:hover { background: #1E93FF18; }
+.ar-lb-row.ar-lb-anchor .ar-agent-name { color: #1E93FF; }
+
 /* ── Agent Profile View ── */
 .ar-agent-view {
   display: flex; flex-direction: column; flex: 1;

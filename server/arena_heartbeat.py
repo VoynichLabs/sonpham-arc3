@@ -1,11 +1,14 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-18 17:00
+# Date: 2026-03-18 21:00
 # PURPOSE: Server-side arena heartbeat — runs evolution + tournament for multiple games.
 #   Supports snake (classic + random maps + royale + 2v2), chess960, othello.
 #   Game engines dispatched via _ACTIVE_GAMES.
 #   Uses ARENA_CLAUDE_KEY env var (Anthropic API key or OAuth token) for agent evolution.
 #   Uses server/arena_tool_runner.py for LLM tool-calling loops (no external deps).
-#   Tournament: single thread round-robins all games (prevents SQLite corruption).
+#   Tournament: 1 dedicated thread per game + 1 DB writer thread (SQLite safety).
+#   Smart 3-phase scheduler: calibration (under-played agents) + top contenders
+#   (forced top-agent matchups) + Swiss (ELO-weighted full-roster).
+#   Bulk pair count query replaces O(n^2) individual calls.
 #   Evolution: one thread per game (LLM-bound, mostly idle waiting on API).
 #   Chess960 uses random position each match (time-seeded for true randomization).
 #   Program.md versioning: dated files per game, tracked via program_file on agents.
@@ -17,6 +20,7 @@
 import json
 import math
 import os
+import queue
 import random
 import re
 import sys
@@ -42,11 +46,13 @@ from db_arena import (
     arena_increment_generation,
     arena_update_elo,
     arena_count_pair_games,
+    arena_get_all_pair_counts,
     arena_post_comment,
     arena_strip_excess_history,
     arena_save_evolution_cycle,
     arena_link_agent_to_cycle,
     MAX_STORED_GAMES_PER_PAIR,
+    PROVISIONAL_GAMES,
     _db,
 )
 
@@ -66,6 +72,7 @@ MAX_TOOL_ROUNDS = 6
 ELO_START = 1000.0
 ELO_K = 32
 ANALYSIS_EVERY_N_EVOS = 10  # post AI analysis comment every N evolutions per game
+MAX_RATING_GAMES_PER_PAIR = 30  # allow more games for rating accuracy (history capped at MAX_STORED_GAMES_PER_PAIR)
 
 # Agent evolution model rotation: 3 haiku, 2 gemini (flash-lite + pro)
 # Sonnet/Opus removed — all agents using them failed.
@@ -88,7 +95,12 @@ _heartbeat_state = {
     'agents_created': 0,
     'games_played': 0,
     'thread': None,
+    'game_threads': [],
+    'db_writer_thread': None,
 }
+
+# DB writer queue — all tournament DB writes funneled through one thread (SQLite safety)
+_db_writer_queue = queue.Queue()
 
 # Ring buffer of recent matches for live tournament canvases.
 # Kept in-memory only — no DB bloat. Max 4 entries.
@@ -1431,35 +1443,84 @@ def _max_games_for_pair(elo_gap):
     return 0
 
 
-def _run_tournament(game_id='snake', match_count=20):
-    """Run a tournament round: schedule all matchups first, play them, then publish results.
+def _schedule_smart(agents, pair_counts, match_count):
+    """Smart 3-phase matchmaking for maximum rating clarity.
 
-    Phase 1 — LOAD: Fetch all agents + code once.
-    Phase 2 — SCHEDULE: Generate all pairings (Swiss ELO-weighted).
-    Phase 3 — PLAY: Run all matches (CPU-bound, no DB queries).
-    Phase 4 — PUBLISH: Write all results to DB + push live buffer.
+    Phase A (40%) — Calibration: prioritize under-played agents to calibrate their ratings.
+    Phase B (30%) — Top Contenders: ensure top agents play each other regularly.
+    Phase C (30%) — Swiss: ELO-weighted full-roster matching for overall ladder movement.
     """
-    # ── Phase 1: Load ──
-    agents = arena_get_leaderboard(game_id, limit=200)
-    for a in agents:
-        full = arena_get_agent(game_id, a['id'])
-        if full:
-            a['code'] = full.get('code', '')
-    if len(agents) < 2:
-        return 0
-
-    # Pre-fetch pair counts in bulk
-    pair_counts = {}
-    for i, a1 in enumerate(agents):
-        for a2 in agents[i+1:]:
-            cnt = arena_count_pair_games(a1['id'], a2['id'])
-            pair_counts[(a1['id'], a2['id'])] = cnt
-            pair_counts[(a2['id'], a1['id'])] = cnt
-
-    # ── Phase 2: Schedule ──
     schedule = []
-    for _ in range(match_count):
-        idx = random.randint(0, min(len(agents) - 1, 9))
+    cal_count = int(match_count * 0.4)
+    top_count = int(match_count * 0.3)
+    swiss_count = match_count - cal_count - top_count
+
+    # ── Phase A: Calibration — give under-played agents more games ──
+    by_games = sorted(agents, key=lambda a: a.get('games_played', 0))
+    established = [a for a in agents if a.get('games_played', 0) >= PROVISIONAL_GAMES]
+
+    for _ in range(cal_count):
+        # Pick from the 20 least-played agents
+        pool_size = min(20, len(by_games))
+        a1 = by_games[random.randint(0, pool_size - 1)]
+
+        # Pair with closest-ELO established agent (or any agent if none established)
+        pool = established if established else agents
+        candidates = [c for c in pool if c['id'] != a1['id']]
+        if not candidates:
+            continue
+
+        # Sort by ELO proximity, pick from top 3 closest (adds variety)
+        candidates.sort(key=lambda c: abs(a1['elo'] - c['elo']))
+        pick_idx = random.randint(0, min(2, len(candidates) - 1))
+        a2 = candidates[pick_idx]
+
+        pair_key = (a1['id'], a2['id'])
+        if pair_counts.get(pair_key, 0) >= MAX_RATING_GAMES_PER_PAIR:
+            continue
+
+        code1, code2 = a1.get('code', ''), a2.get('code', '')
+        if not code1 or not code2:
+            continue
+
+        schedule.append((a1, a2, code1, code2))
+        pair_counts[pair_key] = pair_counts.get(pair_key, 0) + 1
+        pair_counts[(a2['id'], a1['id'])] = pair_counts[pair_key]
+
+    # ── Phase B: Top Contenders — top agents must play each other ──
+    top_n = min(10, len(agents))
+    top_agents = agents[:top_n]  # already sorted by ELO desc from leaderboard
+
+    # Generate all top-agent pairs, prioritize fewest existing games
+    top_pairs = []
+    for i in range(len(top_agents)):
+        for j in range(i + 1, len(top_agents)):
+            a1, a2 = top_agents[i], top_agents[j]
+            pair_key = (a1['id'], a2['id'])
+            existing = pair_counts.get(pair_key, 0)
+            top_pairs.append((existing, a1, a2))
+
+    top_pairs.sort(key=lambda x: x[0])  # fewest games first
+
+    scheduled_top = 0
+    for existing, a1, a2 in top_pairs:
+        if scheduled_top >= top_count:
+            break
+
+        # No pair cap for top agents — always allow more games for rating accuracy
+        code1, code2 = a1.get('code', ''), a2.get('code', '')
+        if not code1 or not code2:
+            continue
+
+        schedule.append((a1, a2, code1, code2))
+        pair_key = (a1['id'], a2['id'])
+        pair_counts[pair_key] = pair_counts.get(pair_key, 0) + 1
+        pair_counts[(a2['id'], a1['id'])] = pair_counts[pair_key]
+        scheduled_top += 1
+
+    # ── Phase C: Swiss — ELO-weighted matching across full roster ──
+    for _ in range(swiss_count):
+        idx = random.randint(0, len(agents) - 1)  # full roster, not just top 10
         a1 = agents[idx]
 
         candidates = [a for a in agents if a['id'] != a1['id']]
@@ -1483,51 +1544,60 @@ def _run_tournament(game_id='snake', match_count=20):
             continue
 
         pair_key = (a1['id'], a2['id'])
-        if pair_counts.get(pair_key, 0) >= max_games:
+        if pair_counts.get(pair_key, 0) >= MAX_RATING_GAMES_PER_PAIR:
             continue
 
-        code1 = a1.get('code', '')
-        code2 = a2.get('code', '')
+        code1, code2 = a1.get('code', ''), a2.get('code', '')
         if not code1 or not code2:
             continue
 
         schedule.append((a1, a2, code1, code2))
-        # Increment local pair count to avoid scheduling same pair repeatedly
         pair_counts[pair_key] = pair_counts.get(pair_key, 0) + 1
         pair_counts[(a2['id'], a1['id'])] = pair_counts[pair_key]
 
+    return schedule
+
+
+def _run_tournament(game_id='snake', match_count=20):
+    """Run a tournament round with smart 3-phase scheduling.
+
+    Phase 1 — LOAD: Fetch all agents + code once (bulk pair counts).
+    Phase 2 — SCHEDULE: Smart 3-phase matchmaking (calibration + top contenders + Swiss).
+    Phase 3 — PLAY: Run all matches (CPU-bound, no DB queries).
+    Phase 4 — QUEUE: Push results to DB writer queue (single-thread safety).
+    """
+    # ── Phase 1: Load ──
+    agents = arena_get_leaderboard(game_id, limit=200)
+    for a in agents:
+        full = arena_get_agent(game_id, a['id'])
+        if full:
+            a['code'] = full.get('code', '')
+    if len(agents) < 2:
+        return 0
+
+    # Bulk pair count — single query replaces O(n^2) individual calls
+    agent_ids = [a['id'] for a in agents]
+    pair_counts = arena_get_all_pair_counts(game_id, agent_ids)
+
+    # ── Phase 2: Smart Schedule ──
+    schedule = _schedule_smart(agents, pair_counts, match_count)
     if not schedule:
         return 0
 
     # ── Phase 3: Play (CPU-bound, no DB) ──
-    results = []
+    played = 0
     for a1, a2, code1, code2 in schedule:
         result = _run_match(game_id, code1, code2)
         if result.get('error'):
             continue
         winner_id = a1['id'] if result['winner'] == 0 else (a2['id'] if result['winner'] == 1 else None)
         winner_name = a1['name'] if result['winner'] == 0 else (a2['name'] if result['winner'] == 1 else 'Draw')
-        results.append((a1, a2, winner_id, winner_name, result))
 
-    # ── Phase 4: Publish (batch DB writes) ──
-    games_played = 0
-    for a1, a2, winner_id, winner_name, result in results:
-        try:
-            arena_record_game(
-                game_id=game_id,
-                agent1_id=a1['id'],
-                agent2_id=a2['id'],
-                winner_id=winner_id,
-                scores=result['scores'],
-                turns=result['turns'],
-                history=result.get('history'),
-            )
-            games_played += 1
-            _push_live_match(a1, a2, winner_name, result.get('history', []), game_id)
-        except Exception as e:
-            print(f'[tournament:{game_id}] Record error: {e}')
+        # ── Phase 4: Queue for DB writer ──
+        _db_writer_queue.put((game_id, a1, a2, winner_id, winner_name, result))
+        played += 1
 
-    return games_played
+    return played
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1575,53 +1645,80 @@ def _warm_live_buffer(game_id='snake'):
         print(f'[tournament] Warm buffer failed (non-fatal): {exc}')
 
 
-def _tournament_loop():
-    """Single tournament thread — round-robins all games sequentially.
+def _db_writer_thread():
+    """Single thread that processes all tournament DB writes.
+    Prevents SQLite corruption from concurrent writes across game threads.
+    Runs until heartbeat stops AND queue is drained."""
+    print('[tournament] DB writer thread started')
+    while _heartbeat_state['running'] or not _db_writer_queue.empty():
+        try:
+            item = _db_writer_queue.get(timeout=1.0)
+        except queue.Empty:
+            continue
 
-    One thread handles all games to avoid concurrent DB writes that corrupt SQLite.
-    Each iteration: pick next game, run a batch of matches, move to next game.
-    Only sleeps when ALL games had zero matches in a full round.
-    """
-    time.sleep(5)
-    for game_id in _ACTIVE_GAMES:
-        _warm_live_buffer(game_id)
-        _seed_if_empty(game_id)
-    print(f'[tournament] Single-threaded loop started (games: {_ACTIVE_GAMES})')
+        game_id, a1, a2, winner_id, winner_name, result = item
+        try:
+            # Only store history if under storage cap (saves disk space)
+            history = result.get('history')
+            if history:
+                stored = arena_count_pair_games(a1['id'], a2['id'])
+                if stored >= MAX_STORED_GAMES_PER_PAIR:
+                    history = None  # skip blob, still record game for ELO
 
-    totals = {gid: 0 for gid in _ACTIVE_GAMES}
-    last_cleanup = {gid: time.time() for gid in _ACTIVE_GAMES}
+            arena_record_game(
+                game_id=game_id,
+                agent1_id=a1['id'],
+                agent2_id=a2['id'],
+                winner_id=winner_id,
+                scores=result['scores'],
+                turns=result['turns'],
+                history=history,
+            )
+            _heartbeat_state['games_played'] += 1
+            # Only push to live buffer if we have history frames
+            if result.get('history'):
+                _push_live_match(a1, a2, winner_name, result['history'], game_id)
+        except Exception as e:
+            print(f'[db-writer:{game_id}] Record error: {e}')
+        finally:
+            _db_writer_queue.task_done()
+
+    print('[tournament] DB writer thread stopped')
+
+
+def _tournament_loop_for_game(game_id):
+    """Per-game tournament thread — dedicated CPU for one game.
+    Computes matches CPU-bound, pushes results to DB writer queue."""
+    time.sleep(3)
+    _warm_live_buffer(game_id)
+    _seed_if_empty(game_id)
+    print(f'[tournament:{game_id}] Dedicated thread started')
+
+    total = 0
+    last_cleanup = time.time()
 
     while _heartbeat_state['running']:
-        any_played = False
+        try:
+            played = _run_tournament(game_id=game_id, match_count=TOURNAMENT_BATCH)
+            if played > 0:
+                total += played
+                if total % 50 == 0:
+                    print(f'[tournament:{game_id}] {total} games scheduled')
+            else:
+                time.sleep(5)  # no matches available, brief pause
+        except Exception as e:
+            _heartbeat_state['last_error'] = f'tournament({game_id}): {e}'
+            print(f'[tournament:{game_id}] Error: {e}')
+            traceback.print_exc()
+            time.sleep(10)
 
-        for game_id in _ACTIVE_GAMES:
-            if not _heartbeat_state['running']:
-                break
-
+        # Periodic cleanup — strip old history blobs every 10 min
+        if time.time() - last_cleanup > 600:
             try:
-                played = _run_tournament(game_id=game_id, match_count=TOURNAMENT_BATCH)
-                if played > 0:
-                    totals[game_id] += played
-                    _heartbeat_state['games_played'] += played
-                    any_played = True
-                    if totals[game_id] % 50 == 0:
-                        print(f'[tournament:{game_id}] {totals[game_id]} games played')
-            except Exception as e:
-                _heartbeat_state['last_error'] = f'tournament({game_id}): {e}'
-                print(f'[tournament:{game_id}] Error: {e}')
-                traceback.print_exc()
-
-            # Periodic cleanup — strip old history blobs every 10 min
-            if time.time() - last_cleanup[game_id] > 600:
-                try:
-                    arena_strip_excess_history(game_id)
-                except Exception:
-                    pass
-                last_cleanup[game_id] = time.time()
-
-        # If no game had any matches this round, back off before retrying
-        if not any_played:
-            time.sleep(30)
+                arena_strip_excess_history(game_id)
+            except Exception:
+                pass
+            last_cleanup = time.time()
 
 
 _GAME_SEEDS = {
@@ -1634,6 +1731,9 @@ _GAME_SEEDS = {
         'seed_random': 'snake_random_random_agent.py',
         'seed_greedy': 'snake_random_greedy_agent.py',
         'seed_wall_avoider': 'snake_random_wall_avoider.py',
+        'seed_bfs': 'snake_random_bfs_pathfinder.py',
+        'seed_safe': 'snake_random_safe_pathfinder.py',
+        'seed_space': 'snake_random_space_controller.py',
     },
     'snake_royale': {
         'seed_random': 'snake_royale_random_agent.py',
@@ -2207,13 +2307,33 @@ def get_latest_export():
 # ═══════════════════════════════════════════════════════════════════════════
 
 def start_arena_heartbeat():
-    if _heartbeat_state.get('thread') and _heartbeat_state['thread'].is_alive():
+    game_threads = _heartbeat_state.get('game_threads', [])
+    if game_threads and any(t.is_alive() for t in game_threads):
         print('[heartbeat] Already running')
         return
     _heartbeat_state['running'] = True
-    t1 = threading.Thread(target=_tournament_loop, daemon=True, name='arena-tournament')
-    _heartbeat_state['thread'] = t1
-    t1.start()
+
+    # DB writer thread — single thread for all DB writes (SQLite safety)
+    db_t = threading.Thread(target=_db_writer_thread, daemon=True, name='arena-db-writer')
+    _heartbeat_state['db_writer_thread'] = db_t
+    db_t.start()
+
+    # Per-game tournament threads — 1 dedicated CPU per game
+    game_threads = []
+    for game_id in _ACTIVE_GAMES:
+        t = threading.Thread(
+            target=_tournament_loop_for_game,
+            args=(game_id,),
+            daemon=True,
+            name=f'arena-tournament-{game_id}',
+        )
+        t.start()
+        game_threads.append(t)
+    _heartbeat_state['game_threads'] = game_threads
+    _heartbeat_state['thread'] = game_threads[0] if game_threads else None  # backwards compat
+    print(f'[heartbeat] Started {len(game_threads)} tournament threads + 1 DB writer')
+
+    # Evolution thread
     t2 = threading.Thread(target=_evolution_loop, daemon=True, name='arena-evolution')
     _heartbeat_state['evo_thread'] = t2
     t2.start()
@@ -2221,14 +2341,26 @@ def start_arena_heartbeat():
 
 def stop_arena_heartbeat():
     _heartbeat_state['running'] = False
+    # Let DB writer drain remaining results
+    if not _db_writer_queue.empty():
+        try:
+            _db_writer_queue.join()
+        except Exception:
+            pass
 
 
 def get_heartbeat_status():
-    t1 = _heartbeat_state.get('thread')
+    game_threads = _heartbeat_state.get('game_threads', [])
     t2 = _heartbeat_state.get('evo_thread')
+    db_t = _heartbeat_state.get('db_writer_thread')
+    alive_threads = [t for t in game_threads if t.is_alive()]
     return {
         'running': _heartbeat_state['running'],
-        'tournament_alive': t1.is_alive() if t1 else False,
+        'tournament_alive': len(alive_threads) > 0,
+        'tournament_threads': len(alive_threads),
+        'tournament_total_threads': len(game_threads),
+        'db_writer_alive': db_t.is_alive() if db_t else False,
+        'db_writer_queue_size': _db_writer_queue.qsize(),
         'evolution_alive': t2.is_alive() if t2 else False,
         'ticks': _heartbeat_state['ticks'],
         'last_tick': _heartbeat_state['last_tick'],

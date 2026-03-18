@@ -1,10 +1,11 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-17 23:30
+# Date: 2026-03-18 23:30
 # PURPOSE: Service layer for Arena Auto Research. Validates inputs, orchestrates
 #   DB calls from db_arena.py, enforces rate limits and submission gates.
 #   Pure business logic — no Flask request/response objects. Supports snake variant
 #   game IDs (snake_random, snake_royale, snake_2v2) with per-variant program.md seeds.
 #   Includes submit_offline_agent() for offline agent uploads with server-side validation.
+#   Extended with code_* challenge IDs for Code Arena (sort, tsp, cache, wasm).
 # SRP/DRY check: Pass — validation/orchestration only, DB ops in db_arena.py
 """Arena Auto Research service — validation and orchestration."""
 
@@ -48,6 +49,13 @@ _GAME_PROGRAM_FILES = {
     'snake_2v2': 'snake_2v2_program.md',
     'chess960': 'chess960_program.md',
     'othello': 'othello_program.md',
+    'code_sort': 'code_sort_program.md',
+    'code_tsp': 'code_tsp_program.md',
+    'code_cache': 'code_cache_program.md',
+    'code_wasm_fib': 'code_wasm_program.md',
+    'code_wasm_sum': 'code_wasm_program.md',
+    'code_wasm_sort': 'code_wasm_program.md',
+    'code_wasm_prime': 'code_wasm_program.md',
 }
 
 
@@ -71,11 +79,20 @@ ARENA_GAME_IDS = {
     "snake_2v2",
     "chess960",
     "othello",
+    "code_sort",
+    "code_tsp",
+    "code_cache",
+    "code_wasm_fib",
+    "code_wasm_sum",
+    "code_wasm_sort",
+    "code_wasm_prime",
 }
 _ALL_ARENA_GAME_IDS = {
     "snake", "snake_random", "snake_royale", "snake_2v2",
     "tron", "connect4", "chess960",
     "othello", "go9", "gomoku", "artillery", "poker",
+    "code_sort", "code_tsp", "code_cache",
+    "code_wasm_fib", "code_wasm_sum", "code_wasm_sort", "code_wasm_prime",
 }
 
 # Rate limits (in-memory, resets on server restart)
@@ -105,19 +122,31 @@ def validate_agent_name(name):
     return True, ""
 
 
-def validate_agent_code(code):
+def validate_agent_code(code, game_id=None):
     """Returns (is_valid, error_msg)."""
     if not code:
         return False, "Agent code required"
     if len(code) > 50000:
         return False, "Code too large (max 50KB)"
-    if "getMove" not in code and "get_move" not in code:
-        return False, "Code must contain a getMove or get_move function"
-    # Basic safety: block dangerous patterns
-    dangerous = ["fetch(", "XMLHttpRequest", "require(", "import(", "eval(", "Function("]
-    for d in dangerous:
-        if d in code:
-            return False, f"Forbidden pattern: {d}"
+    # Code challenges use solve() instead of getMove()
+    is_code_challenge = game_id and game_id.startswith("code_")
+    is_wasm_challenge = game_id and game_id.startswith("code_wasm")
+    if is_wasm_challenge:
+        # WASM agents are WAT text, just check for module/func keywords
+        if "(module" not in code and "(func" not in code:
+            return False, "WAT code must contain (module and (func definitions"
+    elif is_code_challenge:
+        if "solve" not in code:
+            return False, "Code must contain a solve function"
+    else:
+        if "getMove" not in code and "get_move" not in code:
+            return False, "Code must contain a getMove or get_move function"
+    # Basic safety: block dangerous patterns (not applicable to WAT)
+    if not is_wasm_challenge:
+        dangerous = ["fetch(", "XMLHttpRequest", "require(", "import(", "eval(", "Function("]
+        for d in dangerous:
+            if d in code:
+                return False, f"Forbidden pattern: {d}"
     return True, ""
 
 
@@ -178,7 +207,7 @@ def submit_agent(game_id, name, code, contributor=None, program_version_id=None)
     ok, err = validate_agent_name(name)
     if not ok:
         return {"error": err}
-    ok, err = validate_agent_code(code)
+    ok, err = validate_agent_code(code, game_id=game_id)
     if not ok:
         return {"error": err}
     if contributor:

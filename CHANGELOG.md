@@ -5,6 +5,35 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.12.1] — feat: Snake Random benchmark bots + blue anchor styling
+*Author: Claude Opus 4.6 | 2026-03-18*
+
+### Added
+- **3 benchmark bots for Snake Random arena** — Adapted from proven open-source snake AI algorithms (chuyangliu/snake, Hawstein/snake-ai):
+  - `seed_bfs` — BFS shortest path to food with flood-fill fallback. Medium difficulty.
+  - `seed_safe` — BFS + virtual snake simulation + escape-route verification + tail-chase. Hard difficulty.
+  - `seed_space` — Flood-fill territory maximization + enemy space denial. Hard/aggressive playstyle.
+- **Blue anchor agent styling** — All anchor/benchmark agents (`is_anchor=1`) now display with a blue row tint and blue agent name in the leaderboard, matching how human agents have purple styling.
+
+---
+
+## [1.12.0] — feat: Code Arena — AutoResearch for Code Optimization
+*Author: Claude Opus 4.6 | 2026-03-18*
+
+### Added
+- **Code Arena page** (`/code`) — New AutoResearch page for evolving optimized code solutions. Agents compete head-to-head on benchmarks: same inputs, faster correct solution wins, ELO-ranked.
+- **4 challenge categories, 7 sub-challenges**:
+  - **Sorting** — Evolve fast sorting algorithms across 6 input distributions (random, nearly-sorted, reversed, duplicates, small, large). Metric: total ms.
+  - **TSP** — Evolve tour-finding heuristics on 4 fixed city sets (cluster, grid, random, large). Metric: tour length.
+  - **Cache Eviction** — Evolve cache eviction policies on 3 access traces (Zipf, scan, working set). Metric: hit rate %.
+  - **Assembly (WASM)** — Write WebAssembly Text Format (WAT) programs: fibonacci, array sum, sort, prime count. Compiled to WASM and run natively in-browser.
+- **Benchmark-based matches** — Both agents run the same deterministic benchmark suite, faster correct solution wins. Reuses the existing ELO tournament system from Games Arena.
+- **Full evolution loop** — LLM tool-calling loop with query_leaderboard, read_agent, create_agent, test_match tools. Adapted from arena-autoresearch.js for code challenges.
+- **Shared infrastructure** — Reuses arena API endpoints (`/api/arena/research/code_sort`, etc.), DB tables, ELO system, program.md versioning, AI Heartbeat comments.
+- **Seed program.md files** — Strategy guides for each challenge with agent interface specs, benchmark descriptions, and optimization tips.
+
+---
+
 ## [1.11.0] — feat: Program.md Auto-Evolution
 *Author: Claude Opus 4.6 | 2026-03-18*
 

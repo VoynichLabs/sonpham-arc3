@@ -1,5 +1,5 @@
 # Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-# Date: 2026-03-18 15:00
+# Date: 2026-03-18 23:30
 # PURPOSE: Flask server for ARC-AGI-3 web player. Responsibilities: static file serving,
 #   session persistence (save/resume/branch via SQLite), game step proxying, model registry
 #   API (/api/llm/models), Cloudflare Workers AI proxy (/api/llm/cf-proxy), observatory,
@@ -117,6 +117,7 @@ DEV_SECRET = os.environ.get("DEV_SECRET", "arc-dev-2026")
 # Both domains point to the same Railway service + volume.
 OBSERVATORY_URL = os.environ.get("OBSERVATORY_URL", "https://arc3.sonpham.net")
 ARENA_URL = os.environ.get("ARENA_URL", "https://arena.sonpham.net")
+CODE_URL = os.environ.get("CODE_URL", "https://arena.sonpham.net/code")
 
 # Will be set by CLI args; default to staging
 _server_mode = "staging"
@@ -626,6 +627,16 @@ def _render_arena():
                            observatory_url=OBSERVATORY_URL)
 
 
+def _render_code():
+    """Render the Code Arena (code.html) page."""
+    mode = get_mode()
+    return render_template("code.html", static_v=_STATIC_VERSION, mode=mode,
+                           features=get_enabled_features(),
+                           google_client_id=GOOGLE_CLIENT_ID,
+                           arena_url=ARENA_URL,
+                           observatory_url=OBSERVATORY_URL)
+
+
 @app.route("/")
 @bot_protection
 def root_page():
@@ -650,6 +661,12 @@ def arena_alias():
     if _is_arena_host():
         return redirect("/", code=302)
     return redirect(ARENA_URL, code=302)
+
+
+@app.route("/code")
+def code_page():
+    """Code Arena — AutoResearch for code optimization challenges."""
+    return _render_code()
 
 
 @app.route("/api/turnstile/verify", methods=["POST"])
