@@ -1684,6 +1684,175 @@ def _seed_if_empty(game_id):
 
 _evo_counts = {}  # per-game counter for analysis cadence
 
+PROGRAM_EVO_AGENT_THRESHOLD = 10   # evolve program after N agents created under it
+PROGRAM_EVO_TIME_THRESHOLD = 2 * 3600  # ... or after 2 hours
+
+
+def _should_evolve_program(game_id):
+    """Check if program.md should be auto-evolved.
+
+    Returns (should_evolve: bool, reason: str).
+    Triggers when >=10 agents created under current version OR >=2h elapsed.
+    """
+    try:
+        from db_arena import arena_count_agents_since_program
+        count, ver_id, ver_created = arena_count_agents_since_program(game_id)
+        if ver_id is None:
+            # No applied version yet — don't evolve, need a base first
+            return False, ''
+        if count >= PROGRAM_EVO_AGENT_THRESHOLD:
+            return True, f'{count} agents created under v{ver_id}'
+        elapsed = time.time() - (ver_created or 0)
+        if elapsed >= PROGRAM_EVO_TIME_THRESHOLD:
+            hrs = elapsed / 3600
+            return True, f'{hrs:.1f}h elapsed since last program update'
+        return False, ''
+    except Exception as e:
+        print(f'[program-evo:{game_id}] Check error: {e}')
+        return False, ''
+
+
+def _run_program_evolution(api_key, game_id):
+    """Use Sonnet to evolve the program.md based on agent performance data.
+
+    Reads current program, top agents + code, recent games, previous versions,
+    then generates an improved program.md and auto-applies it.
+    """
+    from db_arena import (arena_auto_evolve_program, arena_get_program,
+                          arena_get_program_versions)
+
+    program_data = arena_get_program(game_id)
+    current_content = (program_data.get('content') if program_data else '') or _load_default_program(game_id)
+    current_version = program_data.get('version', 0) if program_data else 0
+
+    # Top agents with code
+    agents = arena_get_leaderboard(game_id, limit=15)
+    if not agents:
+        return None
+
+    agent_summaries = []
+    for i, a in enumerate(agents[:15]):
+        win_rate = a['wins'] / max(a['games_played'], 1) * 100
+        line = (f"  #{i+1} {a['name']} ELO={a['elo']:.0f} "
+                f"W/L/D={a['wins']}/{a['losses']}/{a['draws']} ({win_rate:.0f}% WR, {a['games_played']} games)")
+        agent_summaries.append(line)
+
+    # Top 3 agent code
+    top_code_blocks = []
+    for a in agents[:3]:
+        full = arena_get_agent(game_id, a['id'])
+        if full and full.get('code'):
+            top_code_blocks.append(f"### {a['name']} (ELO {a['elo']:.0f})\n```python\n{full['code']}\n```")
+
+    # Recent game results
+    from db_arena import arena_get_recent_games
+    try:
+        recent_games = arena_get_recent_games(game_id, limit=20)
+    except Exception:
+        recent_games = []
+    game_lines = []
+    for g in recent_games[:20]:
+        winner = g.get('winner_name', 'draw')
+        game_lines.append(
+            f"  {g.get('agent1_name', '?')} vs {g.get('agent2_name', '?')} → {winner} ({g.get('turns', 0)} turns)")
+
+    # Previous program versions
+    versions = arena_get_program_versions(game_id)
+    version_lines = []
+    for v in versions[:5]:
+        auto = ' [AI]' if v.get('auto_evolved') else ''
+        version_lines.append(
+            f"  v{v['version']}{auto}: {v.get('change_summary') or '(no summary)'}")
+
+    data_block = f"""=== Program.md Evolution for {game_id} ===
+
+CURRENT PROGRAM.MD (v{current_version}):
+---
+{current_content}
+---
+
+TOP AGENTS:
+{chr(10).join(agent_summaries)}
+
+TOP AGENT CODE:
+{chr(10).join(top_code_blocks) if top_code_blocks else '  (none available)'}
+
+RECENT GAME RESULTS:
+{chr(10).join(game_lines) if game_lines else '  (none)'}
+
+PREVIOUS PROGRAM VERSIONS:
+{chr(10).join(version_lines) if version_lines else '  v0 (initial)'}
+"""
+
+    system = f"""You are the Program.md Evolution Engine for the {game_id} agent arena.
+
+Your job is to improve the program.md — the document that instructs the AI agent-creator on how to build winning agents. You analyze what's working, what's failing, and write an improved version.
+
+RULES:
+- Keep the same **Agent Interface** section (the get_move function signature, state dict fields) — do NOT change the game API
+- Keep the **Rules** and **Tools** sections accurate — do NOT change factual information about the game mechanics
+- You CAN and SHOULD improve: Strategy section, tips, patterns to try, pitfalls to avoid
+- Add insights from the current top agents — what strategies are winning and why
+- Suggest specific counter-strategies the next generation should try
+- Reference specific agent names and their approaches
+- Keep the document concise and actionable — the LLM reading this has limited context
+
+Output ONLY the new program.md content. No preamble, no explanation — just the markdown document.
+After the document, on a new line starting with "SUMMARY:", write a one-line summary of what you changed and why."""
+
+    user = f"Analyze the current arena state and write an improved program.md:\n\n{data_block}"
+
+    try:
+        import httpx as _httpx
+        from llm_providers_anthropic import _anthropic_auth_headers
+        headers = _anthropic_auth_headers(api_key)
+        resp = _httpx.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json={
+                "model": "claude-sonnet-4-5-20241022",
+                "max_tokens": 4096,
+                "system": system,
+                "messages": [{"role": "user", "content": user}],
+            },
+            timeout=120.0,
+        )
+        if resp.status_code != 200:
+            print(f'[program-evo:{game_id}] API error: {resp.status_code}')
+            return None
+
+        data = resp.json()
+        text = data.get('content', [{}])[0].get('text', '')
+        if not text or len(text) < 100:
+            print(f'[program-evo:{game_id}] Response too short, skipping')
+            return None
+
+        # Parse out the SUMMARY line
+        new_content = text
+        change_summary = ''
+        if 'SUMMARY:' in text:
+            parts = text.rsplit('SUMMARY:', 1)
+            new_content = parts[0].strip()
+            change_summary = parts[1].strip()[:500]
+
+        # Build conversation log
+        conversation_log = [
+            {'role': 'system', 'content': system},
+            {'role': 'user', 'content': user},
+            {'role': 'assistant', 'content': text},
+        ]
+
+        return {
+            'content': new_content,
+            'change_summary': change_summary,
+            'conversation_log': conversation_log,
+        }
+
+    except Exception as exc:
+        print(f'[program-evo:{game_id}] Error: {exc}')
+        traceback.print_exc()
+        return None
+
 
 def _run_ai_analysis(api_key, game_id):
     """Use Haiku to analyze evolution state and post a status report as a heartbeat comment."""
@@ -1851,6 +2020,33 @@ def _evolution_loop_for_game(game_id, stagger_secs):
                 _run_ai_analysis(api_key, game_id)
             except Exception as exc:
                 print(f'[analysis:{game_id}] Error (non-fatal): {exc}')
+
+        # Program.md auto-evolution — check on every tick, evolve when threshold met
+        if api_key:
+            try:
+                should_evo, reason = _should_evolve_program(game_id)
+                if should_evo:
+                    print(f'[program-evo:{game_id}] Triggering: {reason}')
+                    result = _run_program_evolution(api_key, game_id)
+                    if result:
+                        from db_arena import arena_auto_evolve_program
+                        ver = arena_auto_evolve_program(
+                            game_id,
+                            content=result['content'],
+                            change_summary=result['change_summary'],
+                            conversation_log=result['conversation_log'],
+                            trigger_reason=reason,
+                        )
+                        v_num = ver.get('version', '?')
+                        summary = result['change_summary'] or 'Updated strategy guidance'
+                        msg = (f"**Program.md evolved to v{v_num}** — *{summary}*\n"
+                               f"Trigger: {reason}")
+                        arena_post_comment(game_id, 'ai-heartbeat', 'Heartbeat', msg,
+                                           comment_type='heartbeat')
+                        print(f'[program-evo:{game_id}] Applied v{v_num}: {summary}')
+            except Exception as exc:
+                print(f'[program-evo:{game_id}] Error (non-fatal): {exc}')
+                traceback.print_exc()
 
         if created or time.time() - _last_export_time >= EXPORT_INTERVAL:
             try:

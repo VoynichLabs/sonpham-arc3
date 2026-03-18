@@ -836,6 +836,17 @@
   display: flex; gap: 4px; align-items: center; padding: 6px 10px;
   flex-shrink: 0; border-top: 1px solid var(--border); background: var(--surface);
 }
+.ar-version-select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 3px; padding: 2px 6px; font-size: 11px; font-family: inherit;
+  cursor: pointer; margin-left: auto;
+}
+.ar-evo-log-msg { margin-bottom: 12px; padding: 8px; border-radius: 4px; }
+.ar-evo-log-msg.system { background: #1a1a2e; color: #88D8F1; }
+.ar-evo-log-msg.user { background: #1a2e1a; color: #4FCC30; }
+.ar-evo-log-msg.assistant { background: #1e1e1e; color: #e0e0e0; }
+.ar-evo-log-role { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #888; margin-bottom: 4px; }
+.ar-evo-log-content { white-space: pre-wrap; font-size: 12px; line-height: 1.5; }
 
 /* AI Heartbeat tab */
 .ar-heartbeat-list {

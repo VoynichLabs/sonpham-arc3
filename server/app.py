@@ -471,6 +471,15 @@ def arena_program_apply(game_id, version_id):
     return jsonify({"applied": applied})
 
 
+@app.route("/api/arena/program/<game_id>/versions")
+def arena_program_versions_list(game_id):
+    ok, err = _ar_svc.validate_game_id(game_id)
+    if not ok:
+        return jsonify({"error": err}), 400
+    from db_arena import arena_get_program_versions
+    return jsonify(arena_get_program_versions(game_id))
+
+
 @app.route("/api/arena/program-version/<int:version_id>")
 def arena_program_version_get(version_id):
     from db_arena import arena_get_program_version

@@ -5,6 +5,19 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.11.0] — feat: Program.md Auto-Evolution
+*Author: Claude Opus 4.6 | 2026-03-18*
+
+### Added
+- **Program.md auto-evolution** — Every heartbeat tick, the system checks if the current program.md has created >=10 agents or >=2 hours have elapsed. When triggered, Sonnet 4.6 analyzes top agents, their code, recent game results, and previous program versions to generate an improved program.md that is auto-applied as the new default.
+- **Evolution conversation log** — The full LLM conversation that produced each program.md version is stored and viewable via a "View Log" button in the UI.
+- **Version dropdown** — Users can browse all program.md versions for each game via a dropdown in the program.md section header. Each version shows its author, trigger reason, and whether it was AI-evolved.
+- **Heartbeat announcement** — When a new program.md is evolved, a heartbeat message is posted announcing the version and summarizing the changes.
+- **New API endpoints** — `GET /api/arena/program/<game_id>/versions` lists all versions; `GET /api/arena/program-version/<id>` now includes conversation log.
+- **DB migration** — Added `conversation_log`, `trigger_reason`, `auto_evolved` columns to `arena_program_versions`.
+
+---
+
 ## [1.10.2] — feat: Agent Profile Tabs — Games, Code, Program, Evolution Log
 *Author: Claude Opus 4.6 | 2026-03-18*
 

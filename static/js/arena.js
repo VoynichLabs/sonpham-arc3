@@ -5779,6 +5779,21 @@ function arRenderProgram(program) {
 
   view.innerHTML = `<div class="ar-markdown">${arSimpleMarkdown(content)}</div>`;
 
+  // Populate version dropdown
+  const sel = document.getElementById('arProgramVersionSelect');
+  if (sel && program && program.versions && program.versions.length) {
+    const currentVer = program.version || 0;
+    sel.innerHTML = program.versions.map(v => {
+      const auto = v.applied === 1 && v.author === 'AI Evolution' ? ' [AI]' : '';
+      const selected = v.version === currentVer ? ' selected' : '';
+      return `<option value="${v.id}"${selected}>v${v.version}${auto}</option>`;
+    }).join('');
+    // Add "current" at top if not in list
+    sel.style.display = '';
+  } else if (sel) {
+    sel.style.display = 'none';
+  }
+
   // Populate model select for agent creation
   _arPopulateCreateModels();
 
@@ -6281,6 +6296,46 @@ async function arShowAgentProgram(versionId, agentName) {
     document.getElementById('arProgramModalTitle').textContent = `${agentName} — Program.md (v${ver.version})`;
     document.getElementById('arProgramModalCode').textContent = ver.content || '(empty)';
     document.getElementById('arProgramModal').style.display = 'flex';
+  } catch (e) {
+    // Silently fail
+  }
+}
+
+
+async function arSwitchProgramVersion(versionId) {
+  if (!versionId) return;
+  try {
+    const ver = await fetch(`/api/arena/program-version/${versionId}`).then(r => r.json());
+    if (ver.error) return;
+    const view = document.getElementById('arProgramView');
+    const autoLabel = ver.auto_evolved ? ' <span style="color:#88D8F1;font-size:10px">[AI-evolved]</span>' : '';
+    const logBtn = ver.conversation_log && ver.conversation_log.length
+      ? ` <button class="ar-btn ar-btn-xs" onclick="arShowEvoLog(${ver.id})" style="margin-left:4px">View Log</button>`
+      : '';
+    const header = `<div style="font-size:11px;color:#888;margin-bottom:6px">` +
+      `v${ver.version}${autoLabel} by ${escHtml(ver.author || 'unknown')}` +
+      `${ver.trigger_reason ? ' — ' + escHtml(ver.trigger_reason) : ''}${logBtn}</div>`;
+    view.innerHTML = header + `<div class="ar-markdown">${arSimpleMarkdown(ver.content)}</div>`;
+  } catch (e) {
+    // Silently fail
+  }
+}
+
+async function arShowEvoLog(versionId) {
+  try {
+    const ver = await fetch(`/api/arena/program-version/${versionId}`).then(r => r.json());
+    if (ver.error || !ver.conversation_log) return;
+    document.getElementById('arEvoLogModalTitle').textContent = `Evolution Log — v${ver.version}`;
+    const body = document.getElementById('arEvoLogModalBody');
+    body.innerHTML = ver.conversation_log.map(msg => {
+      const role = msg.role || 'unknown';
+      const content = escHtml(msg.content || '').replace(/\n/g, '<br>');
+      return `<div class="ar-evo-log-msg ${role}">
+        <div class="ar-evo-log-role">${role}</div>
+        <div class="ar-evo-log-content">${content}</div>
+      </div>`;
+    }).join('');
+    document.getElementById('arEvoLogModal').style.display = 'flex';
   } catch (e) {
     // Silently fail
   }

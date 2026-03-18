@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-17 22:00
+# Date: 2026-03-18 16:00
 # PURPOSE: SQLite database layer for ARC-AGI-3. Manages schema migrations, session
 #   persistence (sessions, session_actions, llm_calls), observatory data, share links,
 #   auth (magic links, Google OAuth), leaderboard, and tool execution logging.
@@ -734,6 +734,27 @@ def _migrate_schema(conn):
         try:
             conn.execute("ALTER TABLE arena_agents ADD COLUMN evolution_cycle_id INTEGER DEFAULT NULL")
             log.info("Migrated arena_agents: added evolution_cycle_id")
+        except Exception:
+            pass
+
+    # ── 9. arena_program_versions: add columns for auto-evolution ──
+    apv_cols = _get_table_columns(conn, "arena_program_versions")
+    if "conversation_log" not in apv_cols and apv_cols:
+        try:
+            conn.execute("ALTER TABLE arena_program_versions ADD COLUMN conversation_log TEXT DEFAULT NULL")
+            log.info("Migrated arena_program_versions: added conversation_log")
+        except Exception:
+            pass
+    if "trigger_reason" not in apv_cols and apv_cols:
+        try:
+            conn.execute("ALTER TABLE arena_program_versions ADD COLUMN trigger_reason TEXT DEFAULT NULL")
+            log.info("Migrated arena_program_versions: added trigger_reason")
+        except Exception:
+            pass
+    if "auto_evolved" not in apv_cols and apv_cols:
+        try:
+            conn.execute("ALTER TABLE arena_program_versions ADD COLUMN auto_evolved INTEGER DEFAULT 0")
+            log.info("Migrated arena_program_versions: added auto_evolved")
         except Exception:
             pass
 
