@@ -580,30 +580,47 @@ def arena_migrate_to_pg():
             'arena_llm_calls', 'arena_library_requests',
         ]
         results = {}
-        cur = pg.cursor()
         for table in tables:
             try:
-                cols_info = sq.execute(f"PRAGMA table_info({table})").fetchall()
-                cols = [r[1] for r in cols_info]
+                # Get PG columns (source of truth for what PG accepts)
+                pg_cur = pg.cursor()
+                pg_cur.execute("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_name = %s ORDER BY ordinal_position
+                """, (table,))
+                pg_cols = [r[0] for r in pg_cur.fetchall()]
+                if not pg_cols:
+                    results[table] = "SKIP: table not in PG"
+                    pg.rollback()
+                    continue
+
+                # Get SQLite columns and find intersection
+                sq_cols_info = sq.execute(f"PRAGMA table_info({table})").fetchall()
+                sq_cols = [r[1] for r in sq_cols_info]
+                common_cols = [c for c in pg_cols if c in sq_cols]
+
                 rows = sq.execute(f"SELECT * FROM {table}").fetchall()
                 if not rows:
                     results[table] = 0
+                    pg.rollback()
                     continue
-                cur.execute(f"DELETE FROM {table}")
-                col_list = ', '.join(cols)
-                placeholders = ', '.join(['%s'] * len(cols))
-                batch = [tuple(row[c] for c in cols) for row in rows]
-                execute_batch(cur, f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})", batch, page_size=500)
+
+                pg_cur.execute(f"DELETE FROM {table}")
+                col_list = ', '.join(common_cols)
+                placeholders = ', '.join(['%s'] * len(common_cols))
+                batch = [tuple(row[c] for c in common_cols) for row in rows]
+                execute_batch(pg_cur, f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})", batch, page_size=500)
                 # Reset sequence
-                if 'id' in cols:
-                    cur.execute(f"SELECT MAX(id) FROM {table}")
-                    max_id = cur.fetchone()[0]
+                if 'id' in common_cols:
+                    pg_cur.execute(f"SELECT MAX(id) FROM {table}")
+                    max_id = pg_cur.fetchone()[0]
                     if max_id:
-                        cur.execute(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), %s)", (max_id,))
+                        pg_cur.execute(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), %s)", (max_id,))
+                pg.commit()
                 results[table] = len(rows)
             except Exception as e:
+                pg.rollback()
                 results[table] = f"ERROR: {e}"
-        pg.commit()
         sq.close()
         pg.close()
         return jsonify({"status": "ok", "tables": results})

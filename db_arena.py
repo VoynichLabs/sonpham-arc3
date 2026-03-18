@@ -124,6 +124,7 @@ def _init_pg_schema(conn):
             generation INTEGER DEFAULT 0,
             worker_label TEXT DEFAULT '',
             agents_created INTEGER DEFAULT 0,
+            agents_passed INTEGER DEFAULT 0,
             conversation TEXT,
             started_at DOUBLE PRECISION,
             finished_at DOUBLE PRECISION,
