@@ -484,15 +484,19 @@ def arena_get_comments(game_id, limit=100, comment_type=None):
     with _db() as conn:
         if comment_type:
             rows = conn.execute("""
-                SELECT * FROM arena_comments
-                WHERE game_id = ? AND comment_type = ?
-                ORDER BY created_at ASC LIMIT ?
+                SELECT * FROM (
+                    SELECT * FROM arena_comments
+                    WHERE game_id = ? AND comment_type = ?
+                    ORDER BY created_at DESC LIMIT ?
+                ) ORDER BY created_at ASC
             """, (game_id, comment_type, limit)).fetchall()
         else:
             rows = conn.execute("""
-                SELECT * FROM arena_comments
-                WHERE game_id = ?
-                ORDER BY created_at ASC LIMIT ?
+                SELECT * FROM (
+                    SELECT * FROM arena_comments
+                    WHERE game_id = ?
+                    ORDER BY created_at DESC LIMIT ?
+                ) ORDER BY created_at ASC
             """, (game_id, limit)).fetchall()
         return [dict(r) for r in rows]
 
@@ -547,14 +551,102 @@ def arena_vote_comment(comment_id, user_id, vote):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def arena_get_program_version(version_id):
-    """Get a single program version by ID. Returns dict or None."""
+    """Get a single program version by ID, including conversation log. Returns dict or None."""
     with _db() as conn:
         row = conn.execute(
-            "SELECT id, game_id, version, content, author, change_summary, created_at "
+            "SELECT id, game_id, version, content, author, change_summary, "
+            "auto_evolved, trigger_reason, conversation_log, created_at "
             "FROM arena_program_versions WHERE id = ?",
             (version_id,)
         ).fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        d = dict(row)
+        if d.get('conversation_log'):
+            try:
+                d['conversation_log'] = json.loads(d['conversation_log'])
+            except (json.JSONDecodeError, TypeError):
+                d['conversation_log'] = []
+        return d
+
+
+def arena_count_agents_since_program(game_id):
+    """Count agents created under the current applied program version.
+
+    Returns (count, version_id, version_created_at) or (0, None, None) if no version.
+    """
+    with _db() as conn:
+        # Find current applied version
+        ver = conn.execute(
+            """SELECT id, created_at FROM arena_program_versions
+               WHERE game_id = ? AND applied = 1
+               ORDER BY version DESC LIMIT 1""",
+            (game_id,)
+        ).fetchone()
+        if not ver:
+            return 0, None, None
+        cnt = conn.execute(
+            "SELECT COUNT(*) as c FROM arena_agents WHERE game_id = ? AND program_version_id = ?",
+            (game_id, ver['id'])
+        ).fetchone()['c']
+        return cnt, ver['id'], ver['created_at']
+
+
+def arena_auto_evolve_program(game_id, content, change_summary,
+                               conversation_log=None, trigger_reason=None):
+    """Create and auto-apply a new program.md version from AI evolution.
+
+    Returns the new version dict.
+    """
+    conv_json = None
+    if conversation_log:
+        conv_json = json.dumps(conversation_log, default=str)
+        if len(conv_json) > 200_000:
+            conv_json = conv_json[:200_000]
+
+    with _db() as conn:
+        research = conn.execute(
+            "SELECT program_version FROM arena_research WHERE game_id = ?", (game_id,)
+        ).fetchone()
+        current_version = research["program_version"] if research else 0
+        new_version = current_version + 1
+
+        conn.execute(
+            """INSERT INTO arena_program_versions
+               (game_id, version, content, author, change_summary,
+                applied, auto_evolved, conversation_log, trigger_reason)
+               VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)""",
+            (game_id, new_version, content, 'AI Evolution', change_summary,
+             conv_json, trigger_reason)
+        )
+        vid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # Auto-apply: update arena_research with new content
+        conn.execute(
+            "UPDATE arena_research SET program_md = ?, program_version = ?, updated_at = ? WHERE game_id = ?",
+            (content, new_version, time.time(), game_id)
+        )
+
+        row = conn.execute(
+            "SELECT id, game_id, version, author, change_summary, auto_evolved, "
+            "trigger_reason, applied, created_at FROM arena_program_versions WHERE id = ?",
+            (vid,)
+        ).fetchone()
+        return dict(row)
+
+
+def arena_get_program_versions(game_id):
+    """Get all program versions for a game (without conversation_log for size)."""
+    with _db() as conn:
+        rows = conn.execute(
+            """SELECT id, game_id, version, author, change_summary, votes_for, votes_against,
+                      applied, auto_evolved, trigger_reason, created_at
+               FROM arena_program_versions
+               WHERE game_id = ?
+               ORDER BY version DESC""",
+            (game_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def arena_get_program(game_id):
@@ -565,7 +657,9 @@ def arena_get_program(game_id):
             (game_id,)
         ).fetchone()
         versions = conn.execute(
-            "SELECT id, version, author, change_summary, votes_for, votes_against, vote_deadline, applied, created_at FROM arena_program_versions WHERE game_id = ? ORDER BY version DESC LIMIT 20",
+            """SELECT id, version, author, change_summary, votes_for, votes_against,
+                      vote_deadline, applied, auto_evolved, trigger_reason, created_at
+               FROM arena_program_versions WHERE game_id = ? ORDER BY version DESC LIMIT 50""",
             (game_id,)
         ).fetchall()
         # Check for active proposal (vote_deadline in the future)
