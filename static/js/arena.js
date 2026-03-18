@@ -5865,7 +5865,8 @@ function arRenderLeaderboard(gameId, agents) {
     const humanBadge = a.is_human ? ' <span class="ar-badge-human">H</span>' : '';
     const anchorBadge = a.is_anchor ? ' <span class="ar-badge-anchor">⚓</span>' : '';
     const selectedClass = AR.selectedAgentId === a.id ? ' ar-lb-selected' : '';
-    return `<tr class="ar-lb-row${selectedClass}" data-agent-id="${a.id}" onclick="arSelectAgent('${gameId}',${a.id})" style="cursor:pointer">
+    const humanClass = a.is_human ? ' ar-lb-human' : '';
+    return `<tr class="ar-lb-row${selectedClass}${humanClass}" data-agent-id="${a.id}" onclick="arSelectAgent('${gameId}',${a.id})" style="cursor:pointer">
       <td>${i + 1}</td>
       <td>
         <span class="ar-agent-name">${escHtml(a.name)}</span>
@@ -6313,17 +6314,23 @@ async function arStartHumanPlay() {
   const is4P = gameId === 'snake_royale' || gameId === 'snake_2v2';
   if (is4P) {
     try {
-      // Fetch the base game leaderboard (all snake variants share the same agent pool)
       const lbResp = await fetch(`/api/arena/agents/${gameId}`);
       const leaderboard = await lbResp.json();
-      // Filter out the selected agent and any human pseudo-agents
-      const candidates = (leaderboard || []).filter(a => a.id !== agentId && !a.is_human && a.code);
+      // Filter out the selected agent and human pseudo-agents (code not in leaderboard response)
+      const candidates = (leaderboard || []).filter(a => a.id !== agentId && !a.is_human);
       // Shuffle and pick 2
       for (let i = candidates.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
       }
-      extraAgents = candidates.slice(0, 2).map(a => ({ id: a.id, code: a.code, name: a.name }));
+      // Fetch code for the 2 picked agents
+      for (const c of candidates.slice(0, 2)) {
+        try {
+          const r = await fetch(`/api/arena/agents/${gameId}/${c.id}`);
+          const d = await r.json();
+          if (d.code) extraAgents.push({ id: c.id, code: d.code, name: c.name });
+        } catch (e) { console.warn(`Failed to fetch agent ${c.id}:`, e); }
+      }
     } catch (e) {
       console.warn('Failed to fetch extra agents for 4P:', e);
     }
