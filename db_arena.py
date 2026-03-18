@@ -24,7 +24,7 @@ ELO_K_PROVISIONAL = 64  # Higher K for first 20 games
 ELO_START = 1000.0
 PROVISIONAL_GAMES = 20
 MAX_STORED_GAMES_PER_PAIR = 10
-MAX_ACTIVE_AGENTS_PER_GAME = 200
+MAX_ACTIVE_AGENTS_PER_GAME = 500
 ELO_GAP_SKIP = 400
 UPSET_ELO_GAP = 200
 MAX_UPSET_RECORDS = 500
@@ -138,7 +138,7 @@ def arena_submit_agent(game_id, name, code, generation=0, contributor=None,
                 # Try to prune weak agents first
                 pruned = _prune_weak(conn, game_id, 1)
                 if pruned == 0:
-                    return "Agent pool full (200 active). No weak agents (ELO < 1000) to prune."
+                    return f"Agent pool full ({MAX_ACTIVE_AGENTS_PER_GAME} active). No weak agents (ELO < 1000) to prune."
 
         existing = conn.execute(
             "SELECT id FROM arena_agents WHERE game_id = ? AND name = ?",

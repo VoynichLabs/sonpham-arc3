@@ -81,7 +81,6 @@ def run_tool_loop(
 
     messages = [{"role": "user", "content": user_message}]
     headers = _anthropic_auth_headers(api_key)
-    headers['anthropic-beta'] = 'prompt-caching-2024-07-31'
 
     for round_num in range(max_rounds):
         messages = _truncate_messages(messages)
