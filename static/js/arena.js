@@ -443,7 +443,16 @@ class SnakeRandomGame extends SnakeGame {
 
   getGrid() {
     const grid = super.getGrid();
-    // Draw walls on top of base grid
+    // Draw border ring as walls (positions 0 and W-1/H-1 are death zones)
+    for (let x = 0; x < this.W; x++) {
+      grid[0][x] = C.WALL;
+      grid[this.H - 1][x] = C.WALL;
+    }
+    for (let y = 0; y < this.H; y++) {
+      grid[y][0] = C.WALL;
+      grid[y][this.W - 1] = C.WALL;
+    }
+    // Draw interior wall clusters on top
     for (const key of this.walls) {
       const [x, y] = key.split(',').map(Number);
       grid[y][x] = C.WALL;
