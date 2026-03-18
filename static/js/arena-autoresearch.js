@@ -1591,7 +1591,18 @@ function _arRenderMiniFrame(canvas, gameId, frame) {
       for (let y = 0; y <= GRID; y++)
         ctx.fillRect(x * SC, y * SC, 1, 1);
 
-    // Walls (snake_random) — dark gray blocks
+    // Border ring for snake_random (positions 0 and GRID-1 are death zones)
+    if (gameId === 'snake_random') {
+      ctx.fillStyle = '#444455';
+      for (let i = 0; i < GRID; i++) {
+        ctx.fillRect(i * SC + 0.5, 0.5, SC - 1, SC - 1);           // top
+        ctx.fillRect(i * SC + 0.5, (GRID-1) * SC + 0.5, SC - 1, SC - 1); // bottom
+        ctx.fillRect(0.5, i * SC + 0.5, SC - 1, SC - 1);           // left
+        ctx.fillRect((GRID-1) * SC + 0.5, i * SC + 0.5, SC - 1, SC - 1); // right
+      }
+    }
+
+    // Interior wall clusters (snake_random)
     if (frame.walls && frame.walls.length) {
       ctx.fillStyle = '#444455';
       for (const key of frame.walls) {

@@ -240,35 +240,13 @@ let currentUser = null;
         </div>
       </div>
 
-      <!-- Tabbed lower panel: Create New Agent | AI Heartbeat -->
+      <!-- AI Heartbeat panel -->
       <div class="ar-lower-panel" id="arLowerPanel">
         <div class="ar-tab-bar">
-          <button class="ar-tab active" id="arTabCreate" onclick="arSwitchLowerTab('create')">Create New Agent</button>
-          <button class="ar-tab" id="arTabHeartbeat" onclick="arSwitchLowerTab('heartbeat')">AI Heartbeat</button>
+          <button class="ar-tab active" id="arTabHeartbeat">AI Heartbeat</button>
         </div>
 
-        <!-- Tab: Create New Agent -->
-        <div class="ar-tab-content" id="arTabCreateContent">
-          <!-- Model + API key -->
-          <div class="ar-create-agent-controls">
-            <select id="arCreateModel" class="ar-small-select" style="flex:1"><option>Loading models...</option></select>
-            <input type="password" id="arCreateApiKey" class="ar-input" placeholder="API key" style="flex:1">
-          </div>
-          <!-- Program.md editor (inline) -->
-          <div class="ar-create-program-wrap" id="arCreateProgramWrap">
-            <div class="ar-program-diff" id="arProgramDiff"></div>
-            <textarea id="arProgramTextarea" placeholder="Edit program.md to guide agent creation..."></textarea>
-          </div>
-          <!-- Create button + summary -->
-          <div class="ar-create-bottom-bar">
-            <input type="text" id="arProgramSummary" placeholder="Change summary (optional)..." class="ar-input" style="flex:1">
-            <button class="ar-btn ar-btn-primary" id="arCreateAgentBtn" onclick="arCreateAgentLocal()">Create Agent</button>
-          </div>
-          <div class="ar-create-agent-log" id="arCreateAgentLog" style="display:none;"></div>
-        </div>
-
-        <!-- Tab: AI Heartbeat -->
-        <div class="ar-tab-content" id="arTabHeartbeatContent" style="display:none;">
+        <div class="ar-tab-content" id="arTabHeartbeatContent">
           <div class="ar-heartbeat-list" id="arHeartbeatList"></div>
           <div class="ar-comment-input">
             <textarea id="arHeartbeatText" placeholder="Chat with the community & AI..." rows="2"></textarea>
