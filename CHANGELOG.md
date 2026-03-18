@@ -5,6 +5,20 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.9.8] — feat: Model rotation, prompt caching, session monitoring, Gemini evolution
+*Author: Claude Opus 4.6 | 2026-03-18*
+
+### Changed
+- **Model rotation** — Evolution now cycles: 3x Haiku, 1x Sonnet, 1x Opus, 1x Gemini 3.1 Pro (was Haiku-only). ~10 agents/hour across 6 games with varied model strengths.
+- **Prompt caching** — Anthropic tool loop uses `cache_control` on system prompt + tools. After round 1, subsequent rounds pay ~90% less for cached content.
+- **Session-level monitoring** — Replaced per-API-call logging with one `arena_evolution_sessions` record per evolution cycle. Tracks: api_calls, tool_calls, tokens, cache read/write, cost, latency, rounds, agents_created.
+
+### Added
+- **Gemini tool-calling loop** — `run_tool_loop_gemini()` in arena_tool_runner.py via Google GenAI SDK. Uses `GEMINI_API_KEY` env var.
+- **`arena_evolution_sessions` table** — One row per evolution cycle with full session stats.
+
+---
+
 ## [1.9.7] — feat: Offline agent generation CLI + upload API
 *Author: Claude Opus 4.6 | 2026-03-17*
 
