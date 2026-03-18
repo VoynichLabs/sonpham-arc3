@@ -212,7 +212,8 @@ def arena_agents_list(game_id):
     if not ok:
         return jsonify({"error": err}), 400
     from db_arena import arena_get_leaderboard
-    leaderboard = arena_get_leaderboard(game_id, limit=200)
+    limit = request.args.get("limit", 200, type=int)
+    leaderboard = arena_get_leaderboard(game_id, limit=min(limit, 200))
     return jsonify(leaderboard)
 
 

@@ -5617,45 +5617,68 @@ async function arSelectGame(gameId, mode) {
 
   try {
     const _t0 = performance.now();
-
-    // Phase 1: Fast parallel fetches — lightweight endpoints that return quickly
-    const _tFetch1 = performance.now();
     const _timers = {};
-    const [programData, topAgents, commentsData, recentGamesData] = await Promise.all([
-      fetch(`/api/arena/program/${gameId}`).then(r => { _timers.program = performance.now() - _tFetch1; return r.json(); }).catch(() => null),
-      fetch(`/api/arena/agents/${gameId}?limit=20`).then(r => { _timers.agents = performance.now() - _tFetch1; return r.json(); }).catch(() => []),
-      fetch(`/api/arena/comments/${gameId}`).then(r => { _timers.comments = performance.now() - _tFetch1; return r.json(); }).catch(() => []),
-      fetch(`/api/arena/games/${gameId}?limit=20`).then(r => { _timers.games = performance.now() - _tFetch1; return r.json(); }).catch(() => []),
-    ]);
-    const _tPhase1Net = performance.now() - _tFetch1;
 
     // Deselect agent on game switch
     if (AR.selectedAgentId) arDeselectAgent();
 
-    // Render core content immediately — user sees the page
-    const _tRender = performance.now();
-    if (programData) arRenderProgram(programData);
-    AR.lbShowAll = false;
-    arRenderLeaderboard(gameId, topAgents || []);
-    arRenderHeartbeatDirect(commentsData || []);
-    if (Array.isArray(recentGamesData)) arRenderRecentGames(recentGamesData);
-    document.getElementById('arAgentCount').textContent = `${(topAgents || []).length}+ agents`;
-    document.getElementById('arStatusText').textContent =
-      `${game ? game.title : gameId} | Loading full stats...`;
-    const _tRenderMs = performance.now() - _tRender;
+    // Progressive rendering — each fetch renders as it arrives, no blocking
+    // Program.md: fastest, renders first
+    const programPromise = fetch(`/api/arena/program/${gameId}`).then(r => {
+      _timers.program = performance.now() - _t0;
+      return r.json();
+    }).then(data => {
+      if (data) arRenderProgram(data);
+    }).catch(() => {});
 
-    // Hide loading overlay — core UI is visible
+    // Recent games
+    const gamesPromise = fetch(`/api/arena/games/${gameId}?limit=20`).then(r => {
+      _timers.games = performance.now() - _t0;
+      return r.json();
+    }).then(data => {
+      if (Array.isArray(data)) arRenderRecentGames(data);
+    }).catch(() => {});
+
+    // Comments / AI Heartbeat
+    const commentsPromise = fetch(`/api/arena/comments/${gameId}`).then(r => {
+      _timers.comments = performance.now() - _t0;
+      return r.json();
+    }).then(data => {
+      arRenderHeartbeatDirect(data || []);
+    }).catch(() => {});
+
+    // Top 20 agents (leaderboard preview)
+    const agentsPromise = fetch(`/api/arena/agents/${gameId}?limit=20`).then(r => {
+      _timers.agents = performance.now() - _t0;
+      return r.json();
+    }).then(data => {
+      AR.lbShowAll = false;
+      arRenderLeaderboard(gameId, data || []);
+      document.getElementById('arAgentCount').textContent = `${(data || []).length}+ agents`;
+    }).catch(() => {});
+
+    // Wait for the two fastest (program + games) before hiding overlay
+    await Promise.race([
+      Promise.all([programPromise, gamesPromise]),
+      new Promise(r => setTimeout(r, 3000)),  // max 3s overlay
+    ]);
+
+    // Hide loading overlay — user sees content
     if (overlay) overlay.style.display = 'none';
+    document.getElementById('arStatusText').textContent =
+      `${game ? game.title : gameId} | Loading...`;
 
-    const _tTotal1 = performance.now() - _t0;
-    console.log(`[perf] Phase 1 total: ${_tTotal1.toFixed(0)}ms (fetch: ${_tPhase1Net.toFixed(0)}ms, render: ${_tRenderMs.toFixed(0)}ms)`);
-    console.log(`[perf]   program: ${(_timers.program||0).toFixed(0)}ms, agents: ${(_timers.agents||0).toFixed(0)}ms, comments: ${(_timers.comments||0).toFixed(0)}ms, games: ${(_timers.games||0).toFixed(0)}ms`);
+    // Wait for remaining Phase 1 fetches (agents, comments may still be in-flight)
+    await Promise.all([agentsPromise, commentsPromise]);
+
+    const _tPhase1 = performance.now() - _t0;
+    console.log(`[perf] Phase 1 total: ${_tPhase1.toFixed(0)}ms`);
+    console.log(`[perf]   program: ${(_timers.program||0).toFixed(0)}ms, games: ${(_timers.games||0).toFixed(0)}ms, comments: ${(_timers.comments||0).toFixed(0)}ms, agents: ${(_timers.agents||0).toFixed(0)}ms`);
 
     // Phase 2: Slow background fetches — full stats, full leaderboard, live tournament
     const _t2 = performance.now();
     fetch(`/api/arena/research/${gameId}`).then(r => r.json()).then(data => {
-      const _ms = performance.now() - _t2;
-      console.log(`[perf] Phase 2 research: ${_ms.toFixed(0)}ms (${data?.agent_count} agents, ${data?.game_count} games)`);
+      console.log(`[perf] Phase 2 research: ${(performance.now() - _t2).toFixed(0)}ms (${data?.agent_count} agents, ${data?.game_count} games)`);
       if (data && !data.error) {
         document.getElementById('arStatusText').textContent =
           `${game ? game.title : gameId} | Gen ${data.generation} | ${data.agent_count} agents | ${data.game_count} games` +
@@ -5675,8 +5698,7 @@ async function arSelectGame(gameId, mode) {
     }).catch(() => {});
 
     fetch(`/api/arena/live-tournament/${gameId}`).then(r => r.json()).then(data => {
-      const _ms = performance.now() - _t2;
-      console.log(`[perf] Phase 2 live-tournament: ${_ms.toFixed(0)}ms (${Array.isArray(data) ? data.length : 0} matches)`);
+      console.log(`[perf] Phase 2 live-tournament: ${(performance.now() - _t2).toFixed(0)}ms (${Array.isArray(data) ? data.length : 0} matches)`);
       if (Array.isArray(data) && data.length > 0) {
         LocalResearch.liveMatches = data;
         if (typeof arRenderLiveCanvases === 'function') arRenderLiveCanvases();
