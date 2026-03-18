@@ -1,11 +1,11 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-17 23:30
+# Date: 2026-03-18 00:15
 # PURPOSE: Database operations for Arena Auto Research. Manages arena_agents,
 #   arena_games, arena_research, arena_comments, arena_program_versions,
-#   arena_votes, arena_human_sessions, and arena_llm_calls tables. Handles ELO
-#   calculations, agent pruning, game storage limits, upset detection, and LLM
-#   call monitoring/stats. Supports program_version_id and program_file on agents
-#   for snake variant program tracking.
+#   arena_votes, arena_human_sessions, arena_llm_calls, and arena_library_requests
+#   tables. Handles ELO calculations, agent pruning, game storage limits, upset
+#   detection, LLM call monitoring/stats, and library request logging. Supports
+#   program_version_id and program_file on agents for program tracking.
 # SRP/DRY check: Pass — arena-specific DB ops only, follows db_sessions/db_auth pattern
 """Arena Auto Research database operations."""
 
@@ -905,4 +905,53 @@ def arena_get_llm_monitor_stats():
         """).fetchall()
         stats['recent_calls'] = [dict(r) for r in recent_rows]
 
+        # Library requests
+        lib_rows = conn.execute("""
+            SELECT library_name, game_id, COUNT(*) as request_count,
+                   MAX(created_at) as last_requested
+            FROM arena_library_requests
+            GROUP BY library_name, game_id
+            ORDER BY request_count DESC
+        """).fetchall()
+        stats['library_requests'] = [dict(r) for r in lib_rows]
+
         return stats
+
+
+def arena_log_library_request(game_id, agent_name, library_name):
+    """Log a missing library import attempt. Non-blocking, never raises."""
+    try:
+        with _db() as conn:
+            # Deduplicate: only log once per game_id + library combo per hour
+            existing = conn.execute(
+                """SELECT 1 FROM arena_library_requests
+                   WHERE game_id = ? AND library_name = ?
+                   AND created_at > unixepoch('now') - 3600""",
+                (game_id, library_name)
+            ).fetchone()
+            if not existing:
+                conn.execute(
+                    """INSERT INTO arena_library_requests
+                       (game_id, agent_name, library_name)
+                       VALUES (?, ?, ?)""",
+                    (game_id, agent_name, library_name)
+                )
+                print(f'[arena] Library request: {library_name} (game={game_id}, agent={agent_name})')
+    except Exception:
+        pass
+
+
+def arena_get_library_requests():
+    """Get aggregated library requests for the monitor page."""
+    try:
+        with _db() as conn:
+            rows = conn.execute("""
+                SELECT library_name, game_id, COUNT(*) as request_count,
+                       MAX(created_at) as last_requested
+                FROM arena_library_requests
+                GROUP BY library_name, game_id
+                ORDER BY request_count DESC
+            """).fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        return []

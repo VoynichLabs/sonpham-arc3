@@ -1,5 +1,5 @@
 # Author: Claude Opus 4.6
-# Date: 2026-03-17 23:55
+# Date: 2026-03-18 00:15
 # PURPOSE: Server-side arena heartbeat — runs evolution + tournament for multiple games.
 #   Supports snake (classic + random maps + royale + 2v2), chess960, othello.
 #   Game engines dispatched via _ACTIVE_GAMES.
@@ -9,6 +9,8 @@
 #   Evolution: one thread per game (LLM-bound, mostly idle waiting on API).
 #   Chess960 uses random position each match (time-seeded for true randomization).
 #   Program.md versioning: dated files per game, tracked via program_file on agents.
+#   Import sandbox: blocklist-based (not allowlist). Missing libraries logged to
+#   arena_library_requests table for monitoring. Agents can use any non-blocked package.
 #   Monitor via /api/arena/heartbeat/status endpoint.
 # SRP/DRY check: Pass — reuses existing db_arena functions, game engines, arena_tool_runner
 
@@ -385,12 +387,39 @@ def get_live_matches(game_id='snake'):
 
 
 _ALLOWED_MODULES = {'random', 'math', 'collections', 'itertools', 'functools', 'heapq'}
+_BLOCKED_MODULES = {
+    'os', 'subprocess', 'socket', 'sys', 'shutil', 'signal', 'ctypes',
+    'multiprocessing', 'threading', 'pty', 'fcntl', 'resource', 'termios',
+    'pwd', 'grp', 'tempfile', 'http', 'urllib', 'requests', 'pathlib',
+    'io', 'pickle', 'shelve', 'sqlite3', 'webbrowser', 'code', 'codeop',
+    'compileall', 'importlib',
+}
+_import_log_ctx = {'game_id': 'unknown', 'agent_name': 'unknown'}
 
 def _safe_import(name, *args, **kwargs):
-    """Restricted import — only allow safe standard library modules."""
-    if name in _ALLOWED_MODULES:
-        return __builtins__['__import__'](name, *args, **kwargs) if isinstance(__builtins__, dict) else __import__(name, *args, **kwargs)
-    raise ImportError(f"Module '{name}' is not allowed")
+    """Blocklist-based import — block dangerous modules, allow everything else.
+
+    If a non-blocked module is unavailable, logs it as a library request
+    to the monitoring system so admins can add it to the runtime.
+    """
+    if name in _BLOCKED_MODULES:
+        raise ImportError(f"Module '{name}' is not allowed")
+    try:
+        if isinstance(__builtins__, dict):
+            return __builtins__['__import__'](name, *args, **kwargs)
+        return __import__(name, *args, **kwargs)
+    except ImportError:
+        # Log missing library request for monitoring
+        try:
+            from db_arena import arena_log_library_request
+            arena_log_library_request(
+                game_id=_import_log_ctx.get('game_id', 'unknown'),
+                agent_name=_import_log_ctx.get('agent_name', 'unknown'),
+                library_name=name,
+            )
+        except Exception:
+            pass
+        raise
 
 def _load_agent_fn(code):
     """Safely load a get_move function from Python code string."""
@@ -541,8 +570,8 @@ def _run_evolution(api_key, game_id='snake'):
 
 Call create_agent with name and complete Python code.
 The agent must have a get_move(state) function.
-Only standard library imports (random, math, collections).
 Must return in <100ms.
+You may use any available Python library — test-import with try/except first.
 """
 
     leaderboard_text = ''

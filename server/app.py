@@ -494,6 +494,12 @@ def arena_monitor_stats():
     return jsonify(arena_get_llm_monitor_stats())
 
 
+@app.route("/api/arena/library-requests")
+def arena_library_requests():
+    from db_arena import arena_get_library_requests
+    return jsonify(arena_get_library_requests())
+
+
 @app.route("/api/arena/elo-history/<game_id>")
 def arena_elo_history(game_id):
     from db_arena import arena_get_leaderboard

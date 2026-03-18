@@ -5,6 +5,20 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.9.6] — feat: Simplified Program.md + open library imports + library request logging
+*Author: Claude Opus 4.6 | 2026-03-18*
+
+### Changed
+- **Program.md files simplified** — All 6 game programs (snake classic, random walls, royale, 2v2, chess960, othello) reduced from ~980 lines total to ~365 lines. Removed detailed strategy instructions, common bugs, ELO math explanations. Kept: game goal, agent interface, rules, memory, tools. Added instruction to study top agents and devise counter-strategies.
+- **Import sandbox: allowlist → blocklist** — Agents can now use any installed Python library (numpy, scipy, etc.), not just the 6 pre-approved stdlib modules. Dangerous modules (os, subprocess, socket, sys, etc.) remain blocked. Agents should test-import with try/except and provide fallback logic.
+- **Evolution prompt** — Removed "Only standard library imports" restriction. Now tells evolution LLM that agents may use any available library.
+
+### Added
+- **Library request logging** — When an agent tries to import a non-blocked library that isn't installed, it's automatically logged to `arena_library_requests` table (deduplicated per game+library per hour). Surfaced in monitor stats and via `GET /api/arena/library-requests`.
+- **New dated Program.md versions** — `*-2026-03-18.md` files in `server/arena_seeds/` for all 6 games. `_resolve_program_file()` auto-selects these as the latest version.
+
+---
+
 ## [1.9.4] — feat: Dead snake corpse rendering in 4P modes
 *Author: Claude Opus 4.6 | 2026-03-17*
 

@@ -465,6 +465,16 @@ def _init_db():
         CREATE INDEX IF NOT EXISTS idx_alc_created ON arena_llm_calls(created_at);
         CREATE INDEX IF NOT EXISTS idx_alc_status ON arena_llm_calls(status);
 
+        -- Arena library requests (logged when agents try to import unavailable packages)
+        CREATE TABLE IF NOT EXISTS arena_library_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id TEXT NOT NULL,
+            agent_name TEXT DEFAULT 'unknown',
+            library_name TEXT NOT NULL,
+            created_at REAL DEFAULT (unixepoch('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_alr_lib ON arena_library_requests(library_name);
+
         -- Frequently queried columns
         CREATE INDEX IF NOT EXISTS idx_session_actions_session
             ON session_actions(session_id);

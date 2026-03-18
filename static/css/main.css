@@ -1040,7 +1040,27 @@
     z-index: 1;
   }
   .lb-ai-header { color: #58a6ff; }
-  .lb-human-header { color: #f0883e; }
+  .lb-human-header { color: #A356D6; }
+
+  /* Human panel purple styling */
+  .lb-panel-human { background: #A356D612; border: 1px solid #A356D630; }
+  .lb-panel-human .lb-table thead th { color: #A356D6; }
+  .lb-panel-human .lb-row td { color: #C9A0E8; border-bottom-color: #A356D620; }
+  .lb-panel-human .lb-row:hover { background: #A356D620; }
+  .lb-panel-human .lb-game-name { color: #A356D6; }
+  .lb-panel-human .lb-ver { color: #A356D6aa; }
+  .lb-panel-human .lb-td-levels { color: #C9A0E8; }
+  .lb-panel-human .lb-td-steps { color: #C9A0E8; }
+  .lb-panel-human .lb-td-date { color: #A356D6aa; }
+  .lb-panel-human .lb-td-duration { color: #A356D6aa; }
+  .lb-panel-human .lb-author { color: #C9A0E8; }
+  .lb-panel-human .lb-loading { color: #A356D6aa; }
+
+  /* Drill-down human column purple styling */
+  .lb-drill-col-human h4 { color: #A356D6; }
+  .lb-drill-col-human .lb-drill-table th { color: #A356D6aa; }
+  .lb-drill-col-human .lb-drill-table td { color: #C9A0E8; }
+  .lb-drill-col-human .lb-drill-table tr:hover { background: #A356D620; }
 
   .lb-row {
     cursor: pointer;
