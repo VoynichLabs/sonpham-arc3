@@ -45,9 +45,10 @@ let currentUser = null;
           <animate attributeName="opacity" values="0.12;0.12;0.12;1;1;0.12;0.12;0.12" keyTimes="0;0.15;0.3;0.45;0.55;0.7;0.85;1" dur="3.2s" repeatCount="indefinite"/>
         </rect>
       </svg>
-      <span class="app-title-text">AutoResearch Arena<a class="logo-sub-link to-obs" href="{{ observatory_url }}">&#8594; to Observatory</a></span>
+      <span class="app-title-text">AutoResearch<a class="logo-sub-link to-obs" href="{{ observatory_url }}">&#8594; to Observatory</a></span>
     </span>
-    <a class="nav-link active" id="modeBtnResearch" href="#autoresearch">Auto Research</a>
+    <a class="nav-link active" href="/games">Games</a>
+    <a class="nav-link" href="/code">Code</a>
     <span style="flex:1"></span>
     <a class="nav-switch-btn to-obs" href="{{ observatory_url }}">&#8592; to Observatory</a>
     {% if google_client_id %}
@@ -515,16 +516,11 @@ function toggleTheme() {
   localStorage.setItem('arc-theme', t || '');
 }
 
-// Hash-based routing — always opens Auto Research (matchup tab hidden)
-const _ARENA_VIEW_TO_HASH = { research: 'autoresearch' };
+// Clean URL routing — no hash needed, always Auto Research mode
 function _arenaRouteFromHash() {
-  if (!location.hash || location.hash === '#') {
-    history.replaceState(null, '', '#autoresearch');
-  }
   if (typeof switchArenaMode === 'function') switchArenaMode('research', true);
 }
-window.addEventListener('hashchange', _arenaRouteFromHash);
-// Route on load (after DOMContentLoaded, handled in arena.js init)
+// Init on load (after DOMContentLoaded, handled in arena.js init)
 </script>
 <!-- LLM calling infrastructure (callLLM, provider routing, BYOK keys) -->
 <script src="/static/js/scaffolding.js?v={{ static_v }}"></script>

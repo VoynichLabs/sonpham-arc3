@@ -5417,21 +5417,13 @@ const AR = {
 };
 
 function switchArenaMode(mode, skipHash) {
-  // Matchup tab is hidden — always force research mode
+  // Always research mode — matchup tab removed
   mode = 'research';
 
-  const researchBtn = document.getElementById('modeBtnResearch');
   const layout = document.getElementById('arenaLayout');
   const researchView = document.getElementById('arResearchView');
   const statusBar = document.getElementById('arStatusBar');
 
-  // Update URL hash
-  if (!skipHash && typeof _ARENA_VIEW_TO_HASH !== 'undefined') {
-    const hash = _ARENA_VIEW_TO_HASH[mode] || 'autoresearch';
-    if (location.hash !== '#' + hash) history.replaceState(null, '', '#' + hash);
-  }
-
-  if (researchBtn) researchBtn.classList.add('active');
   if (layout) layout.style.display = 'none';
   if (researchView) researchView.style.display = 'flex';
   if (statusBar) statusBar.style.display = 'flex';

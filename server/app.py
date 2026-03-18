@@ -640,16 +640,28 @@ def _render_code():
 @app.route("/")
 @bot_protection
 def root_page():
-    """Serve Arena on arena.*, Observatory on everything else."""
+    """Serve Games (arena) on arena.* host, Observatory on everything else."""
     if _is_arena_host():
         return _render_arena()
     return _render_observatory()
 
 
+@app.route("/games")
+def games_page():
+    """Games Arena — AutoResearch for competitive game agents."""
+    return _render_arena()
+
+
+@app.route("/code")
+def code_page():
+    """Code Arena — AutoResearch for code optimization challenges."""
+    return _render_code()
+
+
 @app.route("/obs")
 @bot_protection
 def obs_alias():
-    """Temporary alias — redirect to root on observatory, cross-link on arena."""
+    """Redirect to Observatory."""
     if _is_arena_host():
         return redirect(OBSERVATORY_URL, code=302)
     return redirect("/#human", code=302)
@@ -657,16 +669,8 @@ def obs_alias():
 
 @app.route("/arena")
 def arena_alias():
-    """Temporary alias — redirect to root on arena, cross-link on observatory."""
-    if _is_arena_host():
-        return redirect("/", code=302)
-    return redirect(ARENA_URL, code=302)
-
-
-@app.route("/code")
-def code_page():
-    """Code Arena — AutoResearch for code optimization challenges."""
-    return _render_code()
+    """Legacy alias — redirect to /games."""
+    return redirect("/games", code=302)
 
 
 @app.route("/api/turnstile/verify", methods=["POST"])
