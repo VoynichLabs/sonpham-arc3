@@ -174,6 +174,19 @@ python offline_agent_runner.py --game snake --provider openai --dry-run
 
 ---
 
+## [1.13.0] — feat: Tower Siege two-player mode (ts01 v2)
+*Author: Claude Sonnet 4.6 | 2026-03-19*
+
+### Added
+- **Two-player hot-seat mode** for Tower Siege (`ts01`). Player 1 (Attacker) controls Sapper/Scout/Soldier units; Player 2 (Defender) manually controls guards and can spawn reinforcements.
+- **Alternating turns**: P1 acts (unit move or tool) → P2 acts (guard move, spawn, or pass by clicking outside grid) → world advances (bombs tick, freeze counters decrement, turn increments) → repeat.
+- **Guard reserves**: Each level gives P2 a starting count of spare guards spawnable on any open cell adjacent to the tower exterior walls (excluding tower interior). Spawn zone shown as maroon dots when it's P2's turn with reserves available.
+- **Defender click UX**: Guard selection highlighted with LightMagenta border; valid guard move destinations shown as Red dots; non-grid click passes P2's turn. Right panel shows `ATK`/`DEF` turn label, guard count `G:N`, reserve count `R:N`, and `PAS` hint.
+- **Soldier contact-kill (both directions)**: Works whether attacker walks into a guard or P2 moves a guard into a Soldier cell — guard dies, Soldier frozen 1 turn.
+- **New version directory** `environment_files/ts/00000002/` — old `00000001/` left intact for single-player session replay.
+- **Five redesigned levels** balanced for 2-player: L1 (1 guard+1 reserve), L2 (1 guard+1 reserve, timed gate), L3 (2 guards+2 reserves), L4 (3 guards+2 reserves), L5 (3 guards+3 reserves, tight budget).
+
+---
 ## [1.9.3] — feat: Snake variants server-side activation (tournament + evolution)
 *Author: Claude Opus 4.6 | 2026-03-17*
 
