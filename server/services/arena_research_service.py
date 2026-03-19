@@ -266,13 +266,9 @@ def submit_human_play(game_id, opponent_agent_id, delay_ms, winner, turns,
 
 
 def run_cleanup(game_id=None):
-    """Run maintenance: strip excess history (FIFO), prune agents. Game records kept forever."""
+    """Run maintenance: strip excess history (FIFO). Game records kept forever.
+    Agent pruning disabled — keep all agents regardless of ELO."""
     arena_strip_excess_history(game_id)
-    if game_id:
-        stats = arena_get_research_stats(game_id)
-        if stats["agent_count"] > MAX_ACTIVE_AGENTS_PER_GAME:
-            excess = stats["agent_count"] - MAX_ACTIVE_AGENTS_PER_GAME
-            arena_prune_weak_agents(game_id, excess)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -1441,7 +1441,7 @@ def _max_games_for_pair(elo_gap):
     if elo_gap < 200: return 5
     if elo_gap < 300: return 3
     if elo_gap < 400: return 2
-    return 0
+    return 1
 
 
 def _schedule_smart(agents, pair_counts, match_count):
