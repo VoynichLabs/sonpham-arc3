@@ -2093,6 +2093,17 @@ def _evolution_loop_for_game(game_id, stagger_secs):
             time.sleep(HEARTBEAT_INTERVAL_NORMAL)
             continue
 
+        # Gate: pause evolution if tournament can't keep up (>10 unplayed agents)
+        try:
+            unplayed = arena_get_leaderboard(game_id, limit=500)
+            unplayed_count = sum(1 for a in unplayed if a['games_played'] == 0)
+            if unplayed_count > 10:
+                print(f'[evolution:{game_id}] Paused — {unplayed_count} agents with 0 games, waiting for tournament to catch up')
+                time.sleep(HEARTBEAT_INTERVAL_NORMAL)
+                continue
+        except Exception:
+            pass
+
         created = []
         try:
             tick_start = time.time()
