@@ -2361,12 +2361,14 @@ def get_heartbeat_status():
     alive_threads = [t for t in game_threads if t.is_alive()]
     return {
         'running': _heartbeat_state['running'],
+        'tournament_enabled': TOURNAMENT_ENABLED,
         'tournament_alive': len(alive_threads) > 0,
         'tournament_threads': len(alive_threads),
         'tournament_total_threads': len(game_threads),
+        'evolution_enabled': EVOLUTION_ENABLED,
+        'evolution_alive': t2.is_alive() if t2 else False,
         'db_writer_alive': db_t.is_alive() if db_t else False,
         'db_writer_queue_size': _db_writer_queue.qsize(),
-        'evolution_alive': t2.is_alive() if t2 else False,
         'ticks': _heartbeat_state['ticks'],
         'last_tick': _heartbeat_state['last_tick'],
         'last_error': _heartbeat_state['last_error'],

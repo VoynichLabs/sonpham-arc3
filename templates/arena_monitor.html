@@ -67,6 +67,10 @@
 <div id="loading">Loading...</div>
 <div id="dashboard" style="display:none">
 
+  <!-- System Status (heartbeat) -->
+  <h2>System Status</h2>
+  <div class="grid" id="systemStatus"></div>
+
   <!-- Summary cards -->
   <h2>Overview</h2>
   <div class="grid" id="summaryCards"></div>
@@ -132,6 +136,7 @@
 <script>
 const ADMIN_KEY = '{{ admin_key }}';
 const API_URL = '/api/arena/monitor/stats' + (ADMIN_KEY ? '?key=' + encodeURIComponent(ADMIN_KEY) : '');
+const HB_URL = '/api/arena/heartbeat/status' + (ADMIN_KEY ? '?key=' + encodeURIComponent(ADMIN_KEY) : '');
 
 function fmt(n, dec=0) {
   if (n == null) return '-';
@@ -165,6 +170,55 @@ function fmtDuration(seconds) {
   if (h > 24) { const d = Math.floor(h / 24); return d + 'd ' + (h % 24) + 'h'; }
   if (h > 0) return h + 'h ' + m + 'm';
   return m + 'm';
+}
+
+function renderSystemStatus(hb) {
+  const el = document.getElementById('systemStatus');
+  if (!hb) { el.innerHTML = '<div class="card"><div class="card-title">Heartbeat</div><div class="stat gray">Unavailable</div></div>'; return; }
+  const lastTickAgo = hb.last_tick ? fmtDuration((Date.now()/1000) - hb.last_tick) + ' ago' : 'never';
+  el.innerHTML = `
+    <div class="card">
+      <div class="card-title">Heartbeat</div>
+      <div class="row"><div class="big-num ${hb.running ? 'green' : 'red'}">${hb.running ? 'RUNNING' : 'STOPPED'}</div></div>
+      <div class="row" style="margin-top:8px">
+        <div class="stat">Last tick: <span>${lastTickAgo}</span></div>
+        <div class="stat">Ticks: <span>${fmt(hb.ticks)}</span></div>
+        <div class="stat">Agents created: <span class="blue">${fmt(hb.agents_created)}</span></div>
+      </div>
+      ${hb.last_error ? `<div class="row" style="margin-top:4px"><div class="error-msg">${hb.last_error}</div></div>` : ''}
+    </div>
+    <div class="card">
+      <div class="card-title">Tournament</div>
+      <div class="row">
+        <div class="big-num ${hb.tournament_enabled ? 'green' : 'red'}">${hb.tournament_enabled ? 'ENABLED' : 'DISABLED'}</div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="stat">Threads: <span class="${hb.tournament_alive ? 'green' : 'red'}">${hb.tournament_threads}/${hb.tournament_total_threads} alive</span></div>
+        <div class="stat">DB writer: <span class="${hb.db_writer_alive ? 'green' : 'red'}">${hb.db_writer_alive ? 'alive' : 'dead'}</span></div>
+        <div class="stat">Queue: <span>${fmt(hb.db_writer_queue_size)}</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Evolution</div>
+      <div class="row">
+        <div class="big-num ${hb.evolution_enabled ? 'green' : 'red'}">${hb.evolution_enabled ? 'ENABLED' : 'DISABLED'}</div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="stat">Thread: <span class="${hb.evolution_alive ? 'green' : 'red'}">${hb.evolution_alive ? 'alive' : 'dead'}</span></div>
+        <div class="stat">API key: <span class="${hb.has_api_key ? 'green' : 'red'}">${hb.has_api_key ? 'set' : 'missing'}</span></div>
+      </div>
+      <div class="row" style="margin-top:4px">
+        <div class="stat">Games: <span>${(hb.active_games||[]).map(g => '<span class="game-tag">'+g+'</span>').join(' ')}</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Engines</div>
+      <div class="row">
+        <div class="stat">Snake: <span class="${hb.snake_engine ? 'ok' : 'warn'}">${hb.snake_engine ? 'OK' : 'MISSING'}</span></div>
+        <div class="stat">Chess960: <span class="${hb.chess960_engine ? 'ok' : 'warn'}">${hb.chess960_engine ? 'OK' : 'MISSING'}</span></div>
+        <div class="stat">Othello: <span class="${hb.othello_engine ? 'ok' : 'warn'}">${hb.othello_engine ? 'OK' : 'MISSING'}</span></div>
+      </div>
+    </div>`;
 }
 
 function renderSummary(stats) {
@@ -483,6 +537,11 @@ async function loadStats() {
     const stats = await resp.json();
     document.getElementById('loading').style.display = 'none';
     document.getElementById('dashboard').style.display = '';
+    // Fetch heartbeat status in parallel
+    try {
+      const hb = await fetch(HB_URL).then(r => r.ok ? r.json() : null);
+      renderSystemStatus(hb);
+    } catch(e) { renderSystemStatus(null); }
     renderSummary(stats);
     renderCostCards(stats);
     renderCostCharts(stats);
