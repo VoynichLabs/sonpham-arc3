@@ -553,11 +553,6 @@ def arena_record_game(game_id, agent1_id, agent2_id, winner_id,
         if not a1 or not a2:
             return None
 
-        # Skip entirely if this pair already has enough games
-        pair_count = _count_pair(conn, agent1_id, agent2_id)
-        if pair_count >= MAX_STORED_GAMES_PER_PAIR:
-            return None
-
         elo_gap = abs(a1["elo"] - a2["elo"])
 
         # Determine ELO result
@@ -576,13 +571,12 @@ def arena_record_game(game_id, agent1_id, agent2_id, winner_id,
             if winner_elo < loser_elo:
                 is_upset = 1
 
-        # Decide whether to store history
+        # Decide whether to store history (pair cap applies to history blob only, NOT to game record)
         pair_count = _count_pair(conn, agent1_id, agent2_id)
         history_json = "[]"
         if history and pair_count < MAX_STORED_GAMES_PER_PAIR:
             history_json = json.dumps(history)
         elif history and is_upset:
-            # Always store upset history (up to cap)
             upset_count = conn.execute(
                 "SELECT COUNT(*) as cnt FROM arena_games WHERE game_id = ? AND is_upset = 1",
                 (game_id,)

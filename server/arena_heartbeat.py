@@ -65,7 +65,8 @@ HEARTBEAT_INTERVAL_FAST_FILL = 30 * 60   # 30 minutes per game until 100 agents 
 HEARTBEAT_INTERVAL_NORMAL = 60 * 60    # 60 minutes per game steady state (5x slowdown)
 HEARTBEAT_INTERVAL_FAST = 30 * 60       # 30 minutes (5x slowdown)
 EVOLUTION_STAGGER_SECS = 60            # offset between per-game threads to avoid burst
-EVOLUTION_ENABLED = os.environ.get('SERVER_MODE', '') == 'prod'
+EVOLUTION_ENABLED = (os.environ.get('SERVER_MODE', '') == 'prod'
+                     and os.environ.get('ARENA_EVOLUTION_PAUSED', '') != '1')
 TOURNAMENT_GAMES_PER_TICK = 20
 EVOLUTION_AGENTS_PER_TICK = 1
 MAX_TOOL_ROUNDS = 6
