@@ -1,5 +1,5 @@
 # Author: GPT-5.3 Codex
-# Date: 2026-03-19 16:40
+# Date: 2026-03-19 17:10
 # PURPOSE: Flask server for ARC-AGI-3 web player. Responsibilities: static file serving,
 #   session persistence (save/resume/branch via SQLite), game step proxying, model registry
 #   API (/api/llm/models), Cloudflare Workers AI proxy (/api/llm/cf-proxy), observatory,
@@ -637,18 +637,14 @@ def arena_monitor_legacy():
 
 @app.route("/monitor")
 def monitor_page():
-    auth_err = _require_arena_admin()
-    if auth_err:
-        return auth_err
+    # Monitoring is intentionally open; no key required.
     key = request.args.get("key", "")
     return render_template("arena_monitor.html", admin_key=key)
 
 
 @app.route("/api/arena/monitor/stats")
 def arena_monitor_stats():
-    auth_err = _require_arena_admin()
-    if auth_err:
-        return auth_err
+    # Monitoring stats are intentionally open; no key required.
     try:
         from db_arena import arena_get_llm_monitor_stats
         return jsonify(arena_get_llm_monitor_stats())
