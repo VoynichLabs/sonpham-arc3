@@ -5,6 +5,16 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.13.2] — fix: split tournament and evolution heartbeats
+*Author: GPT-5.3 Codex | 2026-03-19*
+
+### Changed
+- **Independent heartbeat lifecycle** — Tournament and evolution now have separate start/stop controls in `server/arena_heartbeat.py`, so tournament threads can run even when evolution is paused.
+- **Prod bootstrap split** — `server/app.py` now starts tournament and evolution heartbeats independently in prod, with explicit pause controls via `ARENA_TOURNAMENT_PAUSED=1` and `ARENA_EVOLUTION_PAUSED=1`.
+- **Heartbeat status detail** — `/api/arena/heartbeat/status` now exposes separate `tournament_running` and `evolution_running` flags plus per-game evolution worker thread counts.
+
+---
+
 ## [1.13.1] — feat: Tower Siege real-time two-player mode (ts01 v3)
 *Author: Claude Sonnet 4.6 | 2026-03-19*
 

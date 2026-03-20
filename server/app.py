@@ -1,5 +1,5 @@
-# Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-# Date: 2026-03-18 23:30
+# Author: GPT-5.3 Codex
+# Date: 2026-03-19 16:40
 # PURPOSE: Flask server for ARC-AGI-3 web player. Responsibilities: static file serving,
 #   session persistence (save/resume/branch via SQLite), game step proxying, model registry
 #   API (/api/llm/models), Cloudflare Workers AI proxy (/api/llm/cf-proxy), observatory,
@@ -2240,14 +2240,24 @@ def batch_status(batch_id):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# ARENA HEARTBEAT — start background thread for server-side evolution
+# ARENA HEARTBEAT — start background tournament/evolution threads
 # ═══════════════════════════════════════════════════════════════════════════
 
 try:
     _server_mode = os.environ.get("SERVER_MODE", "")
     if _server_mode == "prod":
-        from server.arena_heartbeat import start_arena_heartbeat
-        start_arena_heartbeat()
+        from server.arena_heartbeat import (
+            start_arena_tournament_heartbeat,
+            start_arena_evolution_heartbeat,
+        )
+        if os.environ.get("ARENA_TOURNAMENT_PAUSED", "") != "1":
+            start_arena_tournament_heartbeat()
+        else:
+            print("[arena] Tournament heartbeat paused (ARENA_TOURNAMENT_PAUSED=1)")
+        if os.environ.get("ARENA_EVOLUTION_PAUSED", "") != "1":
+            start_arena_evolution_heartbeat()
+        else:
+            print("[arena] Evolution heartbeat paused (ARENA_EVOLUTION_PAUSED=1)")
     else:
         print(f"[arena] Heartbeat disabled (SERVER_MODE={_server_mode!r}, only runs in prod)")
 except Exception as _hb_err:

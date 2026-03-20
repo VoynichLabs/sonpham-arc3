@@ -1,11 +1,13 @@
-# Author: Claude Opus 4.6
-# Date: 2026-03-19 12:00
+# Author: GPT-5.3 Codex
+# Date: 2026-03-19 16:40
 # PURPOSE: Server-side arena heartbeat — runs evolution + tournament for multiple games.
 #   Supports snake (classic + random maps + royale + 2v2), chess960, othello.
 #   Game engines dispatched via _ACTIVE_GAMES.
 #   Uses ARENA_CLAUDE_KEY env var (Anthropic API key or OAuth token) for agent evolution.
 #   Uses server/arena_tool_runner.py for LLM tool-calling loops (no external deps).
 #   Tournament: 1 dedicated thread per game + 1 DB writer thread (SQLite safety).
+#   Tournament and evolution now have separate heartbeat lifecycle controls so
+#   tournament can run independently even when evolution is paused.
 #   Smart 3-phase scheduler: calibration (under-played agents) + top contenders
 #   (forced top-agent matchups) + Swiss (ELO-weighted full-roster).
 #   Bulk pair count query replaces O(n^2) individual calls.
@@ -67,6 +69,8 @@ HEARTBEAT_INTERVAL_FAST = 30 * 60       # 30 minutes (5x slowdown)
 EVOLUTION_STAGGER_SECS = 60            # offset between per-game threads to avoid burst
 EVOLUTION_ENABLED = (os.environ.get('SERVER_MODE', '') == 'prod'
                      and os.environ.get('ARENA_EVOLUTION_PAUSED', '') != '1')
+TOURNAMENT_ENABLED = (os.environ.get('SERVER_MODE', '') == 'prod'
+                      and os.environ.get('ARENA_TOURNAMENT_PAUSED', '') != '1')
 TOURNAMENT_GAMES_PER_TICK = 20
 EVOLUTION_AGENTS_PER_TICK = 1
 MAX_TOOL_ROUNDS = 6
@@ -89,6 +93,8 @@ _EVOLUTION_MODELS = [
 # Heartbeat state (for monitoring)
 _heartbeat_state = {
     'running': False,
+    'tournament_running': False,
+    'evolution_running': False,
     'last_tick': None,
     'last_error': None,
     'ticks': 0,
@@ -1651,7 +1657,7 @@ def _db_writer_thread():
     Prevents SQLite corruption from concurrent writes across game threads.
     Runs until heartbeat stops AND queue is drained."""
     print('[tournament] DB writer thread started')
-    while _heartbeat_state['running'] or not _db_writer_queue.empty():
+    while _heartbeat_state['tournament_running'] or not _db_writer_queue.empty():
         try:
             item = _db_writer_queue.get(timeout=1.0)
         except queue.Empty:
@@ -1686,9 +1692,6 @@ def _db_writer_thread():
 
     print('[tournament] DB writer thread stopped')
 
-
-TOURNAMENT_ENABLED = os.environ.get('SERVER_MODE', '') == 'prod'
-
 def _tournament_loop_for_game(game_id):
     """Per-game tournament thread — dedicated CPU for one game.
     Computes matches CPU-bound, pushes results to DB writer queue."""
@@ -1700,7 +1703,7 @@ def _tournament_loop_for_game(game_id):
     total = 0
     last_cleanup = time.time()
 
-    while _heartbeat_state['running']:
+    while _heartbeat_state['tournament_running']:
         if not TOURNAMENT_ENABLED:
             time.sleep(HEARTBEAT_INTERVAL_NORMAL)
             continue
@@ -2083,7 +2086,7 @@ def _evolution_loop_for_game(game_id, stagger_secs):
     _evo_counts[game_id] = 0
     print(f'[evolution:{game_id}] Started (stagger={stagger_secs}s, interval={HEARTBEAT_INTERVAL_NORMAL}s)')
 
-    while _heartbeat_state['running']:
+    while _heartbeat_state['evolution_running']:
         if not EVOLUTION_ENABLED:
             time.sleep(HEARTBEAT_INTERVAL_NORMAL)
             continue
@@ -2186,6 +2189,7 @@ def _evolution_loop():
     """Spawns one evolution thread per game, staggered by EVOLUTION_STAGGER_SECS."""
     _heartbeat_state['last_comment_check'] = time.time()
     print(f'[evolution] Launching per-game evolution threads (games: {_ACTIVE_GAMES}, stagger: {EVOLUTION_STAGGER_SECS}s)')
+    evo_threads = []
     for i, game_id in enumerate(_ACTIVE_GAMES):
         stagger = i * EVOLUTION_STAGGER_SECS
         t = threading.Thread(
@@ -2195,6 +2199,8 @@ def _evolution_loop():
             name=f'arena-evo-{game_id}',
         )
         t.start()
+        evo_threads.append(t)
+    _heartbeat_state['evo_threads'] = evo_threads
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2323,12 +2329,15 @@ def get_latest_export():
 #   Start / Stop / Status
 # ═══════════════════════════════════════════════════════════════════════════
 
-def start_arena_heartbeat():
+def start_arena_tournament_heartbeat():
     game_threads = _heartbeat_state.get('game_threads', [])
     if game_threads and any(t.is_alive() for t in game_threads):
-        print('[heartbeat] Already running')
+        print('[tournament] Tournament heartbeat already running')
         return
-    _heartbeat_state['running'] = True
+    _heartbeat_state['tournament_running'] = True
+    _heartbeat_state['running'] = bool(
+        _heartbeat_state['tournament_running'] or _heartbeat_state['evolution_running']
+    )
 
     # DB writer thread — single thread for all DB writes (SQLite safety)
     db_t = threading.Thread(target=_db_writer_thread, daemon=True, name='arena-db-writer')
@@ -2348,22 +2357,53 @@ def start_arena_heartbeat():
         game_threads.append(t)
     _heartbeat_state['game_threads'] = game_threads
     _heartbeat_state['thread'] = game_threads[0] if game_threads else None  # backwards compat
-    print(f'[heartbeat] Started {len(game_threads)} tournament threads + 1 DB writer')
+    print(f'[tournament] Started {len(game_threads)} tournament threads + 1 DB writer')
 
-    # Evolution thread
+def start_arena_evolution_heartbeat():
+    t2 = _heartbeat_state.get('evo_thread')
+    if t2 and t2.is_alive():
+        print('[evolution] Evolution heartbeat already running')
+        return
+    _heartbeat_state['evolution_running'] = True
+    _heartbeat_state['running'] = bool(
+        _heartbeat_state['tournament_running'] or _heartbeat_state['evolution_running']
+    )
     t2 = threading.Thread(target=_evolution_loop, daemon=True, name='arena-evolution')
     _heartbeat_state['evo_thread'] = t2
     t2.start()
+    print('[evolution] Evolution heartbeat launcher started')
 
 
-def stop_arena_heartbeat():
-    _heartbeat_state['running'] = False
+def stop_arena_tournament_heartbeat():
+    _heartbeat_state['tournament_running'] = False
     # Let DB writer drain remaining results
     if not _db_writer_queue.empty():
         try:
             _db_writer_queue.join()
         except Exception:
             pass
+    _heartbeat_state['running'] = bool(
+        _heartbeat_state['tournament_running'] or _heartbeat_state['evolution_running']
+    )
+
+
+def stop_arena_evolution_heartbeat():
+    _heartbeat_state['evolution_running'] = False
+    _heartbeat_state['running'] = bool(
+        _heartbeat_state['tournament_running'] or _heartbeat_state['evolution_running']
+    )
+
+
+def start_arena_heartbeat():
+    """Backward-compatible starter: launches tournament + evolution heartbeats."""
+    start_arena_tournament_heartbeat()
+    start_arena_evolution_heartbeat()
+
+
+def stop_arena_heartbeat():
+    """Backward-compatible stopper: stops tournament + evolution heartbeats."""
+    stop_arena_tournament_heartbeat()
+    stop_arena_evolution_heartbeat()
 
 
 def get_heartbeat_status():
@@ -2371,14 +2411,20 @@ def get_heartbeat_status():
     t2 = _heartbeat_state.get('evo_thread')
     db_t = _heartbeat_state.get('db_writer_thread')
     alive_threads = [t for t in game_threads if t.is_alive()]
+    evo_workers = _heartbeat_state.get('evo_threads', [])
+    alive_evo_workers = [t for t in evo_workers if t.is_alive()]
     return {
         'running': _heartbeat_state['running'],
+        'tournament_running': _heartbeat_state['tournament_running'],
+        'evolution_running': _heartbeat_state['evolution_running'],
         'tournament_enabled': TOURNAMENT_ENABLED,
         'tournament_alive': len(alive_threads) > 0,
         'tournament_threads': len(alive_threads),
         'tournament_total_threads': len(game_threads),
         'evolution_enabled': EVOLUTION_ENABLED,
-        'evolution_alive': t2.is_alive() if t2 else False,
+        'evolution_alive': (len(alive_evo_workers) > 0) or (t2.is_alive() if t2 else False),
+        'evolution_worker_threads': len(alive_evo_workers),
+        'evolution_total_worker_threads': len(evo_workers),
         'db_writer_alive': db_t.is_alive() if db_t else False,
         'db_writer_queue_size': _db_writer_queue.qsize(),
         'ticks': _heartbeat_state['ticks'],
