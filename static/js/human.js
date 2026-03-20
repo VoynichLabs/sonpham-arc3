@@ -114,9 +114,8 @@ async function _humanSelectGame(gameId) {
   _humanDuration = 0;
   _humanAvailableActions = data.available_actions || [];
   _humanAction6Mode = _humanAvailableActions.includes(6);
-  // Games with ACT7 but no d-pad (1-4) use ACT7 as the live idle tick (e.g. mr01)
-  const _hasDpad = [1,2,3,4].some(a => _humanAvailableActions.includes(a));
-  _humanLiveIdleAction = (!_hasDpad && _humanAvailableActions.includes(7)) ? 7 : 6;
+  // Games with ACT7 use it as the live idle tick; d-pad keys override per-press
+  _humanLiveIdleAction = _humanAvailableActions.includes(7) ? 7 : 6;
   _humanLiveHeldAction = _humanLiveIdleAction;
 
   // Check if game supports live mode
