@@ -119,9 +119,14 @@ When updating reasoning rendering in one place, update ALL others to match. Key 
 
 ## Git Workflow
 
-- **Always pull (`git pull origin master`) before pushing to `staging`.** This avoids rejected pushes and merge conflicts.
-- **Always push to the `staging` branch first.** Never push directly to `master`.
-- Only switch to `master` or merge into `master` when explicitly told to by the user.
+There is **one shared database** (SQLite on Railway Volume) — no separate staging DB. This drives the push strategy:
+
+- **Frontend-only changes** (HTML, CSS, JS, templates, static assets) → push to `staging` first, verify visually, then merge to `master` when approved.
+- **Backend logic changes** (Python: DB schema, heartbeat/tournament loops, arena logic, LLM providers, game engines) → push directly to `master`. These run against the prod DB regardless of branch, so staging adds no safety gate.
+- **Mixed changes** (backend API shape change + frontend that depends on it) → push together to `master` to avoid frontend/backend mismatch on prod.
+
+General rules:
+- **Always pull (`git pull origin master`) before pushing.** This avoids rejected pushes and merge conflicts.
 - **Avoid destructive operations** like `git reset --hard`, `git push --force`, or `git rm` without explicit instruction.
 - **Never skip hooks** (`--no-verify`), force-push to master, or amend published commits without explicit instruction.
 - **Run the pre-push QC checks** before every push (see Pre-Push QC section below).
