@@ -1,3 +1,12 @@
+// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
+// Date: 2026-03-11 13:47
+// PURPOSE: Universal reasoning/timeline rendering for ARC-AGI-3 web UI. Provides
+//   agentColor() palette assignment, scrollReasoningToBottom(), renderTimeline() for
+//   agent spawn tree views, and shared rendering helpers used by llm.js, session.js,
+//   share-page.js, observatory.js, and obs-page.js. No scaffolding-specific code —
+//   uses agent_type from DB/events directly. Must load before all consumer scripts.
+//   Modified in Phase 1 to extract formatting to utils/formatting.js.
+// SRP/DRY check: Pass — agent color palette and timeline rendering consolidated here
 // ═══════════════════════════════════════════════════════════════════════════
 // reasoning.js — Universal reasoning/timeline rendering
 //
@@ -54,12 +63,6 @@ function agentBadge(agentType) {
   const c = agentColor(agentType);
   const label = agentType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   return `<span class="agent-badge" style="background:${c}">${label}</span>`;
-}
-
-// ── HTML escaping ─────────────────────────────────────────────────────────
-
-function _rEsc(s) {
-  return s ? s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
 }
 
 // ── Shared action name lookup ─────────────────────────────────────────────
@@ -152,7 +155,7 @@ function buildReasoningGroupHTML(g, gi, options) {
         subCallsHtml += `<strong style="color:${scColor};">Call ${ci + 1}: ${scType}</strong>${dur}`;
         if (sc.raw) {
           subCallsHtml += `<details style="margin-top:2px;"><summary style="cursor:pointer;color:var(--text-dim);font-size:10px;">Response (${sc.raw.length} chars)</summary>`;
-          subCallsHtml += `<div style="color:var(--text-dim);font-size:10px;margin-top:4px;white-space:pre-wrap;max-height:400px;overflow:auto;">${_rEsc(sc.raw)}</div></details>`;
+          subCallsHtml += `<div style="color:var(--text-dim);font-size:10px;margin-top:4px;white-space:pre-wrap;max-height:400px;overflow:auto;">${escapeHtml(sc.raw)}</div></details>`;
         }
         subCallsHtml += '</div>';
       }
@@ -166,7 +169,7 @@ function buildReasoningGroupHTML(g, gi, options) {
       reportsHtml = `<details style="margin-top:4px;"><summary style="cursor:pointer;font-size:10px;color:var(--text-dim);">Agent Reports (${reports.length})</summary><div style="margin-top:4px;">`;
       for (const r of reports) {
         const rColor = agentColor(r.type || r.agent_type || 'agent');
-        reportsHtml += `<div style="color:${rColor};font-size:10px;">[${r.type || r.agent_type || 'agent'}] ${r.steps || 0} steps \u2014 ${_rEsc((r.summary || '').substring(0, 150))}</div>`;
+        reportsHtml += `<div style="color:${rColor};font-size:10px;">[${r.type || r.agent_type || 'agent'}] ${r.steps || 0} steps \u2014 ${escapeHtml((r.summary || '').substring(0, 150))}</div>`;
       }
       reportsHtml += '</div></details>';
     }
@@ -177,8 +180,8 @@ function buildReasoningGroupHTML(g, gi, options) {
     return `<div class="reasoning-entry" data-group="${gi}" data-step-nums="${stepNums}"${entryStyle}>`
       + branchBtn
       + `<div class="step-label">${stepLabel} \u2014 ${modelLabel}${durationHtml} ${agentBadgeHtml}${tokHtml} ${levelBadge}${tag}</div>`
-      + (p.observation ? `<div class="observation"><strong>Obs:</strong> ${_rEsc(p.observation)}</div>` : '')
-      + (p.reasoning ? `<div style="margin-top:4px;"><strong>Reasoning:</strong> ${_rEsc(p.reasoning)}</div>` : '')
+      + (p.observation ? `<div class="observation"><strong>Obs:</strong> ${escapeHtml(p.observation)}</div>` : '')
+      + (p.reasoning ? `<div style="margin-top:4px;"><strong>Reasoning:</strong> ${escapeHtml(p.reasoning)}</div>` : '')
       + `<div class="plan-progress">${planHtml}</div>`
       + subCallsHtml
       + reportsHtml

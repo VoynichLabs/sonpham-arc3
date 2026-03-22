@@ -1,6 +1,8 @@
-# ARC-AGI-3 Agent
+# ARC-AGI-3
 
-An LLM-powered system for playing [ARC-AGI-3](https://arcprize.org/) — an interactive reasoning benchmark where each game is a 64×64 pixel grid with 16 colours.  There are no instructions; the agent must discover the rules, controls, and goals by experimenting.
+A web platform for playing [ARC-AGI-3](https://arcprize.org/) games — interactive reasoning puzzles on a 64×64 pixel grid with 16 colours. No instructions are given; players (human or AI) must discover the rules, controls, and goals by experimenting.
+
+**Live at [arc3.sonpham.net](https://arc3.sonpham.net)**
 
 ---
 
@@ -9,208 +11,207 @@ An LLM-powered system for playing [ARC-AGI-3](https://arcprize.org/) — an inte
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install flask python-dotenv arc-agi arcengine httpx google-genai ollama pyyaml anthropic
+pip install -r requirements.txt
 
-cp .env.example .env          # fill in your API keys
-python agent.py --game ls20   # play one game with default settings
+cp .env.example .env          # fill in API keys you want to use
+python server/app.py           # local dev server
+```
+
+Open `http://localhost:5000` in your browser to play.
+
+### CLI agent
+
+```bash
+python agent.py --game ls20                        # play one game
+python agent.py --model gemini-2.5-flash --game ft09  # override model
+python agent.py --max-steps 400                    # custom step limit
+python agent.py --list-models                      # check available models
+python agent.py --show-config                      # print resolved config
+```
+
+### Batch runner
+
+```bash
+python batch_runner.py --games ls20 --concurrency 1 --max-steps 10   # smoke test
+python batch_runner.py --games all --concurrency 4                   # all games
+python batch_runner.py --games fd01,ft09 --repeat 3 --concurrency 4  # specific games
+python batch_runner.py --resume <batch_id>                           # resume interrupted
 ```
 
 ---
 
 ## Architecture
 
-The agent has **three independently configurable blocks** in `config.yaml`:
+### Client-side game logic
 
-### 1  Context block — *what information the agent sees*
+All game-playing logic runs **in the browser**: game environment execution (Pyodide or server-proxied), LLM calls (BYOK / Puter.js / Copilot), REPL / code execution, agent memory, and scaffolding logic. The server is stateless except for auth and session persistence.
 
-| Setting | Default | Effect |
-|---------|---------|--------|
-| `full_grid` | `true` | Full RLE-compressed 64×64 grid at every step |
-| `change_map` | `true` | Cells that changed since the last action (X/. overlay) |
-| `color_histogram` | `false` | Count of each colour in the current grid |
-| `region_map` | `false` | Connected-component regions per colour (BFS flood-fill) |
-| `history_length` | `10` | How many recent moves to show in the prompt |
-| `memory_injection` | `true` | Inject relevant facts from `memory/MEMORY.md` |
-| `memory_injection_max_chars` | `1500` | Caps the injected memory to stay within token budget |
+### Python backend
 
-Turn sources on/off to experiment with the trade-off between prompt size and agent performance.
+**Entry points:**
+- `server/app.py` — Flask application (63 routes)
+- `agent.py` — Autonomous CLI agent
+- `batch_runner.py` — Batch game runner
 
-### 2  Reasoning block — *which model(s) think*
+**Service layer** (`server/services/`):
+- `auth_service.py` — Magic link, Google OAuth, Copilot auth, API keys
+- `session_service.py` — Session resume, branch, import, OBS events
+- `game_service.py` — Game start, step, reset, undo
+- `social_service.py` — Comments, leaderboard, contributors
+- `llm_admin_service.py` — Model listing, BYOK key management
 
-| Setting | Default | Effect |
-|---------|---------|--------|
-| `executor_model` | `gemini-2.5-flash` | Main model used at every action step |
-| `condenser_model` | `null` | Model used to condense old history (null = reuse executor) |
-| `reflector_model` | `null` | Model used for post-game reflection (null = reuse executor) |
-| `temperature` | `0.3` | Sampling temperature for action decisions |
-| `max_tokens` | `2048` | Max output tokens for action decisions |
-| `reflection_max_tokens` | `1024` | Max tokens for condensation / reflection passes |
+**Database layer:**
+- `db.py` — Connection pooling, schema init, migrations
+- `db_sessions.py` — Session CRUD
+- `db_auth.py` — Users, tokens, magic links
+- `db_llm.py` — LLM call logging
+- `db_tools.py` — Tool execution logging
+- `db_exports.py` — File export/import
 
-Setting a separate (cheaper) model for condensation and reflection lets you use a more capable model only where it matters most.
+**LLM providers:**
+- `llm_providers.py` — Router: model ID → provider call
+- `llm_providers_openai.py` — OpenAI + LM Studio (OpenAI-compatible)
+- `llm_providers_anthropic.py` — Anthropic Claude
+- `llm_providers_google.py` — Google Gemini
+- `llm_providers_copilot.py` — GitHub Copilot (device flow)
 
-### 3  Memory management block — *what the agent remembers*
+**Agent modules:**
+- `agent.py` — Game-playing orchestrator
+- `agent_llm.py` — LLM decision logic
+- `agent_response_parsing.py` — Parse LLM responses → actions
+- `agent_history.py` — Action history management
 
-| Setting | Default | Effect |
-|---------|---------|--------|
-| `hard_memory_file` | `memory/MEMORY.md` | Cross-session persistent facts (markdown) |
-| `session_log_file` | `memory/sessions.json` | Structured log of every game result |
-| `allow_inline_memory_writes` | `true` | Agent can write a new fact mid-game |
-| `reflect_after_game` | `true` | Run a reflection pass after each game ends |
-| `condense_every` | `25` | Summarise old history every N steps (0 = off) |
-| `condense_threshold` | `50` | Force condensation when history exceeds N entries |
+**Infrastructure:**
+- `models.py` — Model registry (42 models across 10 providers)
+- `constants.py` — Shared constants
+- `exceptions.py` — Structured error classes
 
----
+### JavaScript frontend (`static/js/`)
 
-## Hard memory
+Global-scope scripts loaded via `<script>` tags. Load order matters.
 
-Two files persist knowledge between sessions:
+**Core:** `state.js`, `engine.js`, `reasoning.js`
 
-**`memory/MEMORY.md`** — free-form markdown that the agent reads and writes.  Sections:
-- `## General` — universal ARC-AGI-3 facts
-- `## Strategies` — general solving approaches
-- `## <game_id>` — game-specific rules and discoveries
+**UI:** `ui.js`, `ui-grid.js`, `ui-models.js`, `ui-tabs.js`, `ui-tokens.js`
 
-After each game the reflector LLM extracts 2-5 novel facts and appends them under the game's section.  During a game the agent can also write a `"memory_update"` field in its JSON response to save a rule the moment it discovers it.
+**LLM:** `llm.js`, `llm-config.js`, `llm-controls.js`, `llm-executor.js`, `llm-reasoning.js`, `llm-timeline.js`
 
-**`memory/sessions.json`** — structured JSON array logging every game run (timestamp, result, steps, levels completed, model used).
+**Scaffolding:** `scaffolding.js`, `scaffolding-linear.js`, `scaffolding-rlm.js`, `scaffolding-three-system.js`, `scaffolding-agent-spawn.js`, `scaffolding-world-model.js`
 
----
+**Session:** `session.js`, `session-storage.js`, `session-persistence.js`, `session-replay.js`, `session-views.js`, `session-views-grid.js`, `session-views-history.js`
 
-## Supported models
+**Observatory:** `observatory.js`, `obs-page.js`, `obs-scrubber.js`, `obs-session-loader.js`, `obs-swimlane.js`
 
-| Key | Provider | Requires |
-|-----|----------|---------|
-| `groq/llama-3.3-70b-versatile` | Groq | `GROQ_API_KEY` |
-| `groq/gemma2-9b-it` | Groq | `GROQ_API_KEY` |
-| `mistral/mistral-small-latest` | Mistral | `MISTRAL_API_KEY` |
-| `gemini-2.0-flash-lite` | Gemini | `GEMINI_API_KEY` |
-| `gemini-2.0-flash` | Gemini | `GEMINI_API_KEY` |
-| `gemini-2.5-flash` | Gemini | `GEMINI_API_KEY` |
-| `gemini-2.5-pro` | Gemini | `GEMINI_API_KEY` |
-| `claude-haiku-4-5` | Anthropic | `ANTHROPIC_API_KEY` |
-| `claude-sonnet-4-5` | Anthropic | `ANTHROPIC_API_KEY` |
-| `claude-sonnet-4-6` | Anthropic | `ANTHROPIC_API_KEY` |
-| `cloudflare/llama-3.3-70b` | Cloudflare Workers AI | `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` |
-| `hf/meta-llama-3.3-70b` | HuggingFace | `HUGGINGFACE_API_KEY` |
-| `ollama/llama3.3` | Ollama (local) | Ollama running on port 11434 |
+**Human play:** `human.js`, `human-game.js`, `human-input.js`, `human-render.js`, `human-session.js`, `human-social.js`
+
+**Other:** `arena.js`, `leaderboard.js`, `memory-inspector.js`, `share-page.js`, `draw-page.js`, `dev.js`
+
+### HTML pages
+
+- `templates/index.html` — Main SPA (game player + agent UI)
+- `templates/obs.html` — Observatory (session replay viewer)
+- `templates/share.html` — Public share/replay page
+- `templates/arena.html` — Game arena
+- `templates/draw.html` — Grid drawing tool
+- `templates/ab01.html` — Antibody standalone page
 
 ---
 
-## CLI reference
+## Configuration
+
+The CLI agent is configured via `config.yaml` with four blocks:
+
+### Context block — what the agent sees
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `full_grid` | `true` | Full RLE-compressed 64×64 grid |
+| `change_map` | `true` | Cells changed since last action |
+| `color_histogram` | `false` | Count of each colour |
+| `region_map` | `false` | Connected-component regions (BFS flood-fill) |
+| `history_length` | `0` | Recent moves in prompt (0 = all) |
+| `reasoning_trace` | `false` | Include LLM reasoning in history |
+| `max_context_tokens` | `100000` | Token budget for context |
+| `memory_injection` | `true` | Inject hard-memory facts |
+| `memory_injection_max_chars` | `1500` | Max chars of memory to inject |
+
+### Reasoning block — which models think
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `executor_model` | `gemini-2.5-flash` | Main action model |
+| `condenser_model` | `null` | History condensation model (null = reuse executor) |
+| `reflector_model` | `null` | Post-game reflection model (null = reuse executor) |
+| `temperature` | `0.3` | Sampling temperature |
+| `max_tokens` | `2048` | Max output tokens |
+| `planning_horizon` | `5` | Max actions per LLM call |
+| `reflection_max_tokens` | `1024` | Max tokens for reflection passes |
+| `planner_model` | `null` | Scaffolding planner model |
+| `monitor_model` | `null` | Scaffolding monitor model |
+| `world_model_model` | `null` | Scaffolding world model |
+
+### Memory block — what the agent remembers
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `hard_memory_file` | `memory/MEMORY.md` | Cross-session persistent facts |
+| `session_log_file` | `memory/sessions.json` | Structured session log |
+| `allow_inline_memory_writes` | `true` | Agent can save facts mid-game |
+| `reflect_after_game` | `true` | Reflection pass after each game |
+| `condense_every` | `0` | Summarise history every N steps (0 = off) |
+| `condense_threshold` | `0` | Force condensation above N entries (0 = off) |
+
+### Scaffolding block — multi-system agent architecture
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `mode` | `single` | `single` or `three_system` |
+| `planner_max_turns` | `10` | Max REPL iterations for planner |
+| `world_model_max_turns` | `5` | Max REPL iterations for world model |
+| `world_model_update_every` | `5` | Steps between world model updates |
+| `max_plan_length` | `15` | Maximum plan steps |
+| `min_plan_length` | `3` | Minimum plan steps |
+
+---
+
+## Supported providers
+
+| Provider | Example model | Env key | Cost |
+|----------|--------------|---------|------|
+| **Anthropic** | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` | Paid |
+| **Gemini** | `gemini-2.5-flash` | `GEMINI_API_KEY` | ~Free |
+| **OpenAI** | `openai/o4-mini` | `OPENAI_API_KEY` | Paid |
+| **Groq** | `groq/llama-3.3-70b-versatile` | `GROQ_API_KEY` | Free |
+| **Mistral** | `mistral/mistral-small-latest` | `MISTRAL_API_KEY` | Free |
+| **Cloudflare** | `cf/llama-3.3-70b-instruct` | `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` | Free |
+| **HuggingFace** | `hf/qwen2.5-72b-instruct` | `HUGGINGFACE_API_KEY` | Free |
+| **Copilot** | `copilot/gpt-4.1` | None (OAuth) | Free w/ subscription |
+| **Puter** | `puter/gpt-4o` | None (client-side) | Free |
+| **LM Studio** | `lmstudio/qwen3.5-35b` | None (local) | Free |
+| **Ollama** | `ollama/llama3.1` | None (local) | Free |
+
+Full model list: see `models.py` `MODEL_REGISTRY` or run `python agent.py --list-models`.
+
+---
+
+## Deployment
+
+- **Railway**: auto-deploys from `master` branch
+- **Procfile**: `gunicorn server.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8`
+- **Railway Volume**: persistent disk at `/data` for SQLite
+- **Env vars**: `SERVER_MODE=prod`, `DB_DATA_DIR=/data`
+- **Staging**: push to `staging` branch first, never directly to `master`
+
+---
+
+## Testing
 
 ```bash
-# Play all games with config defaults
-python agent.py
-
-# Play one game
-python agent.py --game ls20
-
-# Override the model for this run only
-python agent.py --model gemini-2.5-pro --game ft09
-
-# Set a custom step limit
-python agent.py --max-steps 400
-
-# Use a different config file
-python agent.py --config experiments/config_no_grid.yaml
-
-# Print the resolved config and exit
-python agent.py --show-config
-
-# List all available models and check API keys
-python agent.py --list-models
+python tests/test_providers.py              # all provider API paths
+python tests/test_providers.py groq         # single provider
+python -c "from server.app import app; import db; import agent; import batch_runner; print('OK')"
+python batch_runner.py --games ls20 --concurrency 1 --max-steps 5   # smoke test
 ```
-
----
-
-## Experiment recipes
-
-### Minimal context (fastest, cheapest)
-```yaml
-context:
-  full_grid: false
-  change_map: true
-  color_histogram: true
-  region_map: false
-  history_length: 5
-  memory_injection: true
-```
-
-### Maximum context (best reasoning, most tokens)
-```yaml
-context:
-  full_grid: true
-  change_map: true
-  color_histogram: true
-  region_map: true
-  history_length: 20
-  memory_injection: true
-```
-
-### Tiered models (quality where it counts, cheap elsewhere)
-```yaml
-reasoning:
-  executor_model: "gemini-2.5-flash"
-  condenser_model: "groq/llama-3.3-70b-versatile"
-  reflector_model: "groq/llama-3.3-70b-versatile"
-```
-
-### No memory (clean baseline)
-```yaml
-context:
-  memory_injection: false
-memory:
-  allow_inline_memory_writes: false
-  reflect_after_game: false
-  condense_every: 0
-```
-
----
-
-## Project structure
-
-```
-arc-agi-3/
-├── agent.py               # Autonomous CLI agent (main file)
-├── config.yaml            # Three-block agent configuration
-├── server.py              # Flask web server + visual player
-├── play.py                # Minimal starter exploration script
-├── memory/
-│   ├── MEMORY.md          # Cross-session hard memory (human-readable)
-│   └── sessions.json      # Structured session history
-├── templates/
-│   └── index.html         # Web player UI
-├── environment_files/     # Game environment definitions
-│   ├── ls20/
-│   ├── ft09/
-│   └── vc33/
-├── .env                   # API keys (not committed)
-└── .env.example           # Key template
-```
-
----
-
-## Developer Tools
-
-### pi01 Level Selector
-
-**pi01** is the pirate ship game with 9 levels.
-
-While playing pi01 in the web UI, press **Shift+D** to open the dev level selector panel (bottom-right corner). Click any button to jump directly to that level:
-
-| Button | Level Name |
-|--------|-----------|
-| L1 | Caribbean Cove |
-| L2 | Skull Shoals |
-| L3 | Dragon's Lair |
-| L4 | Stormy Waters |
-| L5 | Kraken's Hunt |
-| L6 | Sentinel Straits |
-| L7 | Hunter's Web |
-| L8 | Fog of War |
-| L9 | Key & Switch |
-
-The panel uses the server endpoint `POST /api/dev/jump-level` with the secret header `X-Dev-Secret: arc-dev-2026`.
 
 ---
 

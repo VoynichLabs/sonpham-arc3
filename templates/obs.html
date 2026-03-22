@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agent Observatory</title>
+<script defer src="https://cloud.umami.is/script.js" data-website-id="7c697241-f54c-47cf-98cc-b5e87ac3b303"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #555 #1a1a24; }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -776,7 +777,14 @@
 <script>
   window.shareSessionId = {{ share_session_id | tojson if share_session_id is defined else 'null' }};
 </script>
+<script src="/static/js/utils/formatting.js"></script>
 <script src="/static/js/reasoning.js"></script>
+<script src="/static/js/observatory/obs-log-renderer.js"></script>
+<script src="/static/js/observatory/obs-scrubber.js"></script>
+<script src="/static/js/observatory/obs-swimlane-renderer.js"></script>
+<script src="/static/js/obs-swimlane.js"></script>
+<script src="/static/js/obs-scrubber.js"></script>
+<script src="/static/js/obs-session-loader.js"></script>
 <script src="/static/js/obs-page.js"></script>
 </body>
 </html>

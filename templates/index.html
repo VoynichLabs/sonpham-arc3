@@ -10,7 +10,7 @@
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 {% endif %}
 <!-- Puter.js loaded lazily when a Puter model is selected -->
-<link rel="stylesheet" href="/static/css/main.css?v={{ static_v }}">
+<link rel="stylesheet" href="/static/css/main.min.css?v={{ static_v }}">
 </head>
 <body>
 {% if turnstile_site_key %}
@@ -24,14 +24,15 @@
 <div class="app-container">
   <!-- ── Top navigation ──────────────────────────────────────────────── -->
   <div class="top-nav">
-    <span class="app-title"><svg class="arc-logo" id="logoColor" viewBox="0 0 32 32" width="40" height="40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="#1E93FF"><animate attributeName="opacity" values="1;0.4;0.7;1" dur="4s" repeatCount="indefinite"/></rect><rect x="13" y="2" width="9" height="9" rx="1.5" fill="#F93C31"><animate attributeName="opacity" values="0.6;1;0.4;0.6" dur="4s" repeatCount="indefinite"/></rect><rect x="2" y="13" width="9" height="9" rx="1.5" fill="#4FCC30"><animate attributeName="opacity" values="0.4;0.7;1;0.4" dur="4s" repeatCount="indefinite"/></rect><rect x="13" y="13" width="9" height="9" rx="1.5" fill="#FFDC00"><animate attributeName="opacity" values="0.7;0.4;0.6;0.7" dur="4s" repeatCount="indefinite"/></rect><rect x="24" y="2" width="5" height="5" rx="1" fill="#E53AA3"><animate attributeName="opacity" values="0.4;0.8;0.2;0.4" dur="4s" repeatCount="indefinite"/></rect><rect x="2" y="24" width="5" height="5" rx="1" fill="#FF851B"><animate attributeName="opacity" values="0.2;0.5;0.8;0.2" dur="4s" repeatCount="indefinite"/></rect></svg><svg class="arc-logo" id="logoBlue" viewBox="0 0 32 32" width="40" height="40" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:none;"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="var(--accent)"><animate attributeName="opacity" values="1;0.4;0.7;1" dur="4s" repeatCount="indefinite"/></rect><rect x="13" y="2" width="9" height="9" rx="1.5" fill="var(--accent)"><animate attributeName="opacity" values="0.6;1;0.4;0.6" dur="4s" repeatCount="indefinite"/></rect><rect x="2" y="13" width="9" height="9" rx="1.5" fill="var(--accent)"><animate attributeName="opacity" values="0.4;0.7;1;0.4" dur="4s" repeatCount="indefinite"/></rect><rect x="13" y="13" width="9" height="9" rx="1.5" fill="var(--accent)"><animate attributeName="opacity" values="0.7;0.4;0.6;0.7" dur="4s" repeatCount="indefinite"/></rect><rect x="24" y="2" width="5" height="5" rx="1" fill="var(--accent)"><animate attributeName="opacity" values="0.4;0.8;0.2;0.4" dur="4s" repeatCount="indefinite"/></rect><rect x="2" y="24" width="5" height="5" rx="1" fill="var(--accent)"><animate attributeName="opacity" values="0.2;0.5;0.8;0.2" dur="4s" repeatCount="indefinite"/></rect></svg><span class="app-title-text">ARC Observatory<span class="beta-badge">BETA</span></span></span>
+    <span class="app-title"><svg class="arc-logo" id="logoColor" viewBox="0 0 32 32" width="40" height="40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="#1E93FF"><animate attributeName="opacity" values="1;0.4;0.7;1" dur="4s" repeatCount="indefinite"/></rect><rect x="13" y="2" width="9" height="9" rx="1.5" fill="#F93C31"><animate attributeName="opacity" values="0.6;1;0.4;0.6" dur="4s" repeatCount="indefinite"/></rect><rect x="2" y="13" width="9" height="9" rx="1.5" fill="#4FCC30"><animate attributeName="opacity" values="0.4;0.7;1;0.4" dur="4s" repeatCount="indefinite"/></rect><rect x="13" y="13" width="9" height="9" rx="1.5" fill="#FFDC00"><animate attributeName="opacity" values="0.7;0.4;0.6;0.7" dur="4s" repeatCount="indefinite"/></rect><rect x="24" y="2" width="5" height="5" rx="1" fill="#E53AA3"><animate attributeName="opacity" values="0.4;0.8;0.2;0.4" dur="4s" repeatCount="indefinite"/></rect><rect x="2" y="24" width="5" height="5" rx="1" fill="#FF851B"><animate attributeName="opacity" values="0.2;0.5;0.8;0.2" dur="4s" repeatCount="indefinite"/></rect></svg><svg class="arc-logo" id="logoBlue" viewBox="0 0 32 32" width="40" height="40" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:none;"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="var(--accent)"><animate attributeName="opacity" values="1;0.4;0.7;1" dur="4s" repeatCount="indefinite"/></rect><rect x="13" y="2" width="9" height="9" rx="1.5" fill="var(--accent)"><animate attributeName="opacity" values="0.6;1;0.4;0.6" dur="4s" repeatCount="indefinite"/></rect><rect x="2" y="13" width="9" height="9" rx="1.5" fill="var(--accent)"><animate attributeName="opacity" values="0.4;0.7;1;0.4" dur="4s" repeatCount="indefinite"/></rect><rect x="13" y="13" width="9" height="9" rx="1.5" fill="var(--accent)"><animate attributeName="opacity" values="0.7;0.4;0.6;0.7" dur="4s" repeatCount="indefinite"/></rect><rect x="24" y="2" width="5" height="5" rx="1" fill="var(--accent)"><animate attributeName="opacity" values="0.4;0.8;0.2;0.4" dur="4s" repeatCount="indefinite"/></rect><rect x="2" y="24" width="5" height="5" rx="1" fill="var(--accent)"><animate attributeName="opacity" values="0.2;0.5;0.8;0.2" dur="4s" repeatCount="indefinite"/></rect></svg><span class="app-title-text">ARC Observatory<a class="logo-sub-link to-arena" href="{{ arena_url }}">&#8594; to AutoResearch Arena</a></span></span>
     <a class="nav-link active" href="#human" onclick="event.preventDefault();showAppView('human')">Play as Human</a>
     <a class="nav-link" href="#agent" onclick="event.preventDefault();showAppView('play')">Play as Agent</a>
     <a class="nav-link" href="#sessions" onclick="event.preventDefault();showAppView('browse')">Browse Sessions</a>
     <a class="nav-link" href="#leaderboards" onclick="event.preventDefault();showAppView('leaderboard')">&#127942; Leaderboards</a>
     <a class="nav-link" href="#contributors" onclick="event.preventDefault();showAppView('contributors')">&#128150; Contributors</a>
-    <span style="flex:1;"></span>
     <a class="nav-link" href="#feedback" onclick="event.preventDefault();showAppView('feedback')">Roadmap / Feedback</a>
+    <span style="flex:1;"></span>
+    <a class="nav-switch-btn to-arena" href="/arena">to AutoResearch Arena &#8594;</a>
     {% if google_client_id %}
     <a id="loginBtn" class="btn" style="font-size:11px;padding:2px 10px;display:none;text-decoration:none;" href="/api/auth/google">Log in</a>
     {% else %}
@@ -86,17 +87,17 @@
         <h3 class="lb-panel-title lb-ai-header">&#129302; AI Best</h3>
         <div class="lb-panel-scroll">
           <table class="lb-table">
-            <thead><tr><th>Game</th><th>Result</th><th>Steps</th><th>Model</th></tr></thead>
-            <tbody id="lbAiBody"><tr><td colspan="4" class="lb-loading">Loading...</td></tr></tbody>
+            <thead><tr><th>Game</th><th>Result</th><th>Lv</th><th>Steps</th><th>Model</th><th>Date</th></tr></thead>
+            <tbody id="lbAiBody"><tr><td colspan="6" class="lb-loading">Loading...</td></tr></tbody>
           </table>
         </div>
       </div>
-      <div class="lb-panel">
+      <div class="lb-panel lb-panel-human">
         <h3 class="lb-panel-title lb-human-header">&#129489; Human Best</h3>
         <div class="lb-panel-scroll">
           <table class="lb-table">
-            <thead><tr><th>Game</th><th>Result</th><th>Steps</th><th>Time</th><th>By</th></tr></thead>
-            <tbody id="lbHumanBody"><tr><td colspan="5" class="lb-loading">Loading...</td></tr></tbody>
+            <thead><tr><th>Game</th><th>Result</th><th>Lv</th><th>Steps</th><th>Time</th><th>By</th><th>Date</th></tr></thead>
+            <tbody id="lbHumanBody"><tr><td colspan="7" class="lb-loading">Loading...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -111,14 +112,14 @@
         <div class="lb-drill-col">
           <h4>&#129302; Top AI Attempts</h4>
           <table class="lb-drill-table">
-            <thead><tr><th>#</th><th>Result</th><th>Steps</th><th>Levels</th><th>Model</th><th>Date</th></tr></thead>
+            <thead><tr><th>#</th><th>Game</th><th>Result</th><th>Lv</th><th>Steps</th><th>Model</th><th>Date</th></tr></thead>
             <tbody id="lbDrillAI"></tbody>
           </table>
         </div>
-        <div class="lb-drill-col">
+        <div class="lb-drill-col lb-drill-col-human">
           <h4>&#129489; Top Human Attempts</h4>
           <table class="lb-drill-table">
-            <thead><tr><th>#</th><th>Result</th><th>Steps</th><th>Levels</th><th>Time</th><th>By</th><th>Date</th></tr></thead>
+            <thead><tr><th>#</th><th>Game</th><th>Result</th><th>Lv</th><th>Steps</th><th>Time</th><th>By</th><th>Date</th></tr></thead>
             <tbody id="lbDrillHuman"></tbody>
           </table>
         </div>
@@ -417,29 +418,23 @@
         <div id="pyodideGameLoading" style="display:none;" class="empty-state"></div>
         <canvas id="gameCanvas" width="512" height="512" style="display:none;"></canvas>
         <div id="coordTooltip" style="display:none;position:fixed;pointer-events:none;background:rgba(0,0,0,0.85);color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-family:monospace;z-index:1000;border:1px solid var(--border);"></div>
-        <div class="controls controls-lockable locked" id="controls" style="display:none;">
-          <button class="intervene-toggle" id="interveneBtn" onclick="toggleHumanLock()">&#128274; Intervene as Human</button>
-          <div class="controls-inner">
-          <button class="btn btn-danger" onclick="doAction(0)">Reset <span class="kbd">R</span></button>
-          <div class="dpad">
-            <span class="dpad-empty"></span>
-            <button class="btn" onclick="doAction(1)">&uarr; <span class="kbd">W</span></button>
-            <span class="dpad-empty"></span>
-            <button class="btn" onclick="doAction(3)">&larr; <span class="kbd">A</span></button>
-            <span class="dpad-empty"></span>
-            <button class="btn" onclick="doAction(4)">&rarr; <span class="kbd">D</span></button>
-            <span class="dpad-empty"></span>
-            <button class="btn" onclick="doAction(2)">&darr; <span class="kbd">S</span></button>
-            <span class="dpad-empty"></span>
+        <!-- Transport controls (hidden until game loads) -->
+        <div class="transport-strip" id="transportBar" style="display:none;">
+          <div class="transport-bar">
+            <button class="btn" onclick="toggleAutoPlay()" id="autoPlayBtn"
+              onmouseenter="showTransportDesc('Repeatedly call the agent until paused')"
+              onmouseleave="clearTransportDesc()">&#187; Agent Autoplay</button>
+            <button class="btn" onclick="undoStep()" id="undoBtn" disabled
+              onmouseenter="showTransportDesc('Undo last turn')"
+              onmouseleave="clearTransportDesc()">&#9198; Undo</button>
+            <button class="btn" onclick="resetSession()" id="resetBtn"
+              onmouseenter="showTransportDesc('Restart the current game from scratch')"
+              onmouseleave="clearTransportDesc()">&#8635; Restart</button>
+            <button class="btn" id="backToObsBtn" onclick="enterObsMode()" disabled
+              onmouseenter="showTransportDesc('Enter observe mode')"
+              onmouseleave="clearTransportDesc()">&#128300; Observe</button>
           </div>
-          <button class="btn" onclick="doAction(5)">ACT5 <span class="kbd">Z</span></button>
-          <button class="btn" onclick="doAction(7)">ACT7 <span class="kbd">X</span></button>
-          <button class="btn btn-primary" onclick="doAction(6,true)">Click grid <span class="kbd">Click</span></button>
-          <label style="font-size:10px;color:var(--dim);margin-left:8px;cursor:pointer;user-select:none;">
-            <input type="checkbox" id="coordToggle" checked> Coords
-          </label>
-          <div id="noChangeMsg" style="display:none;"></div>
-          </div>
+          <div class="transport-desc" id="transportDesc"></div>
         </div>
         <!-- Replay scrubber (shown during session replay) -->
         <div class="replay-bar" id="replayBar" style="display:none;">
@@ -465,34 +460,17 @@
           </div>
         </div>
         </div>
-        <!-- Transport controls (hidden until game loads) -->
-        <div class="transport-strip" id="transportBar" style="display:none;">
-          <div class="transport-bar">
-            <button class="btn" onclick="toggleAutoPlay()" id="autoPlayBtn"
-              onmouseenter="showTransportDesc('Repeatedly call the agent until paused')"
-              onmouseleave="clearTransportDesc()">&#187; Agent Autoplay</button>
-            <button class="btn" onclick="undoStep()" id="undoBtn" disabled
-              onmouseenter="showTransportDesc('Undo last turn')"
-              onmouseleave="clearTransportDesc()">&#9198; Undo</button>
-            <button class="btn" onclick="resetSession()" id="resetBtn"
-              onmouseenter="showTransportDesc('Restart the current game from scratch')"
-              onmouseleave="clearTransportDesc()">&#8635; Restart</button>
-            <button class="btn" id="backToObsBtn" onclick="enterObsMode()" style="display:none;"
-              onmouseenter="showTransportDesc('Return to the observatory view')"
-              onmouseleave="clearTransportDesc()">&#128300; Observatory</button>
-          </div>
-          <div class="transport-desc" id="transportDesc"></div>
-        </div>
       </div>
 
       <!-- ── Right panel ───────────────────────────────────────────── -->
       <div class="right-panel">
 
-          <!-- Tab bar: Agent Setting | Prompts | Graphics -->
+          <!-- Tab bar: Agent Settings | Prompts | Graphics | Memory -->
           <div class="subtab-bar">
             <button class="active" onclick="switchSubTab('settings')">Agent Settings</button>
             <button onclick="switchSubTab('prompts')">Prompts</button>
             <button onclick="switchSubTab('graphics')">Graphics</button>
+            <button onclick="switchSubTab('memory')">Memory</button>
           </div>
           <!-- Hidden spinner (referenced by LLM code) -->
           <span id="llmSpinner" style="display:none;"><span class="spinner"></span></span>
@@ -502,8 +480,6 @@
             <div class="settings-columns" id="settingsColumns">
               <!-- Populated dynamically by renderScaffoldingSettings() -->
             </div>
-
-            <!-- Transport bar moved to canvas panel -->
           </div>
 
           <!-- ── Prompts subtab ── -->
@@ -514,10 +490,10 @@
           </div>
 
           <!-- ── Graphics subtab ── -->
-          <div class="subtab-pane" id="subtabGraphics" style="padding:14px;">
+          <div class="subtab-pane" id="subtabGraphics" style="display:none;padding:14px;">
             <div class="opt-row">
               <span class="opt-label">Diff overlay</span>
-              <label class="toggle"><input type="checkbox" id="showChanges"><span class="slider"></span></label>
+              <label class="toggle"><input type="checkbox" id="showChanges" checked><span class="slider"></span></label>
             </div>
             <div class="opt-row">
               <span class="opt-label">Opacity</span>
@@ -527,6 +503,30 @@
             <div class="opt-row">
               <span class="opt-label">Highlight color</span>
               <input type="color" id="changeColor" value="#ff0000" style="width:28px;height:20px;border:none;background:none;cursor:pointer;">
+            </div>
+          </div>
+
+          <!-- ── Memory Inspector subtab ── -->
+          <div class="subtab-pane" id="subtabMemory" style="display:none;flex-direction:column;flex:1;overflow:auto;padding:14px;">
+            <div id="memoryInspectorHeader" style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+              <span style="font-size:13px;font-weight:600;color:var(--text);">Agent Memory Inspector</span>
+              <span id="memoryGameVersion" style="font-size:10px;color:var(--text-dim);"></span>
+            </div>
+            <!-- Step selector for memory inspection -->
+            <div id="memoryStepSelector" style="margin-bottom:10px;">
+              <label style="font-size:11px;color:var(--text-dim);">Inspect at step:</label>
+              <input type="range" id="memoryStepSlider" min="0" max="0" value="0" style="width:calc(100% - 80px);vertical-align:middle;">
+              <span id="memoryStepLabel" style="font-size:11px;color:var(--accent);font-weight:600;">0</span>
+            </div>
+            <!-- Agent filter -->
+            <div id="memoryAgentFilter" style="margin-bottom:10px;display:flex;gap:4px;flex-wrap:wrap;">
+              <button class="mem-filter-btn active" data-agent="all" onclick="_memFilterAgent('all')" style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--accent);color:#000;cursor:pointer;">All</button>
+            </div>
+            <!-- Memory content area -->
+            <div id="memoryInspectorContent" style="flex:1;overflow:auto;">
+              <div style="color:var(--text-dim);font-size:12px;padding:20px;text-align:center;">
+                No memory data available. Start a session with Agent Spawn scaffolding to capture memory.
+              </div>
             </div>
           </div>
 
@@ -540,6 +540,7 @@
           </div>
           <!-- Buy Me a Coffee -->
           <div class="bmc-bottom">
+            <div class="bmc-text">Thank you for using ARC Observatory! If you enjoy it, consider buying me a coffee to support the development.</div>
             <a href="https://buymeacoffee.com/sonphamnet" target="_blank" rel="noopener" class="bmc-link">
               <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" class="bmc-img">
             </a>
@@ -613,7 +614,7 @@
         <div class="obs-canvas-wrap" id="obsCanvasHost"></div>
         <div class="obs-scrubber-bar" id="obsScrubBar">
           <div class="obs-scrub-row">
-            <span class="obs-scrub-lbl" id="obsScrubLbl">Step 0 / 0</span>
+            <span class="obs-scrub-lbl" id="obsScrubLabel">Step 0 / 0</span>
             <input type="range" class="obs-scrub-slider" id="obsScrubSlider" min="0" max="0" value="0">
             <span class="obs-scrub-dot is-live" id="obsScrubDot">&#9679; LIVE</span>
           </div>
@@ -623,12 +624,24 @@
           </div>
         </div>
         <div class="obs-reasoning-wrap">
-          <h3>Reasoning Log</h3>
-          <div id="obsReasoningContent"></div>
+          <div class="obs-reasoning-log">
+            <h3>Reasoning Log</h3>
+            <div id="obsReasoningContent"></div>
+          </div>
+          <div class="obs-right-panels">
+            <div class="obs-memory-panel">
+              <h3>Agent Memory</h3>
+              <div id="obsMemoryContent"></div>
+            </div>
+            <div class="obs-files-panel" id="obsFilesPanel">
+              <h3>Files</h3>
+              <div id="obsFilesContent" class="obs-files-content"></div>
+            </div>
+          </div>
         </div>
         <div class="obs-transport">
           <button class="btn" id="obsPauseBtn" onclick="toggleAutoPlay()">&#187; Resume</button>
-          <button class="btn" id="obsBackBtn" onclick="exitObsMode()">&#9881; Settings</button>
+          <button class="btn" id="obsBackBtn" onclick="exitObsMode()">&#9881; Back to Settings</button>
         </div>
       </div>
     </div>
@@ -657,18 +670,8 @@ window.PROMPTS = {{ prompts | tojson }};
 })();
 </script>
 
-<!-- Application JS (load order matters) -->
-<script src="/static/js/state.js?v={{ static_v }}"></script>
-<script src="/static/js/engine.js?v={{ static_v }}"></script>
-<script src="/static/js/reasoning.js?v={{ static_v }}"></script>
-<script src="/static/js/ui.js?v={{ static_v }}"></script>
-<script src="/static/js/llm.js?v={{ static_v }}"></script>
-<script src="/static/js/scaffolding.js?v={{ static_v }}"></script>
-<script src="/static/js/session.js?v={{ static_v }}"></script>
-<script src="/static/js/observatory.js?v={{ static_v }}"></script>
-<script src="/static/js/human.js?v={{ static_v }}"></script>
-<script src="/static/js/leaderboard.js?v={{ static_v }}"></script>
-<script src="/static/js/dev.js?v={{ static_v }}"></script>
+<!-- Application JS — single minified bundle (49 files concatenated in load order) -->
+<script defer src="/static/js/bundle.min.js?v={{ static_v }}"></script>
 
 <!-- Dev panel (developer-only level selector) -->
 <div id="devPanel" style="display:none;position:fixed;bottom:16px;right:16px;z-index:9999;

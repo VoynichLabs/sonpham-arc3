@@ -1,1077 +1,58 @@
+// Author: Claude Opus 4.6 (1M context)
+// Date: 2026-03-15 16:00
+// PURPOSE: LLM call orchestration for ARC-AGI-3 web UI. Handles screenshot capture,
+//   autoplay loop (single-agent, planning, RLM, three-system, agent-spawn scaffoldings),
+//   plan execution with monitor/interrupt checks, tool use (Python REPL via Pyodide),
+//   compact context generation, and reasoning panel rendering. Linear path now passes
+//   system+user messages (from buildClientPrompt {system, user}) enabling Anthropic
+//   prompt caching. Coordinates between scaffolding-*.js modules, ui.js, state.js,
+//   and session.js. Modified in Phases 1 & 3 to extract formatting utils and token helpers.
+// SRP/DRY check: Pass — formatting in utils/formatting.js, tokens in utils/tokens.js,
+//   scaffolding logic split into scaffolding-*.js in Phase 5
 // ═══════════════════════════════════════════════════════════════════════════
 // LLM
 // ═══════════════════════════════════════════════════════════════════════════
 
-function getCanvasScreenshotB64() {
-  // Return the canvas content as base64 PNG (without data URL prefix)
-  const dataUrl = canvas.toDataURL('image/png');
-  return dataUrl.replace(/^data:image\/png;base64,/, '');
-}
+// Configuration getters: extracted to llm-config.js
+// getCanvasScreenshotB64(), getInputSettings(), getScaffoldingSettings()
+// These are loaded from llm-config.js before this file
 
-function getInputSettings() {
-  return {
-    diff: document.getElementById('inputDiff')?.checked ?? true,
-    full_grid: document.getElementById('inputGrid')?.checked ?? true,
-    image: document.getElementById('inputImage')?.checked ?? false,
-    color_histogram: document.getElementById('inputHistogram')?.checked ?? false,
-  };
-}
-
-function getScaffoldingSettings() {
-  const type = activeScaffoldingType;
-  const s = { scaffolding: type };
-
-  if (type === 'linear' || type === 'linear_interrupt') {
-    s.input = getInputSettings();
-    s.model = getSelectedModel();
-    s.thinking_level = getThinkingLevel();
-    s.tools_mode = getToolsMode();
-    s.planning_mode = getPlanningMode();
-    s.max_tokens = getMaxTokens();
-    s.interrupt_plan = document.getElementById('interruptPlan')?.checked || false;
-    s.compact = getCompactSettings();
-  } else if (type === 'rlm') {
-    s.input = {
-      diff: document.getElementById('sf_rlm_inputDiff')?.checked ?? true,
-      full_grid: document.getElementById('sf_rlm_inputGrid')?.checked ?? true,
-      image: document.getElementById('sf_rlm_inputImage')?.checked ?? false,
-      color_histogram: document.getElementById('sf_rlm_inputHistogram')?.checked ?? false,
-    };
-    s.model = document.getElementById('sf_rlm_modelSelect')?.value || '';
-    s.thinking_level = document.querySelector('input[name="sf_rlm_thinking"]:checked')?.value || 'low';
-    s.max_tokens = parseInt(document.getElementById('sf_rlm_maxTokens')?.value) || 16384;
-    s.sub_model = document.getElementById('sf_rlm_subModelSelect')?.value || '';
-    s.sub_thinking_level = document.querySelector('input[name="sf_rlm_subThinking"]:checked')?.value || 'low';
-    s.sub_max_tokens = parseInt(document.getElementById('sf_rlm_subMaxTokens')?.value) || 16384;
-    s.planning_mode = document.querySelector('input[name="sf_rlm_planMode"]:checked')?.value || 'off';
-    s.max_depth = parseInt(document.getElementById('sf_rlm_maxDepth')?.value) || 3;
-    s.max_iterations = parseInt(document.getElementById('sf_rlm_maxIter')?.value) || 10;
-    s.output_truncation = parseInt(document.getElementById('sf_rlm_outputTrunc')?.value) || 5000;
-  } else if (type === 'three_system') {
-    s.input = {
-      diff: document.getElementById('sf_ts_inputDiff')?.checked ?? true,
-      full_grid: document.getElementById('sf_ts_inputGrid')?.checked ?? true,
-      image: document.getElementById('sf_ts_inputImage')?.checked ?? false,
-      color_histogram: document.getElementById('sf_ts_inputHistogram')?.checked ?? false,
-    };
-    s.planner_model = document.getElementById('sf_ts_plannerModelSelect')?.value || '';
-    s.planner_thinking_level = document.querySelector('input[name="sf_ts_plannerThinking"]:checked')?.value || 'low';
-    s.planner_max_tokens = parseInt(document.getElementById('sf_ts_plannerMaxTokens')?.value) || 16384;
-    s.monitor_model = document.getElementById('sf_ts_monitorModelSelect')?.value || '';
-    s.monitor_thinking_level = document.querySelector('input[name="sf_ts_monitorThinking"]:checked')?.value || 'off';
-    s.monitor_max_tokens = parseInt(document.getElementById('sf_ts_monitorMaxTokens')?.value) || 4096;
-    s.replan_cooldown = parseInt(document.querySelector('input[name="sf_ts_replanCooldown"]:checked')?.value) || 3;
-    s.wm_model = document.getElementById('sf_ts_wmModelSelect')?.value || '';
-    s.wm_thinking_level = document.querySelector('input[name="sf_ts_wmThinking"]:checked')?.value || 'low';
-    s.wm_max_tokens = parseInt(document.getElementById('sf_ts_wmMaxTokens')?.value) || 16384;
-    s.planner_max_turns = parseInt(document.getElementById('sf_ts_plannerMaxTurns')?.value) || 10;
-    s.wm_max_turns = parseInt(document.getElementById('sf_ts_wmMaxTurns')?.value) || 5;
-    s.wm_update_every = parseInt(document.getElementById('sf_ts_wmUpdateEvery')?.value) || 5;
-    s.min_plan_length = parseInt(document.querySelector('input[name="sf_ts_planHorizon"]:checked')?.value) || 5;
-    s.max_plan_length = parseInt(document.getElementById('sf_ts_maxPlanLength')?.value) || 15;
-    // Also set model to planner_model for DB tracking
-    s.model = s.planner_model;
-  } else if (type === 'two_system') {
-    s.input = {
-      diff: document.getElementById('sf_2s_inputDiff')?.checked ?? true,
-      full_grid: document.getElementById('sf_2s_inputGrid')?.checked ?? true,
-      image: document.getElementById('sf_2s_inputImage')?.checked ?? false,
-      color_histogram: document.getElementById('sf_2s_inputHistogram')?.checked ?? false,
-    };
-    s.planner_model = document.getElementById('sf_2s_plannerModelSelect')?.value || '';
-    s.planner_thinking_level = document.querySelector('input[name="sf_2s_plannerThinking"]:checked')?.value || 'low';
-    s.planner_max_tokens = parseInt(document.getElementById('sf_2s_plannerMaxTokens')?.value) || 16384;
-    s.monitor_model = document.getElementById('sf_2s_monitorModelSelect')?.value || '';
-    s.monitor_thinking_level = document.querySelector('input[name="sf_2s_monitorThinking"]:checked')?.value || 'off';
-    s.monitor_max_tokens = parseInt(document.getElementById('sf_2s_monitorMaxTokens')?.value) || 4096;
-    s.replan_cooldown = parseInt(document.querySelector('input[name="sf_2s_replanCooldown"]:checked')?.value) || 3;
-    s.planner_max_turns = parseInt(document.getElementById('sf_2s_plannerMaxTurns')?.value) || 10;
-    s.min_plan_length = parseInt(document.querySelector('input[name="sf_2s_planHorizon"]:checked')?.value) || 5;
-    s.max_plan_length = parseInt(document.getElementById('sf_2s_maxPlanLength')?.value) || 15;
-    s.model = s.planner_model;
-  } else if (type === 'agent_spawn') {
-    s.input = {
-      diff: document.getElementById('sf_as_inputDiff')?.checked ?? true,
-      full_grid: document.getElementById('sf_as_inputGrid')?.checked ?? true,
-      image: document.getElementById('sf_as_inputImage')?.checked ?? false,
-      color_histogram: document.getElementById('sf_as_inputHistogram')?.checked ?? false,
-    };
-    s.orchestrator_model = document.getElementById('sf_as_orchestratorModelSelect')?.value || '';
-    s.orchestrator_thinking_level = document.querySelector('input[name="sf_as_orchestratorThinking"]:checked')?.value || 'low';
-    s.orchestrator_max_tokens = parseInt(document.getElementById('sf_as_orchestratorMaxTokens')?.value) || 16384;
-    s.subagent_model = document.getElementById('sf_as_subagentModelSelect')?.value || '';
-    s.subagent_thinking_level = document.querySelector('input[name="sf_as_subagentThinking"]:checked')?.value || 'low';
-    s.subagent_max_tokens = parseInt(document.getElementById('sf_as_subagentMaxTokens')?.value) || 16384;
-    s.max_subagent_budget = parseInt(document.getElementById('sf_as_maxSubagentBudget')?.value) || 5;
-    s.orchestrator_max_turns = parseInt(document.getElementById('sf_as_orchestratorMaxTurns')?.value) || 5;
-    s.orchestrator_history_length = parseInt(document.getElementById('sf_as_orchestratorHistoryLength')?.value) || 15;
-    s.model = s.orchestrator_model;
-  }
-
-  return s;
-}
-
-// Token estimation: ~4 chars per token (rough average)
-function estimateTokens(text) {
-  if (!text) return 0;
-  return Math.ceil(text.length / 4);
-}
-
-// Per-1M-token pricing (input/output) — rough lookup
-const TOKEN_PRICES = {
-  // [input $/1M tok, output $/1M tok]
-  'gemini-3.1-pro': [2.0, 12.0],
-  'gemini-3-pro': [2.0, 12.0],
-  'gemini-3-flash': [0.50, 3.0],
-  'gemini-2.5-pro': [1.25, 10.0],
-  'gemini-2.5-flash': [0.30, 2.50],
-  'gemini-2.5-flash-lite': [0.10, 0.40],
-  'gemini-2.0-flash': [0.10, 0.40],
-  'gemini-2.0-flash-lite': [0.075, 0.30],
-  'claude-sonnet-4-6': [3.0, 15.0],
-  'claude-sonnet-4-5': [3.0, 15.0],
-  'claude-haiku-4-5': [0.80, 4.0],
-  'gpt-4o': [2.50, 10.0],
-  'gpt-4o-mini': [0.15, 0.60],
-};
+// estimateTokens, _getModelPricing — defined in utils/tokens.js (loaded before llm.js)
 
 let sessionTotalTokens = { input: 0, output: 0, cost: 0 };
 
 // ── Timeline helpers ──────────────────────────────────────────────────────
-function _rebuildTimelineFromSteps(steps) {
-  const events = [];
-  let callNum = 0;
-  let planRemaining = 0;
-  let currentEvent = null;
-  for (const s of steps) {
-    const llm = s.llm_response;
-
-    // Agent Spawn: reconstruct as_* events from stored agent_spawn metadata
-    if (llm && llm.agent_spawn) {
-      const as = llm.agent_spawn;
-      const ts = s.timestamp ? new Date(s.timestamp).getTime() : Date.now();
-      events.push({ type: 'as_orch_start', turn: 0, timestamp: ts });
-
-      for (const log of (as.orchestrator_log || [])) {
-        if (log.type === 'think') {
-          events.push({ type: 'as_orch_think', turn: log.turn, facts: log.facts || 0, hypotheses: log.hypotheses || 0, duration_ms: log.duration_ms || 0, timestamp: ts });
-        } else if (log.type === 'delegate') {
-          events.push({ type: 'as_orch_delegate', turn: log.turn, agent_type: log.agent_type, task: log.task || '', budget: log.budget || 0, duration_ms: log.duration_ms || 0, timestamp: ts });
-          events.push({ type: 'as_sub_start', turn: log.turn, agent_type: log.agent_type, task: log.task || '', budget: log.budget || 0, parentTurn: log.turn, timestamp: ts });
-          // Find matching subagent summary for report event
-          const sub = (as.subagent_summaries || []).find(sm => sm.type === log.agent_type);
-          if (sub) {
-            // Emit act events based on step count
-            for (let si = 0; si < (sub.steps || 0); si++) {
-              events.push({ type: 'as_sub_act', turn: log.turn, agent_type: log.agent_type, action: 0, action_name: `Step ${si + 1}`, step_num: si, duration_ms: 0, timestamp: ts });
-            }
-            events.push({ type: 'as_sub_report', turn: log.turn, agent_type: log.agent_type, findings: 0, summary: sub.summary || '', steps_used: sub.steps || 0, timestamp: ts });
-          }
-        }
-      }
-
-      events.push({ type: 'as_orch_end', totalSteps: as.total_steps || 0, totalSubagents: as.total_subagents || 0, duration_ms: llm.call_duration_ms || 0, timestamp: ts });
-      continue; // skip normal event creation for this step
-    }
-
-    if (llm && llm.parsed) {
-      callNum++;
-      const plan = llm.parsed.plan && Array.isArray(llm.parsed.plan) ? llm.parsed.plan : [{ action: llm.parsed.action }];
-      currentEvent = {
-        type: 'reasoning', duration: llm.call_duration_ms || 0, turn: callNum,
-        model: llm.model || '', stepStart: s.step_num, actions: plan.map(p => p.action),
-      };
-      planRemaining = plan.length - 1; // first step is this one
-      events.push(currentEvent);
-    } else if (currentEvent && planRemaining > 0) {
-      planRemaining--;
-    } else {
-      currentEvent = null;
-      planRemaining = 0;
-    }
-  }
-  return events;
-}
-
-// ── Timeline rendering ────────────────────────────────────────────────────
-function _tlEsc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
-
-function _tlFormatCost(c) { return c > 0 ? '$' + c.toFixed(4) : ''; }
-
-function _tlCallTypeLabel(ev) {
-  const aType = ev.agent_type || ev.call_type || ev.type || 'executor';
-  return agentLabel(aType, ev.model);
-}
-
-function _tlCssClass(ev) {
-  const t = ev.agent_type || ev.call_type || ev.type || 'reasoning';
-  // Normalize to a safe CSS class
-  return t.replace(/[^a-zA-Z0-9_-]/g, '_');
-}
-
-function _tlBuildDetail(ev, idx) {
-  const inTok = ev.input_tokens || ev.usage?.prompt_tokens || 0;
-  const outTok = ev.output_tokens || ev.usage?.candidates_tokens || 0;
-  const totalTok = inTok + outTok;
-  const cost = ev.cost || 0;
-  const promptLen = ev.prompt_length || 0;
-  let html = `<div class="tl-detail" id="tlDetail${idx}">`;
-  html += `<div class="tl-meta">`;
-  if (totalTok > 0) html += `<span class="tl-tokens">${inTok.toLocaleString()} in + ${outTok.toLocaleString()} out = ${totalTok.toLocaleString()} tok</span>`;
-  if (cost > 0) html += `<span class="tl-cost">${_tlFormatCost(cost)}</span>`;
-  if (ev.error) html += `<span style="color:var(--red)">Error: ${_tlEsc(ev.error)}</span>`;
-  html += `</div>`;
-  // Response preview
-  const respPreview = ev.response_preview || ev.raw || '';
-  if (respPreview) {
-    html += `<details><summary>Response preview</summary><div class="tl-preview">${_tlEsc(respPreview.slice(0, 1000))}</div></details>`;
-  }
-  // Prompt preview
-  const promptPreview = ev.prompt_preview || '';
-  if (promptPreview) {
-    html += `<details><summary>Prompt preview</summary><div class="tl-preview">${_tlEsc(promptPreview.slice(0, 500))}</div></details>`;
-  }
-  html += `</div>`;
-  return html;
-}
-
-function _tlToggleDetail(idx) {
-  const detail = document.getElementById('tlDetail' + idx);
-  const block = detail?.previousElementSibling;
-  if (detail) {
-    detail.classList.toggle('open');
-    block?.classList.toggle('expanded');
-  }
-}
-
-// ── Agent Spawn Tree Timeline (SVG) ──────────────────────────────────────
-// Colors and labels now auto-assigned via reasoning.js agentColor()/agentLabel()
-
-let _asZoom = 1.0, _asPanX = 0, _asPanY = 0;
-let _asDragging = false, _asDragStart = { x: 0, y: 0, panX: 0, panY: 0 };
-
-function renderTimelineTree(container, asEvents, allEvents) {
-  // Layout constants
-  const TRUNK_X = 50, TRUNK_W = 24, BRANCH_W = 20;
-  const MIN_H = 30, MAX_H = 200, BRANCH_GAP = 40, BRANCH_COL_W = 80;
-  const PAD_TOP = 30, PAD_BOTTOM = 40;
-
-  // Build tree structure from events
-  const nodes = [];
-  let y = PAD_TOP;
-  let branchCol = 0; // next available branch column
-  const activeBranches = []; // { agent_type, turn, col, startY, nodes: [] }
-
-  for (let i = 0; i < asEvents.length; i++) {
-    const ev = asEvents[i];
-    const h = Math.max(MIN_H, Math.min(MAX_H, (ev.duration_ms || 500) / 100));
-
-    if (ev.type === 'as_orch_start') {
-      nodes.push({ ...ev, idx: i, x: TRUNK_X, y, h: MIN_H, shape: 'rect', color: agentColor('orchestrator'), trunk: true });
-      y += MIN_H + 4;
-    } else if (ev.type === 'as_orch_think') {
-      nodes.push({ ...ev, idx: i, x: TRUNK_X, y, h, shape: 'diamond', color: agentColor('orchestrator'), trunk: true });
-      y += h + 4;
-    } else if (ev.type === 'as_orch_delegate') {
-      const col = branchCol++;
-      const branchX = TRUNK_X + TRUNK_W + BRANCH_GAP + col * BRANCH_COL_W;
-      nodes.push({ ...ev, idx: i, x: TRUNK_X, y, h, shape: 'branch_dot', color: agentColor(ev.agent_type) || agentColor('orchestrator'), trunk: true, branchX, branchCol: col });
-      activeBranches.push({ agent_type: ev.agent_type, turn: ev.turn, col, startY: y, x: branchX, nodes: [] });
-      y += h + 4;
-    } else if (ev.type === 'as_sub_start') {
-      const branch = activeBranches.find(b => b.agent_type === ev.agent_type && b.turn === ev.turn);
-      if (branch) {
-        branch.nodes.push({ ...ev, idx: i, shape: 'rect', color: agentColor(ev.agent_type) || '#888', h: MIN_H });
-      }
-    } else if (ev.type === 'as_sub_tool') {
-      const branch = activeBranches.find(b => b.agent_type === ev.agent_type && b.turn === ev.turn);
-      if (branch) {
-        branch.nodes.push({ ...ev, idx: i, shape: 'square', color: agentColor(ev.agent_type) || '#888', h: 20 });
-      }
-    } else if (ev.type === 'as_sub_act') {
-      const branch = activeBranches.find(b => b.agent_type === ev.agent_type && b.turn === ev.turn);
-      if (branch) {
-        branch.nodes.push({ ...ev, idx: i, shape: 'circle', color: '#3fb950', h: 24 });
-      }
-    } else if (ev.type === 'as_sub_report') {
-      const branch = activeBranches.find(b => b.agent_type === ev.agent_type && b.turn === ev.turn);
-      if (branch) {
-        branch.nodes.push({ ...ev, idx: i, shape: 'rect', color: agentColor(ev.agent_type) || '#888', h: MIN_H });
-      }
-    } else if (ev.type === 'as_orch_end') {
-      nodes.push({ ...ev, idx: i, x: TRUNK_X, y, h: MIN_H, shape: 'rect', color: agentColor('orchestrator'), trunk: true });
-      y += MIN_H + 4;
-    }
-  }
-
-  // Layout branch nodes vertically within their branch
-  for (const branch of activeBranches) {
-    let by = branch.startY;
-    for (const n of branch.nodes) {
-      n.x = branch.x;
-      n.y = by;
-      by += n.h + 3;
-    }
-    branch.endY = by;
-  }
-
-  const totalW = Math.max(400, TRUNK_X + TRUNK_W + BRANCH_GAP + (branchCol + 1) * BRANCH_COL_W);
-  const totalH = Math.max(y + PAD_BOTTOM, ...activeBranches.map(b => b.endY + PAD_BOTTOM));
-
-  // Build SVG
-  let svg = `<svg class="as-timeline-svg" viewBox="0 0 ${totalW} ${totalH}" xmlns="http://www.w3.org/2000/svg">`;
-
-  // Orchestrator trunk line
-  const trunkTop = PAD_TOP;
-  const trunkBot = y;
-  svg += `<rect x="${TRUNK_X}" y="${trunkTop}" width="${TRUNK_W}" height="${trunkBot - trunkTop}" fill="${agentColor('orchestrator')}" opacity="0.15" rx="4"/>`;
-  svg += `<line x1="${TRUNK_X + TRUNK_W / 2}" y1="${trunkTop}" x2="${TRUNK_X + TRUNK_W / 2}" y2="${trunkBot}" stroke="${agentColor('orchestrator')}" stroke-width="2" opacity="0.4"/>`;
-
-  // Trunk nodes
-  for (const n of nodes) {
-    const cx = n.x + TRUNK_W / 2;
-    if (n.shape === 'diamond') {
-      const s = 8;
-      svg += `<polygon points="${cx},${n.y} ${cx + s},${n.y + n.h / 2} ${cx},${n.y + n.h} ${cx - s},${n.y + n.h / 2}" fill="${n.color}" opacity="0.85" data-event-idx="${n.idx}"/>`;
-      svg += `<text x="${cx + 14}" y="${n.y + n.h / 2 + 4}" fill="${n.color}" font-size="10" font-weight="600">Think</text>`;
-    } else if (n.shape === 'branch_dot') {
-      svg += `<circle cx="${cx}" cy="${n.y + n.h / 2}" r="6" fill="${n.color}" data-event-idx="${n.idx}"/>`;
-      // Connector line to branch
-      svg += `<line x1="${cx + 6}" y1="${n.y + n.h / 2}" x2="${n.branchX}" y2="${n.y + n.h / 2}" stroke="${n.color}" stroke-width="2" stroke-dasharray="4,3" opacity="0.5"/>`;
-      svg += `<text x="${cx + 14}" y="${n.y + n.h / 2 + 4}" fill="${n.color}" font-size="10" font-weight="600">${_tlEsc(n.agent_type || 'delegate')}</text>`;
-    } else {
-      // rect (start/end)
-      svg += `<rect x="${n.x}" y="${n.y}" width="${TRUNK_W}" height="${n.h}" rx="4" fill="${n.color}" opacity="0.6" data-event-idx="${n.idx}"/>`;
-      const lbl = n.type === 'as_orch_start' ? 'START' : (n.type === 'as_orch_end' ? 'END' : '');
-      if (lbl) svg += `<text x="${cx}" y="${n.y + n.h / 2 + 4}" fill="#fff" font-size="8" font-weight="700" text-anchor="middle">${lbl}</text>`;
-    }
-  }
-
-  // Branch bars and nodes
-  for (const branch of activeBranches) {
-    if (!branch.nodes.length) continue;
-    const bx = branch.x;
-    const bTop = branch.startY;
-    const bBot = branch.endY || bTop + 30;
-    // Branch background bar
-    const bColor = agentColor(branch.agent_type);
-    svg += `<rect x="${bx}" y="${bTop}" width="${BRANCH_W}" height="${bBot - bTop}" fill="${bColor}" opacity="0.1" rx="3"/>`;
-    svg += `<line x1="${bx + BRANCH_W / 2}" y1="${bTop}" x2="${bx + BRANCH_W / 2}" y2="${bBot}" stroke="${bColor}" stroke-width="1.5" opacity="0.3"/>`;
-
-    for (const n of branch.nodes) {
-      const ncx = n.x + BRANCH_W / 2;
-      if (n.shape === 'circle') {
-        svg += `<circle cx="${ncx}" cy="${n.y + n.h / 2}" r="8" fill="${n.color}" opacity="0.85" data-event-idx="${n.idx}"/>`;
-        const aName = n.action_name || ACTION_NAMES?.[n.action] || `A${n.action}`;
-        svg += `<text x="${ncx + 14}" y="${n.y + n.h / 2 + 3}" fill="${n.color}" font-size="9">${_tlEsc(aName)}</text>`;
-      } else if (n.shape === 'square') {
-        svg += `<rect x="${ncx - 5}" y="${n.y + 5}" width="10" height="10" rx="2" fill="${n.color}" opacity="0.7" data-event-idx="${n.idx}"/>`;
-        svg += `<text x="${ncx + 10}" y="${n.y + 14}" fill="${n.color}" font-size="9" opacity="0.7">${_tlEsc(n.tool_name || 'tool')}</text>`;
-      } else {
-        // rect (start/report)
-        const label = n.type === 'as_sub_report' ? 'REPORT' : n.agent_type;
-        svg += `<rect x="${n.x}" y="${n.y}" width="${BRANCH_W}" height="${n.h}" rx="3" fill="${n.color}" opacity="0.5" data-event-idx="${n.idx}"/>`;
-        svg += `<text x="${ncx}" y="${n.y + n.h / 2 + 3}" fill="#fff" font-size="8" font-weight="600" text-anchor="middle">${_tlEsc(label).substring(0, 6)}</text>`;
-      }
-    }
-  }
-
-  svg += '</svg>';
-
-  // Build container HTML
-  container.innerHTML = `
-    <div class="as-timeline-container" id="asTreeContainer">
-      <div class="as-zoom-controls">
-        <button class="as-zoom-btn" id="asCopyLogs" title="Copy logs" onclick="copyTimelineLogs()">&#128203;</button>
-        <button class="as-zoom-btn" id="asZoomIn" title="Zoom in">+</button>
-        <button class="as-zoom-btn" id="asZoomOut" title="Zoom out">-</button>
-        <button class="as-zoom-btn" id="asZoomReset" title="Reset view">R</button>
-      </div>
-      ${svg}
-      <div class="as-tooltip" id="asTooltip"></div>
-      <div class="as-legend">
-        ${[...new Set(asEvents.map(e => e.agent_type).filter(Boolean))].map(at =>
-          `<div class="as-legend-item"><div class="as-legend-swatch" style="background:${agentColor(at)}"></div>${agentLabel(at)}</div>`
-        ).join('')}
-      </div>
-    </div>`;
-
-  // Set up interactions
-  const ctr = document.getElementById('asTreeContainer');
-  const svgEl = ctr?.querySelector('svg');
-  const tooltip = document.getElementById('asTooltip');
-  if (!ctr || !svgEl) return;
-
-  // Reset zoom/pan state
-  _asZoom = 1.0; _asPanX = 0; _asPanY = 0;
-  _updateAsTransform(svgEl, ctr);
-
-  // Zoom with scroll wheel
-  ctr.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const rect = ctr.getBoundingClientRect();
-    const mx = (e.clientX - rect.left) / rect.width;
-    const my = (e.clientY - rect.top) / rect.height;
-    const oldZoom = _asZoom;
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    _asZoom = Math.max(0.2, Math.min(5, _asZoom * delta));
-    // Adjust pan to zoom toward cursor
-    const vw = ctr.clientWidth / oldZoom;
-    const vh = ctr.clientHeight / oldZoom;
-    const nvw = ctr.clientWidth / _asZoom;
-    const nvh = ctr.clientHeight / _asZoom;
-    _asPanX += (vw - nvw) * mx;
-    _asPanY += (vh - nvh) * my;
-    _updateAsTransform(svgEl, ctr);
-  }, { passive: false });
-
-  // Drag to pan
-  ctr.addEventListener('mousedown', (e) => {
-    if (e.target.closest('.as-zoom-btn')) return;
-    _asDragging = true;
-    _asDragStart = { x: e.clientX, y: e.clientY, panX: _asPanX, panY: _asPanY };
-    ctr.classList.add('dragging');
-  });
-  ctr.addEventListener('mousemove', (e) => {
-    if (!_asDragging) return;
-    const dx = (e.clientX - _asDragStart.x) / _asZoom;
-    const dy = (e.clientY - _asDragStart.y) / _asZoom;
-    _asPanX = _asDragStart.panX - dx;
-    _asPanY = _asDragStart.panY - dy;
-    _updateAsTransform(svgEl, ctr);
-  });
-  const endDrag = () => { _asDragging = false; ctr.classList.remove('dragging'); };
-  ctr.addEventListener('mouseup', endDrag);
-  ctr.addEventListener('mouseleave', endDrag);
-
-  // Zoom buttons
-  document.getElementById('asZoomIn')?.addEventListener('click', () => {
-    _asZoom = Math.min(5, _asZoom * 1.3); _updateAsTransform(svgEl, ctr);
-  });
-  document.getElementById('asZoomOut')?.addEventListener('click', () => {
-    _asZoom = Math.max(0.2, _asZoom / 1.3); _updateAsTransform(svgEl, ctr);
-  });
-  document.getElementById('asZoomReset')?.addEventListener('click', () => {
-    _asZoom = 1.0; _asPanX = 0; _asPanY = 0; _updateAsTransform(svgEl, ctr);
-  });
-
-  // Hover tooltip
-  svgEl.addEventListener('mouseover', (e) => {
-    const el = e.target.closest('[data-event-idx]');
-    if (!el || !tooltip) return;
-    const idx = parseInt(el.getAttribute('data-event-idx'));
-    const ev = asEvents[idx];
-    if (!ev) return;
-    let html = `<div class="as-tt-title">${_tlEsc(agentLabel(ev.agent_type || ev.type))}</div>`;
-    html += `<div class="as-tt-meta">`;
-    if (ev.agent_type) html += `<span>Agent: ${_tlEsc(ev.agent_type)}</span> `;
-    if (ev.duration_ms) html += `<span>${(ev.duration_ms / 1000).toFixed(1)}s</span>`;
-    html += `</div>`;
-    if (ev.type === 'as_orch_think') {
-      html += `<div class="as-tt-body">Facts: ${ev.facts || 0}, Hypotheses: ${ev.hypotheses || 0}`;
-      if (ev.reasoning) html += `\n${_tlEsc(ev.reasoning)}`;
-      if (ev.error) html += `\n<span style="color:#f85149">ERROR: ${_tlEsc(ev.error)}</span>`;
-      html += `</div>`;
-    } else if (ev.type === 'as_orch_delegate') {
-      html += `<div class="as-tt-body">Task: ${_tlEsc(ev.task || '')}\nBudget: ${ev.budget || 0} steps`;
-      if (ev.reasoning) html += `\nReasoning: ${_tlEsc(ev.reasoning)}`;
-      html += `</div>`;
-    } else if (ev.type === 'as_sub_start') {
-      html += `<div class="as-tt-body">Task: ${_tlEsc(ev.task || '')}`;
-      html += `\nBudget: ${ev.budget || 0} steps`;
-      if (ev.step_num != null) html += `\nStep: ${ev.step_num}`;
-      if (ev.level) html += ` | Level: ${ev.level}`;
-      if (ev.available_actions) html += `\nActions: ${_tlEsc(ev.available_actions)}`;
-      if (ev.memory_summary) html += `\n\nMemory:\n${_tlEsc(ev.memory_summary)}`;
-      html += `</div>`;
-    } else if (ev.type === 'as_sub_act') {
-      html += `<div class="as-tt-body">${_tlEsc(ev.action_name || '')}${ev.reasoning ? '\n' + _tlEsc(ev.reasoning) : ''}</div>`;
-    } else if (ev.type === 'as_sub_report') {
-      html += `<div class="as-tt-body">${_tlEsc(ev.summary || '')}\nFindings: ${ev.findings || 0}, Steps: ${ev.steps_used || 0}</div>`;
-    } else if (ev.type === 'as_sub_tool') {
-      html += `<div class="as-tt-body">Tool: ${_tlEsc(ev.tool_name || '')}</div>`;
-    } else if (ev.type === 'as_orch_end') {
-      html += `<div class="as-tt-body">Total: ${ev.totalSteps || 0} steps, ${ev.totalSubagents || 0} subagents\n${(ev.duration_ms / 1000).toFixed(1)}s</div>`;
-    }
-    tooltip.innerHTML = html;
-    tooltip.classList.add('visible');
-  });
-  svgEl.addEventListener('mousemove', (e) => {
-    if (!tooltip || !tooltip.classList.contains('visible')) return;
-    const rect = ctr.getBoundingClientRect();
-    tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
-    tooltip.style.top = (e.clientY - rect.top + 12) + 'px';
-  });
-  svgEl.addEventListener('mouseout', (e) => {
-    const el = e.target.closest('[data-event-idx]');
-    if (el && tooltip) tooltip.classList.remove('visible');
-  });
-  // Click to scrub to that step
-  svgEl.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-event-idx]');
-    if (!el) return;
-    const idx = parseInt(el.getAttribute('data-event-idx'));
-    const ev = asEvents[idx];
-    if (ev && ev.step_num != null) {
-      liveScrubToStep(ev.step_num);
-    }
-  });
-  svgEl.style.cursor = 'pointer';
-}
-
-function _updateAsTransform(svg, container) {
-  const w = container.clientWidth / _asZoom;
-  const h = container.clientHeight / _asZoom;
-  svg.setAttribute('viewBox', `${_asPanX} ${_asPanY} ${w} ${h}`);
-}
-
-function renderTimeline(ss) {
-  const container = document.getElementById('timelineContent');
-  if (!container) return;
-  let events = ss ? ss.timelineEvents : [];
-  // If in replay mode and no session events, build from replayData
-  if (!events.length && typeof replayData !== 'undefined' && replayData && replayData.steps) {
-    events = _rebuildTimelineFromSteps(replayData.steps);
-  }
-
-  // Agent Spawn tree view — if as_* events exist, render tree
-  const asEvents = events.filter(e => e.type && e.type.startsWith('as_'));
-  if (asEvents.length > 0) {
-    renderTimelineTree(container, asEvents, events);
-    return;
-  }
-
-  if (!events.length && !(ss && ss.waitingForLLM)) {
-    container.innerHTML = '<div class="empty-state" style="height:auto;font-size:12px;">Timeline will populate as LLM calls are made.</div>';
-    return;
-  }
-  // Group events by turn
-  const turns = {};
-  for (const ev of events) {
-    const t = ev.turn || 0;
-    if (!turns[t]) turns[t] = [];
-    turns[t].push(ev);
-  }
-  let html = '<div style="display:flex;justify-content:flex-end;margin-bottom:4px;"><button class="as-zoom-btn" onclick="copyTimelineLogs()" title="Copy logs" style="font-size:11px;width:auto;padding:2px 8px;">Copy logs</button></div>';
-  let evIdx = 0;
-  // In-flight block (pulsing, live timer)
-  if (ss && ss.waitingForLLM && ss.waitStartTime) {
-    const elapsed = ((performance.now() - ss.waitStartTime) / 1000).toFixed(1);
-    html += `<div class="timeline-block reasoning in-flight" id="tlInFlight">
-      <span class="tl-label"><span class="spinner" style="margin-right:4px;"></span>Reasoning...</span>
-      <span class="tl-dur">${elapsed}s</span>
-    </div>`;
-  }
-  // Reverse chronological: newest turn first
-  for (const turn of Object.keys(turns).sort((a, b) => b - a)) {
-    html += `<div class="timeline-turn-marker">Turn ${turn}</div>`;
-    for (const ev of turns[turn]) {
-      const h = Math.max(28, Math.min(120, ev.duration / 50));
-      const dur = (ev.duration / 1000).toFixed(1) + 's';
-      const label = _tlCallTypeLabel(ev);
-      const cssClass = _tlCssClass(ev);
-      const hasDetail = ev.call_id || ev.input_tokens || ev.response_preview || ev.prompt_preview || ev.raw || ev.error;
-      // Build step details
-      let stepsHtml = '';
-      if (ev.actions && ev.actions.length) {
-        const stepParts = ev.actions.map((a, i) => {
-          const stepNum = (ev.stepStart || 0) + i;
-          const name = ACTION_NAMES[a] || `A${a}`;
-          return `<span class="tl-step tl-step-clickable" onclick="event.stopPropagation();liveScrubToStep(${stepNum})">${stepNum}:${name}</span>`;
-        });
-        stepsHtml = `<span class="tl-steps">${stepParts.join(' ')}</span>`;
-      }
-      // Cost badge
-      const costStr = _tlFormatCost(ev.cost || 0);
-      const costHtml = costStr ? `<span class="tl-cost" style="margin-left:6px;font-size:10px;">${costStr}</span>` : '';
-      const arrowHtml = hasDetail ? '<span class="tl-expand-arrow">&#9654;</span>' : '';
-      const clickAttr = hasDetail ? `onclick="_tlToggleDetail(${evIdx})" class="timeline-block ${cssClass} clickable"` : `class="timeline-block ${cssClass}"`;
-      html += `<div ${clickAttr} style="height:${h}px">
-        <span class="tl-label">${_tlEsc(label)}${stepsHtml}${costHtml}${arrowHtml}</span><span class="tl-dur">${dur}</span>
-      </div>`;
-      if (hasDetail) {
-        html += _tlBuildDetail(ev, evIdx);
-      }
-      evIdx++;
-    }
-  }
-  container.innerHTML = html;
-}
-
-function formatTokenInfo(resp, tokensObj) {
-  // Use API-reported usage if available
-  const tokens = tokensObj || sessionTotalTokens;
-  let inputTok = resp.usage?.input_tokens || resp.usage?.prompt_tokens || 0;
-  let outputTok = resp.usage?.output_tokens || resp.usage?.completion_tokens || 0;
-
-  // Estimate input tokens from prompt length if not reported by API
-  if (!inputTok && resp.prompt_length > 0) inputTok = Math.ceil(resp.prompt_length / 4);
-  // Estimate output tokens from response text if not reported by API
-  if (!outputTok) outputTok = estimateTokens(resp.raw || '');
-  if (resp.thinking) outputTok += estimateTokens(resp.thinking);
-
-  const totalTok = inputTok + outputTok;
-  if (!totalTok) return '';
-
-  // Cost estimate
-  const model = resp.model || '';
-  const prices = TOKEN_PRICES[model] || null;
-  let costStr = '';
-  if (prices) {
-    const cost = (inputTok * prices[0] + outputTok * prices[1]) / 1_000_000;
-    tokens.input += inputTok;
-    tokens.output += outputTok;
-    tokens.cost += cost;
-    costStr = ` · $${cost.toFixed(4)} (session: $${tokens.cost.toFixed(3)})`;
-  } else {
-    tokens.input += inputTok;
-    tokens.output += outputTok;
-  }
-
-  return `<div style="font-size:10px;color:var(--text-dim);margin-bottom:2px;">` +
-    `${inputTok.toLocaleString()} in + ${outputTok.toLocaleString()} out = ${totalTok.toLocaleString()} tok${costStr}</div>`;
-}
-
-// Render tool calls as collapsible HTML (reused in reasoning + replay)
-function renderToolCallsHtml(toolCalls) {
-  if (!toolCalls || !toolCalls.length) return '';
-  const items = toolCalls.map(tc => {
-    const name = tc.name || tc.function?.name || '?';
-    const args = tc.arguments || tc.function?.arguments;
-    const code = typeof args === 'object' ? (args.code || JSON.stringify(args, null, 1)) : (args || '');
-    const output = tc.output || '';
-    return `<div class="tool-call">` +
-      `<span class="tool-name">${name}</span>` +
-      (code ? `<div class="tool-input">${escapeHtml(code)}</div>` : '') +
-      (output ? `<div class="tool-output">${escapeHtml(output)}</div>` : '') +
-      `</div>`;
-  }).join('');
-  const label = toolCalls.length === 1 ? '1 tool call' : `${toolCalls.length} tool calls`;
-  return `<details class="tool-calls-wrap"><summary>${label}</summary>${items}</details>`;
-}
-
-function escapeHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
-function scrollReasoningToBottom() {
-  const el = document.getElementById('reasoningContent');
-  if (el) el.scrollTop = el.scrollHeight;
-}
-function copyReasoningLog() {
-  const s = getActiveSession();
-  const buf = s ? s.sessionStepsBuffer : sessionStepsBuffer;
-  if (!buf || !buf.length) {
-    navigator.clipboard.writeText('(no steps recorded)');
-    _flashCopyBtn('Copied (empty)');
-    return;
-  }
-  const lines = [];
-  lines.push(`=== Reasoning Log (${buf.length} steps) ===`);
-  lines.push(`Session: ${s?.sessionId || sessionId || '?'}`);
-  lines.push(`Game: ${s?.gameId || ''}`);
-  lines.push(`Model: ${s?.model || getSelectedModel() || '?'}`);
-  lines.push('');
-  for (const step of buf) {
-    lines.push(`--- Step ${step.step_num} | Action ${step.action} (${ACTION_NAMES[step.action] || '?'}) ---`);
-    if (step.data && Object.keys(step.data).length) lines.push(`Data: ${JSON.stringify(step.data)}`);
-    if (step.levels_completed !== undefined) lines.push(`Levels: ${step.levels_completed} | State: ${step.result_state || '?'}`);
-    const resp = step.llm_response;
-    if (resp) {
-      if (resp.parsed) {
-        const p = resp.parsed;
-        if (p.observation) lines.push(`Observation: ${p.observation}`);
-        if (p.reasoning) lines.push(`Reasoning: ${p.reasoning}`);
-        if (p.plan && Array.isArray(p.plan)) {
-          lines.push(`Plan (${p.plan.length} actions): ${JSON.stringify(p.plan)}`);
-        } else if (p.action !== undefined) {
-          lines.push(`Action: ${p.action} Data: ${JSON.stringify(p.data || {})}`);
-        }
-      }
-      if (resp.model) lines.push(`Model: ${resp.model}`);
-      if (resp.scaffolding) lines.push(`Scaffolding: ${resp.scaffolding}`);
-      // RLM iteration log
-      if (resp.rlm?.log?.length) {
-        lines.push(`RLM: ${resp.rlm.iterations} iterations, ${resp.rlm.sub_calls || 0} sub-calls`);
-        for (const it of resp.rlm.log) {
-          lines.push(`  [Iter ${it.iteration + 1}]${it.code_blocks ? ` (${it.code_blocks} code blocks)` : ''}`);
-          if (it.error) { lines.push(`    ERROR: ${it.error}`); continue; }
-          if (it.response) lines.push(`    Response: ${it.response.substring(0, 2000)}${it.response.length > 2000 ? '...' : ''}`);
-          if (it.repl_outputs?.length) {
-            for (const o of it.repl_outputs) lines.push(`    REPL: ${o.substring(0, 1000)}${o.length > 1000 ? '...' : ''}`);
-          }
-        }
-        if (resp.rlm.final_answer) lines.push(`  FINAL: ${resp.rlm.final_answer}`);
-      }
-      // Three-system planner log
-      if (resp.three_system?.planner_log?.length) {
-        lines.push(`Planner log (${resp.three_system.planner_log.length} iterations):`);
-        for (const it of resp.three_system.planner_log) {
-          lines.push(`  [Iter] ${JSON.stringify(it).substring(0, 500)}`);
-        }
-      }
-      if (resp.raw && !resp.rlm && !resp.three_system) {
-        lines.push(`Raw: ${resp.raw.substring(0, 1000)}${resp.raw.length > 1000 ? '...' : ''}`);
-      }
-    }
-    lines.push('');
-  }
-  navigator.clipboard.writeText(lines.join('\n'));
-  _flashCopyBtn('Copied!');
-}
-function _flashCopyBtn(msg) {
-  const btn = document.querySelector('.reasoning-toolbar button');
-  if (!btn) return;
-  const orig = btn.textContent;
-  btn.textContent = msg;
-  setTimeout(() => { btn.textContent = orig; }, 1500);
-}
-function copyTimelineLogs() {
-  const s = getActiveSession();
-  const events = s ? s.timelineEvents : [];
-  if (!events || !events.length) {
-    navigator.clipboard.writeText('(no timeline events)');
-    const btn = document.getElementById('asCopyLogs');
-    if (btn) { const o = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => btn.textContent = o, 1500); }
-    return;
-  }
-  const lines = [];
-  lines.push(`=== Timeline Log (${events.length} events) ===`);
-  lines.push(`Session: ${s?.sessionId || sessionId || '?'}`);
-  lines.push(`Game: ${s?.gameId || ''}`);
-  lines.push(`Model: ${s?.model || getSelectedModel() || '?'}`);
-  lines.push('');
-  const t0 = events[0]?.timestamp || 0;
-  for (const ev of events) {
-    const elapsed = t0 ? `+${Math.round(((ev.timestamp || 0) - t0) / 1000)}s` : '';
-    const time = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : '';
-    const agent = ev.agent_type || ev.current_agent || 'orchestrator';
-    const type = ev.type || '?';
-    const parts = [time.padEnd(12), elapsed.padEnd(8), agent.padEnd(14), type.padEnd(22)];
-    // Add key details
-    const details = [];
-    if (ev.task) details.push(`task: ${ev.task}`);
-    if (ev.budget) details.push(`budget: ${ev.budget}`);
-    if (ev.facts) details.push(`facts: ${ev.facts}`);
-    if (ev.hypotheses) details.push(`hypotheses: ${ev.hypotheses}`);
-    if (ev.action_name) details.push(`action: ${ev.action_name}`);
-    if (ev.reasoning) details.push(`reason: ${ev.reasoning}`);
-    if (ev.summary) details.push(`summary: ${ev.summary}`);
-    if (ev.error) details.push(`ERROR: ${ev.error}`);
-    if (ev.duration_ms) details.push(`${ev.duration_ms}ms`);
-    if (ev.totalSteps != null) details.push(`steps: ${ev.totalSteps}`);
-    if (ev.totalSubagents != null) details.push(`subagents: ${ev.totalSubagents}`);
-    parts.push(details.join(' | '));
-    lines.push(parts.join(''));
-  }
-  // Also include orchestrator log if available
-  const buf = s ? s.sessionStepsBuffer : [];
-  if (buf?.length) {
-    lines.push('');
-    lines.push(`=== Steps (${buf.length}) ===`);
-    for (const step of buf) {
-      const resp = step.llm_response;
-      if (resp?.agent_spawn?.orchestrator_log) {
-        for (const entry of resp.agent_spawn.orchestrator_log) {
-          lines.push(`  Turn ${entry.turn}: ${entry.type} ${entry.error || ''} ${entry.task || ''} ${entry.raw_preview || ''}`);
-        }
-      }
-    }
-  }
-  navigator.clipboard.writeText(lines.join('\n'));
-  const btn = document.getElementById('asCopyLogs');
-  if (btn) { const o = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = o, 1500); }
-}
-function getLastReasoningEntry() {
-  const el = document.getElementById('reasoningContent');
-  if (!el) return null;
-  const entries = el.querySelectorAll('.reasoning-entry');
-  return entries.length ? entries[entries.length - 1] : null;
-}
-
-// buildReasoningGroupHTML is now defined in reasoning.js (loaded before this file)
-
-// Legacy scaffolding-specific renderer removed — unified version in reasoning.js handles all cases.
-// Keeping this block as a marker. The function below is a no-op fallback.
-if (typeof buildReasoningGroupHTML === 'undefined') {
-  // Should never happen — reasoning.js must load first
-  console.error('reasoning.js not loaded before llm.js!');
-}
-
-/* --- REMOVED: old scaffolding-specific buildReasoningGroupHTML ---
-function _OLD_buildReasoningGroupHTML(g, gi, options) {
-  const showBranchBtn = options.showBranchBtn || false;
-  const isRestored = options.isRestored || false;
-  const isParent = options.isParent || false;
-  const levelBefore = options.levelBefore || 0;
-  const levelAfter = options.levelAfter || 0;
-  const defaultModel = options.defaultModel || 'LLM';
-  const isReplay = options.isReplay || false;
-  const stepNums = g.steps.map(function(s) { return s.step_num; }).join(',');
-  const levelChanged = levelAfter > levelBefore;
-  const levelBadgeStyle = levelChanged ? 'background:#3fb95033;color:var(--green);' : 'background:var(--bg);color:var(--text-dim);';
-  const levelBadge = '<span class="tools-badge" style="' + levelBadgeStyle + '">L' + levelAfter + '</span>';
-  const tag = isRestored ? ' <span style="font-size:10px;color:var(--text-dim);">[restored]</span>'
-    : isParent ? ' <span style="font-size:10px;color:var(--purple);">[parent]</span>' : '';
-  const entryStyle = (isRestored || isParent) ? ' style="opacity:0.7;"' : '';
-
-  // Cell changes: sum across all steps in group
-  var cellChanges = 0;
-  for (var si = 0; si < g.steps.length; si++) {
-    if (g.steps[si].change_map && g.steps[si].change_map.change_count) cellChanges += g.steps[si].change_map.change_count;
-  }
-
-  if (g.type === 'llm' && g.llm && g.llm.parsed && g.llm.three_system) {
-    // ── Three-system / Two-system scaffolding (restored session) ──
-    var llm = g.llm;
-    var p = llm.parsed;
-    var ts = llm.three_system;
-    var firstStep = g.steps[0].step_num;
-    var lastStep = g.steps[g.steps.length - 1].step_num;
-    var stepLabel = g.steps.length > 1 ? 'Steps ' + firstStep + '\u2013' + lastStep : 'Step ' + firstStep;
-    var durationHtml = llm.call_duration_ms
-      ? '<span style="font-size:10px;color:var(--dim);margin-left:6px;">' + (llm.call_duration_ms / 1000).toFixed(1) + 's</span>' : '';
-
-    var scaffType = (llm.scaffolding === 'two_system') ? '2-SYS' : '3-SYS';
-    var tsBadge = '<span class="tools-badge" style="background:#58a6ff33;color:var(--accent);">' + scaffType + '</span>';
-    var turnBadge = '<span class="tools-badge" style="background:#bc8cff22;color:var(--purple);">Turn ' + (ts.turn || '?') + '</span>';
-    var plannerTurns = ts.planner_log ? ts.planner_log.length : 0;
-    var plannerBadge = '<span class="tools-badge" style="background:#58a6ff22;color:var(--accent);">' + plannerTurns + ' REPL</span>';
-    var wmBadge = (ts.world_model && ts.world_model.ran_update)
-      ? '<span class="tools-badge" style="background:#bc8cff22;color:var(--purple);">WM v' + ts.world_model.rules_version + '</span>' : '';
-    var goalHtml = ts.goal ? '<div style="font-size:10px;color:var(--accent);margin-top:2px;">Goal: ' + esc(ts.goal) + '</div>' : '';
-
-    var planSteps = (p.plan && Array.isArray(p.plan)) ? p.plan : [{ action: p.action, data: p.data || {} }];
-    var planHtml = planSteps.map(function(ps, i) {
-      var aName = ACTION_NAMES[ps.action] || ('ACTION' + ps.action);
-      var dataStr = (ps.data && ps.data.x !== undefined) ? ' (' + ps.data.x + ',' + ps.data.y + ')' : '';
-      var done = !isReplay && i < g.steps.length;
-      var cls = done ? 'plan-step done' : 'plan-step';
-      var btnStyle = done ? ' style="background:var(--green);color:#000;border-color:var(--green);"' : '';
-      return '<div class="' + cls + '" data-plan-idx="' + i + '">' + (i + 1) + '. <span class="action-btn"' + btnStyle + '>' + aName + '</span>' + dataStr + '</div>';
-    }).join('');
-
-    // Final committed plan details
-    var finalPlanHtml = '';
-    if (p.plan && Array.isArray(p.plan) && p.plan.length) {
-      finalPlanHtml = '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:10px;color:var(--accent);">Committed Plan Details</summary>';
-      finalPlanHtml += '<div style="font-size:10px;margin-top:4px;">';
-      for (var pi = 0; pi < p.plan.length; pi++) {
-        var ps = p.plan[pi];
-        var aName2 = ACTION_NAMES[ps.action] || ('ACTION' + ps.action);
-        var dataStr2 = (ps.data && ps.data.x !== undefined) ? ' (' + ps.data.x + ',' + ps.data.y + ')' : '';
-        var expected2 = ps.expected ? ' \u2192 ' + esc(ps.expected) : '';
-        finalPlanHtml += '<div style="color:var(--text);margin:1px 0;">' + (pi+1) + '. ' + aName2 + dataStr2 + expected2 + '</div>';
-      }
-      finalPlanHtml += '</div></details>';
-    }
-
-    // Planner REPL calls
-    var callsHtml = '';
-    if (ts.planner_log && ts.planner_log.length) {
-      callsHtml = '<div style="margin-top:8px;">';
-      callsHtml += '<div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;">Planner REPL Calls:</div>';
-      for (var ci = 0; ci < ts.planner_log.length; ci++) {
-        var lg = ts.planner_log[ci];
-        var dur = lg.duration_ms ? ' (' + (lg.duration_ms/1000).toFixed(1) + 's)' : '';
-        var typeColor = lg.type === 'commit' ? 'var(--green)'
-                      : lg.type === 'error' ? 'var(--red)'
-                      : lg.type === 'rejected' ? 'var(--yellow)'
-                      : 'var(--accent)';
-        callsHtml += '<div style="border-left:2px solid ' + typeColor + ';padding-left:8px;margin:4px 0;">';
-        callsHtml += '<div style="font-size:10px;"><strong style="color:' + typeColor + ';">Call ' + (ci+1) + ': ' + lg.type + '</strong>' + dur + '</div>';
-
-        if (lg.type === 'simulate' && lg.parsed) {
-          var acts = (lg.parsed.actions || []).map(function(a) {
-            var aid = a.action !== undefined ? a.action : a;
-            return ACTION_NAMES[aid] || ('A' + aid);
-          }).join(', ');
-          callsHtml += '<div style="font-size:10px;color:var(--text-dim);">Actions: ' + acts + '</div>';
-          if (lg.parsed.question) callsHtml += '<div style="font-size:10px;color:var(--text-dim);">Q: ' + esc(lg.parsed.question) + '</div>';
-          if (lg.predictions) callsHtml += '<div style="font-size:10px;color:var(--text-dim);">Predictions: ' + lg.predictions.map(function(pr) { return esc(pr); }).join('; ') + '</div>';
-        }
-        if (lg.type === 'analyze' && lg.tool) {
-          callsHtml += '<div style="font-size:10px;color:var(--text-dim);">Tool: ' + lg.tool + '</div>';
-        }
-        if (lg.type === 'commit') {
-          var rawLen = lg.raw_plan_length;
-          var padNote = (rawLen !== undefined && rawLen < (lg.plan_length || 0)) ? ' (LLM: ' + rawLen + ', padded)' : '';
-          callsHtml += '<div style="font-size:10px;color:var(--text-dim);">' + (lg.plan_length || '?') + ' steps committed' + padNote + '</div>';
-        }
-        if (lg.type === 'rejected') {
-          callsHtml += '<div style="font-size:10px;color:var(--yellow);">' + lg.plan_length + ' steps &lt; min ' + lg.min_required + '</div>';
-        }
-
-        if (lg.raw) {
-          callsHtml += '<details style="margin-top:2px;"><summary style="cursor:pointer;color:var(--text-dim);font-size:10px;">Raw response (' + lg.raw.length + ' chars)</summary>';
-          callsHtml += '<div style="color:var(--text-dim);font-size:10px;margin-top:4px;white-space:pre-wrap;max-height:400px;overflow:auto;">' + esc(lg.raw) + '</div></details>';
-        }
-
-        callsHtml += '</div>';
-      }
-      callsHtml += '</div>';
-    }
-
-    // WM update calls
-    var wmCallsHtml = '';
-    if (ts.world_model && ts.world_model.ran_update && ts.world_model.wm_log && ts.world_model.wm_log.length) {
-      wmCallsHtml = '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:10px;color:var(--purple);">WM Update Calls (' + ts.world_model.wm_log.length + ')</summary><div style="margin-top:4px;">';
-      for (var wi = 0; wi < ts.world_model.wm_log.length; wi++) {
-        var wlg = ts.world_model.wm_log[wi];
-        var wdur = wlg.duration_ms ? ' (' + (wlg.duration_ms/1000).toFixed(1) + 's)' : '';
-        var wColor = wlg.type === 'commit' ? 'var(--green)' : wlg.type === 'error' ? 'var(--red)' : 'var(--purple)';
-        wmCallsHtml += '<div style="border-left:2px solid ' + wColor + ';padding-left:8px;margin:4px 0;font-size:10px;">';
-        if (wlg.type === 'query') wmCallsHtml += '<strong style="color:var(--purple);">WM ' + (wi+1) + ': query ' + (wlg.tool || '?') + '</strong>' + wdur;
-        else if (wlg.type === 'commit') wmCallsHtml += '<strong style="color:var(--green);">WM ' + (wi+1) + ': commit</strong> (confidence: ' + (wlg.confidence || 0).toFixed(1) + ')' + wdur;
-        else if (wlg.type === 'error') wmCallsHtml += '<strong style="color:var(--red);">WM ' + (wi+1) + ': error</strong>' + wdur;
-        else wmCallsHtml += '<strong>WM ' + (wi+1) + ': ' + wlg.type + '</strong>' + wdur;
-        wmCallsHtml += '</div>';
-      }
-      wmCallsHtml += '</div></details>';
-    }
-
-    // WM rules preview
-    var wmPreviewHtml = '';
-    if (ts.world_model && ts.world_model.rules_preview) {
-      wmPreviewHtml = '<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--purple);font-size:10px;">WM Rules v' + ts.world_model.rules_version + '</summary>'
-        + '<div style="color:var(--text-dim);font-size:10px;margin-top:4px;white-space:pre-wrap;max-height:100px;overflow:auto;">' + esc(ts.world_model.rules_preview) + '</div></details>';
-    }
-
-    var branchBtn = showBranchBtn
-      ? '<button class="branch-btn" onclick="branchFromStep(' + lastStep + ')" title="Branch from step ' + lastStep + '">&#8627; branch</button>' : '';
-
-    return '<div class="reasoning-entry" data-group="' + gi + '" data-step-nums="' + stepNums + '"' + entryStyle + '>'
-      + branchBtn
-      + '<div class="step-label">' + stepLabel + ' \u2014 ' + (llm.model || defaultModel) + durationHtml + tsBadge + turnBadge + plannerBadge + wmBadge + levelBadge + tag + '</div>'
-      + goalHtml
-      + (p.observation ? '<div class="observation"><strong>Obs:</strong> ' + esc(p.observation) + '</div>' : '')
-      + (p.reasoning ? '<div style="margin-top:4px;"><strong>Reasoning:</strong> ' + esc(p.reasoning) + '</div>' : '')
-      + '<div class="plan-progress">' + planHtml + '</div>'
-      + finalPlanHtml
-      + callsHtml
-      + wmCallsHtml
-      + wmPreviewHtml
-      + '</div>';
-  } else if (g.type === 'llm' && g.llm && g.llm.agent_spawn) {
-    // ── Agent Spawn scaffolding rendering ──
-    var llm = g.llm;
-    var as = llm.agent_spawn;
-    var p = llm.parsed || {};
-    var firstStep = g.steps.length ? g.steps[0].step_num : '?';
-    var lastStep = g.steps.length > 1 ? g.steps[g.steps.length - 1].step_num : firstStep;
-    var stepLabel = g.steps.length > 1 ? 'Steps ' + firstStep + '\u2013' + lastStep : 'Step ' + firstStep;
-    var durationHtml = llm.call_duration_ms
-      ? '<span style="font-size:10px;color:var(--dim);margin-left:6px;">' + (llm.call_duration_ms / 1000).toFixed(1) + 's</span>' : '';
-
-    var asBadge = '<span class="tools-badge" style="background:#ff8b3d33;color:var(--orange);">SPAWN</span>';
-    var totalSteps = as.total_steps || g.steps.length || 0;
-    var totalSubs = as.total_subagents || 0;
-    var stepsBadge = '<span class="tools-badge" style="background:#3fb95033;color:var(--green);">' + totalSteps + ' steps</span>';
-    var subsBadge = '<span class="tools-badge" style="background:#bc8cff22;color:var(--purple);">' + totalSubs + ' agents</span>';
-
-    // Orchestrator log
-    var orchLog = as.orchestrator_log || [];
-    var orchHtml = '';
-    if (orchLog.length) {
-      orchHtml = '<details style="margin-top:4px;"><summary style="cursor:pointer;font-size:10px;color:var(--dim);">Orchestrator Log (' + orchLog.length + ' turns)</summary><div style="font-size:10px;color:var(--fg);padding:4px 8px;margin-top:2px;">';
-      for (var oi = 0; oi < orchLog.length; oi++) {
-        var oEntry = orchLog[oi];
-        var oColor = oEntry.type === 'delegate' ? 'var(--accent)' : oEntry.type === 'think' ? 'var(--yellow)' : 'var(--dim)';
-        orchHtml += '<div style="color:' + oColor + ';">Turn ' + oEntry.turn + ': ' + oEntry.type;
-        if (oEntry.agent_type) orchHtml += ' (' + oEntry.agent_type + ')';
-        if (oEntry.task) orchHtml += ' — ' + esc(oEntry.task.substring(0, 80));
-        if (oEntry.duration_ms) orchHtml += ' <span style="color:var(--dim);">' + (oEntry.duration_ms / 1000).toFixed(1) + 's</span>';
-        orchHtml += '</div>';
-      }
-      orchHtml += '</div></details>';
-    }
-
-    // Subagent summaries
-    var subSummaries = as.subagent_summaries || [];
-    var subHtml = '';
-    if (subSummaries.length) {
-      subHtml = '<details style="margin-top:2px;"><summary style="cursor:pointer;font-size:10px;color:var(--dim);">Subagent Reports (' + subSummaries.length + ')</summary><div style="font-size:10px;color:var(--fg);padding:4px 8px;margin-top:2px;">';
-      for (var si2 = 0; si2 < subSummaries.length; si2++) {
-        var sub = subSummaries[si2];
-        var subColor = sub.type === 'explorer' ? 'var(--green)' : sub.type === 'theorist' ? 'var(--cyan)' : sub.type === 'tester' ? 'var(--yellow)' : 'var(--purple)';
-        subHtml += '<div style="color:' + subColor + ';">[' + sub.type + '] ' + (sub.steps || 0) + ' steps — ' + esc((sub.summary || '').substring(0, 150)) + '</div>';
-      }
-      subHtml += '</div></details>';
-    }
-
-    // Plan steps (executed actions)
-    var planHtml = '';
-    if (g.steps.length) {
-      planHtml = g.steps.map(function(s, i) {
-        var aName = ACTION_NAMES[s.action] || ('ACTION' + s.action);
-        var dataStr = (s.data && s.data.x !== undefined) ? ' (' + s.data.x + ',' + s.data.y + ')' : '';
-        var cls = 'plan-step done';
-        return '<div class="' + cls + '" data-plan-idx="' + i + '">' + (i + 1) + '. <span class="action-btn" style="background:var(--green);color:#000;border-color:var(--green);">' + aName + '</span>' + dataStr + '</div>';
-      }).join('');
-    }
-
-    var branchBtn3 = showBranchBtn && g.steps.length
-      ? '<button class="branch-btn" onclick="branchFromStep(' + firstStep + ')" title="Branch from step ' + firstStep + '">&#8627; branch</button>' : '';
-
-    var obsHtml = p.observation ? '<div style="font-size:11px;color:var(--fg);margin-top:3px;">' + esc(p.observation) + '</div>' : '';
-
-    return '<div class="reasoning-entry" data-group="' + gi + '" data-step-nums="' + stepNums + '"' + entryStyle + '>'
-      + branchBtn3
-      + '<div class="step-label">' + stepLabel + ' ' + asBadge + ' ' + stepsBadge + ' ' + subsBadge + ' ' + levelBadge + durationHtml + tag + '</div>'
-      + obsHtml + planHtml + orchHtml + subHtml
-      + '</div>';
-  } else if (g.type === 'llm' && g.llm && g.llm.parsed) {
-    // Standard LLM response (linear scaffolding or enriched agent spawn steps)
-    var llm = g.llm;
-    var p = llm.parsed;
-    var firstStep = g.steps[0].step_num;
-    var lastStep = g.steps[g.steps.length - 1].step_num;
-    var stepLabel = g.steps.length > 1 ? 'Steps ' + firstStep + '\u2013' + lastStep : 'Step ' + firstStep;
-    var durationHtml = llm.call_duration_ms
-      ? '<span style="font-size:10px;color:var(--dim);margin-left:6px;">' + (llm.call_duration_ms / 1000).toFixed(1) + 's</span>' : '';
-    var scaffLabel = llm.scaffolding === 'agent_spawn' ? '<span class="tools-badge" style="background:#ff8b3d33;color:var(--orange);">AGENT</span>' : '';
-    var modelLabel = llm.model || defaultModel;
-    var cellHtml2 = cellChanges > 0 ? ' | ' + cellChanges + ' cells changed' : '';
-
-    // Plan steps display
-    var planSteps = (p.plan && Array.isArray(p.plan)) ? p.plan : [{ action: p.action, data: p.data || {} }];
-    var planHtml = planSteps.map(function(ps, i) {
-      var aName2 = ACTION_NAMES[ps.action] || ('ACTION' + ps.action);
-      var dataStr2 = (ps.data && ps.data.x !== undefined) ? ' (' + ps.data.x + ',' + ps.data.y + ')' : '';
-      var done = !isReplay && i < g.steps.length;
-      var cls = done ? 'plan-step done' : 'plan-step';
-      var btnStyle = done ? ' style="background:var(--green);color:#000;border-color:var(--green);"' : '';
-      return '<div class="' + cls + '" data-plan-idx="' + i + '">' + (i + 1) + '. <span class="action-btn"' + btnStyle + '>' + aName2 + '</span>' + dataStr2 + '</div>';
-    }).join('');
-
-    var branchBtn2 = showBranchBtn
-      ? '<button class="branch-btn" onclick="branchFromStep(' + lastStep + ')" title="Branch from step ' + lastStep + '">&#8627; branch</button>' : '';
-
-    return '<div class="reasoning-entry" data-group="' + gi + '" data-step-nums="' + stepNums + '"' + entryStyle + '>'
-      + branchBtn2
-      + '<div class="step-label">' + stepLabel + ' \u2014 ' + modelLabel + durationHtml + scaffLabel + levelBadge + tag + '</div>'
-      + (p.observation ? '<div class="observation"><strong>Obs:</strong> ' + esc(p.observation) + '</div>' : '')
-      + (p.reasoning ? '<div style="margin-top:4px;"><strong>Reasoning:</strong> ' + esc(p.reasoning) + '</div>' : '')
-      + (cellHtml2 ? '<div style="font-size:11px;color:var(--yellow);">' + cellHtml2 + '</div>' : '')
-      + '<div class="plan-progress">' + planHtml + '</div>'
-      + '</div>';
-  } else if (g.type === 'human') {
-    // Human / manual action (no LLM response)
-    var s = g.steps[0];
-    var aName = ACTION_NAMES[s.action] || ('ACTION' + s.action);
-    var coordStr = (s.data && s.data.x !== undefined) ? ' (' + s.data.x + ',' + s.data.y + ')' : '';
-    var cellHtml2 = cellChanges > 0 ? ' | ' + cellChanges + ' cells changed' : '';
-    var branchBtn2 = showBranchBtn
-      ? '<button class="branch-btn" onclick="branchFromStep(' + s.step_num + ')" title="Branch from step ' + s.step_num + '">&#8627; branch</button>' : '';
-
-    return '<div class="reasoning-entry human" data-group="' + gi + '" data-step-nums="' + stepNums + '"' + entryStyle + '>'
-      + branchBtn2
-      + '<div class="step-label" style="color:var(--yellow);">Step ' + s.step_num + ' \u2014 Human' + levelBadge + tag + '</div>'
-      + '<div class="action-rec" style="color:var(--yellow);">\u2192 ' + aName + coordStr + cellHtml2 + '</div>'
-      + '</div>';
-  }
-}
---- END REMOVED */
+// ═══════════════════════════════════════════════════════════════════════════
+// TIMELINE & REASONING: Extracted to separate modules (Phase 12)
+// ═══════════════════════════════════════════════════════════════════════════
+// Timeline functions extracted to llm-timeline.js:
+//   _rebuildTimelineFromSteps(), renderTimelineTree(), renderTimeline(),
+//   _tlEsc(), _tlFormatCost(), _tlCallTypeLabel(), _tlCssClass(),
+//   _tlBuildDetail(), _tlToggleDetail(), _updateAsTransform(),
+//   renderToolCallsHtml() and related SVG/pan/zoom helpers
+// Reasoning/logging functions extracted to llm-reasoning.js:
+//   scrollReasoningToBottom(), copyReasoningLog(), _flashCopyBtn(),
+//   copyTimelineLogs(), getLastReasoningEntry()
+// These modules are loaded BEFORE llm.js in index.html (dependency order)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// PART 1: ORCHESTRATION & REQUEST HANDLING
+// ═══════════════════════════════════════════════════════════════════════════
+// Core LLM request orchestration: model routing, prompt building, response parsing.
+// Functions:
+//   askLLM(ss) — main entry point for LLM calls
+//     - Handles all scaffolding types: RLM, 3-system, 2-system, agent-spawn, linear
+//     - Context compression, token estimation, history trimming
+//     - Parse retries, fallback action generation
+//     - Response validation and tool extraction
+// Called by: stepOnce(), toggleAutoPlay(), truncAutoRetry()
+// Dependencies:
+//   - buildCompactContext() from ui.js
+//   - askLLMRlm(), askLLMThreeSystem(), askLLMAgentSpawn() from scaffolding-*.js
+//   - executeToolBlocks(), gameStep() from engine.js
+//   - parseClientLLMResponse() from utils/json-parsing.js
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function askLLM(ss) {
   // ss = SessionState to operate on (optional, falls back to globals for backward compat)
@@ -1172,9 +153,12 @@ async function askLLM(ss) {
     const postCompactHistory = (compactBlock && _cur._compactSummaryAtStep > 0)
       ? _cur.moveHistory.filter(h => h.step > _cur._compactSummaryAtStep)
       : _cur.moveHistory;
+    // Safety valve: even if compact is disabled, trim history to fit context window
+    // Use 70% of context window as hard cap (leaving room for system prompt + response)
+    const hardCapTokens = Math.floor(contextWindow * 0.70);
     const historyForLLM = compact.enabled
       ? trimHistoryForTokens(postCompactHistory, maxHistTokens)
-      : postCompactHistory;
+      : trimHistoryForTokens(postCompactHistory, hardCapTokens);
 
     const modelInfo = getModelInfo(model);
     const isPuterModel = modelInfo?.provider === 'puter';
@@ -1211,8 +195,30 @@ async function askLLM(ss) {
           resp = { error: e.message, model };
         }
         if (resp) resp._clientSide = true;
+      } else if (_scaffType === 'world_model') {
+        // World Model harness: Agent REPL + World Model agent
+        try {
+          resp = await askLLMWorldModel(_cur, model, modelInfo, _waitEl, isActive, historyForLLM, compactBlock, _snap);
+        } catch (e) {
+          console.error('[askLLM] World Model client-side error:', e);
+          resp = { error: e.message, model };
+        }
+        if (resp) resp._clientSide = true;
+      } else if (_scaffType === 'rgb') {
+        // RGB harness: Analyzer with Read/Grep/Bash tools + action queue
+        try {
+          resp = await askLLMRgb(_cur, model, modelInfo, _waitEl, isActive, historyForLLM, compactBlock, _snap);
+        } catch (e) {
+          console.error('[askLLM] RGB client-side error:', e);
+          resp = { error: e.message, model };
+        }
+        if (resp) resp._clientSide = true;
       } else {
-      const prompt = buildClientPrompt(_cur.currentState, historyForLLM, _cur.currentChangeMap, inputSettings, _snap?.tools_mode || getToolsMode(), compactBlock, _snap?.planning_mode || getPlanningMode());
+      const promptObj = buildClientPrompt(_cur.currentState, historyForLLM, _cur.currentChangeMap, inputSettings, _snap?.tools_mode || getToolsMode(), compactBlock, _snap?.planning_mode || getPlanningMode());
+      // buildClientPrompt returns {system, user, cacheablePrefix} for provider-aware message splitting
+      const _sysMsg = promptObj.system;
+      const _usrMsg = promptObj.user;
+      const _linearMsgs = [{role: 'system', content: _sysMsg}, {role: 'user', content: _usrMsg, _cacheablePrefix: promptObj.cacheablePrefix, _cacheableHistory: promptObj.cacheableHistory}];
       window._lastLLMGrid = _cur.currentState.grid;
       window._lastLLMPrevGrid = _ss ? _ss.previousGrid : previousGrid;
       let rawContent;
@@ -1237,7 +243,7 @@ async function askLLM(ss) {
           }
         } : null;
         rawContent = await callLLM(
-          [{role: 'user', content: prompt}], model,
+          _linearMsgs, model,
           { maxTokens: _snap?.max_tokens || getMaxTokens(), onChunk: _onChunk }
         );
         // Handle Gemini MALFORMED_FUNCTION_CALL recovery
@@ -1249,14 +255,15 @@ async function askLLM(ss) {
             const code = codeMatch[1].trim();
             const output = await runPyodide(code, window._lastLLMGrid || [[]], window._lastLLMPrevGrid || null, _callSessionId);
             rawContent = await callLLM([
-              {role: 'user', content: prompt},
+              {role: 'system', content: _sysMsg},
+              {role: 'user', content: _usrMsg},
               {role: 'assistant', content: '```python\n' + code + '\n```'},
               {role: 'user', content: '[Code output]:\n' + output + '\n\nBased on this analysis, provide your answer as JSON only. No code.'},
             ], model, { maxTokens: getMaxTokens() });
           } else {
             console.warn('Gemini MALFORMED_FUNCTION_CALL — retrying without tools');
             rawContent = await callLLM(
-              [{role: 'user', content: prompt + '\n\nIMPORTANT: Do NOT use code or function calls. Respond with plain JSON only.'}],
+              [{role: 'system', content: _sysMsg}, {role: 'user', content: _usrMsg + '\n\nIMPORTANT: Do NOT use code or function calls. Respond with plain JSON only.'}],
               model, { maxTokens: getMaxTokens() }
             );
           }
@@ -1299,7 +306,7 @@ async function askLLM(ss) {
             }
             let retryRaw;
             try {
-              retryRaw = await callLLM([{role: 'user', content: prompt + '\n\n' + nudge}], model, { maxTokens: _snap?.max_tokens || getMaxTokens() });
+              retryRaw = await callLLM([{role: 'system', content: _sysMsg}, {role: 'user', content: _usrMsg + '\n\n' + nudge}], model, { maxTokens: _snap?.max_tokens || getMaxTokens() });
             } catch (e) { console.warn('[askLLM] Parse retry error:', e.message); continue; }
             if (!sessions.has(_callSessionId)) return null;
             if (retryRaw && typeof retryRaw === 'object' && retryRaw.truncated) retryRaw = retryRaw.text;
@@ -1343,7 +350,7 @@ async function askLLM(ss) {
         }
       }
       // Always set prompt_length for token estimation (even on error)
-      if (resp) { resp.prompt_length = prompt.length; resp._clientSide = true; }
+      if (resp) { resp.prompt_length = (_sysMsg.length + _usrMsg.length); resp._clientSide = true; }
       } // end inner else (non-RLM client-side)
     }
 
@@ -1356,7 +363,7 @@ async function askLLM(ss) {
       const _tlActions = _tlPlan.map(p => p.action);
       _callSession.timelineEvents.push({
         type: 'reasoning', agent_type: resp.agent_type || 'executor',
-        duration: resp.call_duration_ms,
+        duration: resp.call_duration_ms, timestamp: Date.now(),
         turn: _cur.llmCallCount, model: resp.model || model,
         stepStart: _cur.stepCount + 1, actions: _tlActions,
         call_id: resp.call_id, input_tokens: resp.usage?.prompt_tokens || 0,
@@ -1758,358 +765,21 @@ async function askLLM(ss) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TRANSPORT CONTROLS: Step, Auto, Pause, Undo
 // ═══════════════════════════════════════════════════════════════════════════
+// PART 2: PLAN EXECUTION & ACTION HANDLING (Extracted to llm-executor.js — Phase 22)
+// ═══════════════════════════════════════════════════════════════════════════
+// Functions extracted to llm-executor.js:
+//   executePlan(plan, resp, entry, expected, ss) — execute a multi-step plan from LLM
+//   executeOneAction(resp) — execute a single action (non-plan mode)
+//   stepOnce() — single-step orchestration
+// These are loaded from llm-executor.js before this file.
+// Called by: stepOnce(), toggleAutoPlay(), truncAutoRetry() (all now in llm-executor.js)
 
-function updateUndoBtn() {
-  const btn = document.getElementById('undoBtn');
-  btn.disabled = undoStack.length === 0;
-}
+// [executePlan, executeOneAction, stepOnce definitions removed — see llm-executor.js]
 
-function updateAutoBtn() {
-  const btn = document.getElementById('autoPlayBtn');
-  if (autoPlaying) {
-    btn.innerHTML = '&#9208; Pause';
-    btn.classList.add('btn-pause');
-  } else {
-    btn.innerHTML = '&#187; Agent Autoplay';
-    btn.classList.remove('btn-pause');
-  }
-}
-
-async function executePlan(plan, resp, entry, expected, ss) {
-  // Execute a multi-step plan, updating UI live
-  // ss = SessionState (optional, falls back to globals)
-  const _ss = ss || null;
-  const _cur = _ss || { sessionId: sessionId, currentState, undoStack, stepCount, turnCounter,
-    moveHistory, currentGrid: currentGrid, previousGrid: previousGrid, currentChangeMap,
-    autoPlaying, sessionTotalTokens, sessionStepsBuffer, syncStepCounter,
-    llmCallCount, _cachedCompactSummary, _compactSummaryAtCall, _compactSummaryAtStep };
-  const _planSessionId = _cur.sessionId;
-  const isActive = () => activeSessionId === _planSessionId;
-  const planSteps = entry ? entry.querySelectorAll('.plan-step') : [];
-  let consecutiveNoChange = 0;
-  const levelsBefore = _cur.currentState.levels_completed || 0;
-  let completed = 0;
-  const wasAutoPlaying = _ss ? _ss.autoPlaying : autoPlaying; // snapshot at plan start
-
-  // Assign a turn ID for the entire plan
-  _cur.turnCounter++;
-  if (!_ss) turnCounter = _cur.turnCounter;
-  const currentTurnId = _cur.turnCounter;
-  if (entry) entry.setAttribute('data-turn-id', currentTurnId);
-
-  for (let i = 0; i < plan.length; i++) {
-    const step = plan[i];
-    // Pause check: if user paused mid-plan during autoplay, stop remaining steps immediately
-    if (wasAutoPlaying && completed > 0) {
-      const nowPaused = _ss ? !_ss.autoPlaying : !autoPlaying;
-      if (nowPaused) {
-        if (isActive()) { for (let j = i; j < planSteps.length; j++) planSteps[j].className = 'plan-step skipped'; }
-        break;
-      }
-    }
-    // For linear/default in step-once mode (not autoplay), only execute 1 step
-    const isScaffoldPlan = resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system' || resp?.scaffolding === 'rlm' || resp?.scaffolding === 'agent_spawn';
-    if (!isScaffoldPlan && !_cur.autoPlaying && completed > 0) break;
-
-    // Mark step as executing
-    if (isActive() && planSteps[i]) {
-      planSteps[i].className = 'plan-step executing';
-    }
-
-    // Save undo snapshot
-    const prevGrid = _cur.currentState.grid ? JSON.stringify(_cur.currentState.grid) : '';
-    _cur.undoStack.push({
-      grid: _cur.currentState.grid ? _cur.currentState.grid.map(r => [...r]) : [],
-      state: _cur.currentState.state,
-      levels_completed: _cur.currentState.levels_completed,
-      stepCount: _cur.stepCount,
-      turnId: currentTurnId,
-    });
-
-    _cur.stepCount++;
-    if (!_ss) stepCount = _cur.stepCount;
-    const extras = { session_cost: _cur.sessionTotalTokens.cost };
-    if (resp?._clientSide) extras.llm_response = (i === 0) ? resp : null;
-    const data = await gameStep(_planSessionId, step.action, step.data || {}, extras,
-      { grid: _cur.currentState.grid, _ownerSessionId: _ss?.sessionId || activeSessionId });
-
-    // Guard: session closed mid-plan — stop executing further steps
-    if (!sessions.has(_planSessionId)) {
-      console.log('[executePlan] session closed mid-plan, aborting remaining steps');
-      break;
-    }
-
-    if (data.error) {
-      _cur.undoStack.pop();
-      _cur.stepCount--;
-      if (!_ss) stepCount = _cur.stepCount;
-      if (isActive() && planSteps[i]) planSteps[i].className = 'plan-step failed';
-      // Mark remaining as skipped
-      if (isActive()) { for (let j = i + 1; j < planSteps.length; j++) planSteps[j].className = 'plan-step skipped'; }
-      break;
-    }
-
-    // Update session state with new data
-    _cur.currentState = data;
-    if (_ss) { _ss.currentGrid = data.grid; _ss.currentChangeMap = data.change_map; }
-    else { currentState = data; currentGrid = data.grid; currentChangeMap = data.change_map; }
-
-    const _histObs = i === 0 ? (resp?.parsed?.observation || '') : '';
-    const _histReason = i === 0 ? (resp?.parsed?.reasoning || '') : '';
-    _cur.moveHistory.push({ step: _cur.stepCount, action: step.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: _histObs, reasoning: _histReason });
-    recordStepForPersistence(step.action, step.data || {}, data.grid, data.change_map, i === 0 ? resp : null, _ss, { levels_completed: data.levels_completed, result_state: data.state });
-    if (isActive()) { updateUI(data); updateUndoBtn(); }
-    completed++;
-
-    // Mark step as done
-    if (isActive() && planSteps[i]) {
-      planSteps[i].className = 'plan-step done';
-      const btn = planSteps[i].querySelector('.action-btn');
-      if (btn) { btn.style.background = 'var(--green)'; btn.style.color = '#000'; btn.style.borderColor = 'var(--green)'; }
-    }
-    // Emit obs act event
-    const _obsAgent = resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system' ? 'planner' : 'executor';
-    emitObsEvent(_ss || getActiveSession(), {
-      event: 'act', agent: _obsAgent, action: ACTION_NAMES[step.action] || `A${step.action}`,
-      grid: data.grid || null,
-    });
-
-    // ── Three-system: record observation and run monitor client-side ──
-    if (resp?.scaffolding === 'three_system' || resp?.scaffolding === 'two_system') {
-      // Record observation directly into session tsState
-      const tsState = _cur._tsState;
-      if (tsState) {
-        const prevGridArr = prevGrid ? JSON.parse(prevGrid) : [];
-        // Compute change_map_text client-side (reuse data from step response)
-        const cmText = data.change_map?.change_map_text || '';
-        const obs = {
-          step: _cur.stepCount, action: step.action,
-          grid: data.grid, levels: data.levels_completed || 0,
-          state: data.state, change_map_text: cmText,
-        };
-        tsState.observations.push(obs);
-        tsState.snapshots.push(obs);
-      }
-
-      // Run monitor check client-side if we have expected outcome and more steps remain
-      const stepExpected = step.expected || '';
-      if (stepExpected && i < plan.length - 1 && tsState) {
-        try {
-          const tsSettings = getScaffoldingSettings();
-          const monData = await _tsMonitorCheck(
-            step, stepExpected, data.change_map,
-            { game_id: _cur.currentState.game_id || '', step_num: _cur.stepCount,
-              levels_completed: data.levels_completed || 0, prev_levels: levelsBefore,
-              win_levels: data.win_levels || 0, state: data.state },
-            tsSettings, tsState
-          );
-          // Show monitor verdict inline on plan step
-          if (isActive() && planSteps[i]) {
-            const monDur = monData.duration_ms ? `${(monData.duration_ms/1000).toFixed(1)}s` : '';
-            const monColor = monData.verdict === 'REPLAN' ? 'var(--yellow)' : 'var(--dim)';
-            const monLabel = document.createElement('div');
-            monLabel.style.cssText = `font-size:9px;color:${monColor};margin-top:1px;`;
-            monLabel.textContent = `${monData.verdict}${monData.reason ? ': ' + monData.reason : ''} ${monDur}`;
-            planSteps[i].appendChild(monLabel);
-          }
-          if (monData.verdict === 'REPLAN') {
-            if (isActive()) {
-              for (let j = i + 1; j < plan.length; j++)
-                if (planSteps[j]) planSteps[j].className = 'plan-step interrupted';
-              const content = document.getElementById('reasoningContent');
-              const intEntry = document.createElement('div');
-              intEntry.className = 'reasoning-entry';
-              intEntry.innerHTML = `<div class="step-label" style="color:var(--yellow);">Monitor: REPLAN at step ${i + 1}/${plan.length} — ${esc(monData.reason || '')}</div>`;
-              content.appendChild(intEntry);
-            }
-            break;
-          }
-        } catch (e) { console.warn('[3sys] monitor check failed:', e); }
-      }
-    }
-
-    // Surprise detection: game ended
-    if (data.state !== 'NOT_FINISHED') {
-      if (isActive()) { for (let j = i + 1; j < planSteps.length; j++) planSteps[j].className = 'plan-step skipped'; }
-      checkSessionEndAndUpload();
-      break;
-    }
-
-    // Surprise detection: grid not changing
-    const newGrid = JSON.stringify(data.grid || []);
-    if (newGrid === prevGrid) {
-      consecutiveNoChange++;
-      if (consecutiveNoChange >= 3) {
-        if (isActive()) { for (let j = i + 1; j < planSteps.length; j++) planSteps[j].className = 'plan-step skipped'; }
-        break;
-      }
-    } else {
-      consecutiveNoChange = 0;
-    }
-
-    // Interrupt model check: ask cheap model if plan is going as expected
-    const interruptEnabled = document.getElementById('interruptPlan')?.checked;
-    if (interruptEnabled && expected && i < plan.length - 1) {
-      if (isActive()) updateScaffoldingNodeState('interrupt', 'waiting');
-      const shouldInterrupt = await checkInterrupt(expected, data.grid, data.change_map);
-      if (isActive()) updateScaffoldingNodeState('interrupt', 'done');
-      if (shouldInterrupt) {
-        if (isActive()) {
-          for (let j = i + 1; j < planSteps.length; j++)
-            planSteps[j].className = 'plan-step interrupted';
-          // Add visual indicator in reasoning
-          const content = document.getElementById('reasoningContent');
-          const intEntry = document.createElement('div');
-          intEntry.className = 'reasoning-entry';
-          intEntry.innerHTML = `<div class="step-label" style="color:var(--yellow);">⚡ Plan interrupted at step ${i + 1}/${plan.length}: expected "${expected}" not met</div>`;
-          content.appendChild(intEntry);
-        }
-        break;
-      }
-    }
-
-    // Brief pause for visual feedback
-    await new Promise(r => setTimeout(r, 100));
-  }
-
-  // Guard: if session closed mid-plan, don't touch UI or globals
-  if (!sessions.has(_planSessionId)) {
-    return { completed, total: plan.length, interrupted: true };
-  }
-
-  // Detect level change and show indicator + auto-compact
-  const levelsAfter = _cur.currentState.levels_completed || 0;
-  if (levelsAfter > levelsBefore && isActive()) {
-    const lvlEntry = document.createElement('div');
-    lvlEntry.className = 'reasoning-entry';
-    lvlEntry.innerHTML = `<div class="step-label" style="color:var(--green);">\u2b50 Level ${levelsBefore} completed! (${levelsBefore}/${_cur.currentState.win_levels} \u2192 ${levelsAfter}/${_cur.currentState.win_levels})</div>`;
-    const content = document.getElementById('reasoningContent');
-    content.appendChild(lvlEntry);
-    if (document.getElementById('compactOnLevel')?.checked) {
-      _cur._cachedCompactSummary = '';
-      if (!_ss) _cachedCompactSummary = '';
-      const summary = await buildCompactContext(_ss);
-      if (summary) {
-        _cur._cachedCompactSummary = summary;
-        if (!_ss) _cachedCompactSummary = summary;
-        _syncCompactToMemoryTab();
-        _cur._compactSummaryAtCall = _cur.llmCallCount;
-        _cur._compactSummaryAtStep = _cur.stepCount;
-        if (!_ss) { _compactSummaryAtCall = _cur._compactSummaryAtCall; _compactSummaryAtStep = _cur._compactSummaryAtStep; }
-        logSessionEvent('compact', _cur.stepCount, { trigger: 'level_up', level: levelsAfter });
-        const cEntry = document.createElement('div');
-        cEntry.className = 'reasoning-entry';
-        cEntry.innerHTML = `<div class="step-label" style="color:var(--purple);">Context auto-compacted on level ${levelsAfter}</div>`;
-        content.appendChild(cEntry);
-      }
-    }
-  }
-  // Update the entry with level info
-  if (isActive() && entry) {
-    const levelBadge = document.createElement('span');
-    levelBadge.className = 'tools-badge';
-    levelBadge.style.cssText = levelsAfter > levelsBefore
-      ? 'background:#3fb95033;color:var(--green);' : 'background:var(--bg);color:var(--text-dim);';
-    levelBadge.textContent = `L${levelsAfter}/${_cur.currentState.win_levels || '?'}`;
-    const stepLabel = entry.querySelector('.step-label');
-    if (stepLabel) stepLabel.appendChild(levelBadge);
-  }
-
-  // Sync session state back to globals if still active
-  if (_ss) syncSessionToGlobals(_ss);
-
-  checkSessionEndAndUpload();
-  return { completed, total: plan.length, interrupted: completed < plan.length };
-}
-
-async function executeOneAction(resp) {
-  // Execute a single action from LLM response
-  const _actionSessionId = sessionId;
-  const p = resp.parsed;
-  const levelsBefore = currentState.levels_completed || 0;
-  turnCounter++;
-  const currentTurnId = turnCounter;
-  undoStack.push({
-    grid: currentState.grid ? currentState.grid.map(r => [...r]) : [],
-    state: currentState.state,
-    levels_completed: currentState.levels_completed,
-    stepCount: stepCount,
-    turnId: currentTurnId,
-  });
-
-  stepCount++;
-  const singleExtras = { session_cost: sessionTotalTokens.cost };
-  if (resp?._clientSide) singleExtras.llm_response = resp;
-  const data = await gameStep(_actionSessionId, p.action, p.data || {}, singleExtras);
-  // Guard: session changed during step execution
-  if (!sessions.has(_actionSessionId)) { console.log('[executeOneAction] session closed, discarding'); return null; }
-  if (data.error) { undoStack.pop(); stepCount--; alert(data.error); return null; }
-  moveHistory.push({ step: stepCount, action: p.action, result_state: data.state, levels: data.levels_completed, grid: data.grid, change_map: data.change_map, turnId: currentTurnId, observation: p.observation || '', reasoning: p.reasoning || '' });
-  recordStepForPersistence(p.action, p.data || {}, data.grid, data.change_map, resp, null, { levels_completed: data.levels_completed, result_state: data.state });
-  updateUI(data);
-  updateUndoBtn();
-
-  // Detect level change
-  const levelsAfter = data.levels_completed || 0;
-  if (levelsAfter > levelsBefore) {
-    const content = document.getElementById('reasoningContent');
-    const lvlEntry = document.createElement('div');
-    lvlEntry.className = 'reasoning-entry';
-    lvlEntry.innerHTML = `<div class="step-label" style="color:var(--green);">\u2b50 Level ${levelsBefore} completed! (${levelsBefore}/${data.win_levels} \u2192 ${levelsAfter}/${data.win_levels})</div>`;
-    content.appendChild(lvlEntry);
-    if (document.getElementById('compactOnLevel')?.checked) {
-      _cachedCompactSummary = '';
-      const summary = await buildCompactContext();
-      if (summary) {
-        _cachedCompactSummary = summary;
-        _syncCompactToMemoryTab();
-        _compactSummaryAtCall = llmCallCount;
-        _compactSummaryAtStep = stepCount;
-        logSessionEvent('compact', stepCount, { trigger: 'level_up', level: levelsAfter });
-        const cEntry = document.createElement('div');
-        cEntry.className = 'reasoning-entry';
-        cEntry.innerHTML = `<div class="step-label" style="color:var(--purple);">Context auto-compacted on level ${levelsAfter}</div>`;
-        content.appendChild(cEntry);
-      }
-    }
-  }
-
-  checkSessionEndAndUpload();
-  return data;
-}
-
-async function stepOnce() {
-  if (!sessionId) { alert('Start a game first'); return; }
-  if (currentState.state !== 'NOT_FINISHED') return;
-  lockHumanControls();
-  // Stop blink guide
-  const _ab = document.getElementById('autoPlayBtn');
-  if (_ab) _ab.classList.remove('btn-blink');
-
-  saveSessionToState();  // sync globals → ss before async pipeline
-  const ss = getActiveSession();
-  const resp = await askLLM(ss);
-  if (!resp || resp.error || resp.truncated || !resp.parsed) return;
-  const p = resp.parsed;
-
-  // Agent spawn executes steps inline — skip executePlan
-  if (resp._alreadyExecuted) return;
-
-  // Normalize: single action becomes a 1-step plan
-  const plan = (p.plan && Array.isArray(p.plan) && p.plan.length > 0)
-    ? p.plan
-    : (p.action !== undefined && p.action !== null)
-      ? [{ action: p.action, data: p.data || {} }]
-      : null;
-  if (!plan) return;
-
-  const entry = getLastReasoningEntry();
-  const expected = resp.parsed.expected || null;
-  return await executePlan(plan, resp, entry, expected, ss);
-}
-
+// ──────────────────────────────────────────────────────────────────────────
+// SECTION: Truncation & Retry Handlers
+// ──────────────────────────────────────────────────────────────────────────
 async function truncAutoRetry(btn, maxRetries) {
   // Disable all sibling buttons
   btn.closest('div').querySelectorAll('button').forEach(b => b.disabled = true);
@@ -2187,10 +857,18 @@ async function toggleAutoPlay() {
     // Update obs pause button text
     const _obsPB = document.getElementById('obsPauseBtn');
     if (_obsPB) _obsPB.innerHTML = '\u00BB Resume';
+    // Update Observatory button — enabled but stop blinking (paused)
+    const _obsBtn = document.getElementById('backToObsBtn');
+    if (_obsBtn) { _obsBtn.disabled = false; _obsBtn.classList.remove('btn-obs-active'); }
     return;
   }
   if (!sessionId) { alert('Start a game first'); return; }
   if (currentState.state !== 'NOT_FINISHED') return;
+
+  // Validate model selection early — before entering observatory
+  const _snap = ss?._settings;
+  const _earlyModel = (_snap && !ss?.autoPlaying) ? _snap.model : getSelectedModel();
+  if (!_earlyModel) { alert('Select or type a model name'); return; }
 
   // ── Branch-on-settings-change: if resumed session has different settings, auto-branch ──
   if (ss && ss._originalSettings && ss.stepCount > 0) {
@@ -2233,7 +911,6 @@ async function toggleAutoPlay() {
 
   const mySessionId = sessionId; // capture for guard
   autoPlaying = true;
-  lockHumanControls();
   lockSettings();
   updateAutoBtn();
   if (ss) {
@@ -2339,7 +1016,20 @@ async function toggleAutoPlay() {
   unlockSettings();
   updateAutoBtn();
   renderSessionTabs();
+  // Stop Observatory button blinking (session ended)
+  const _obsBtnEnd = document.getElementById('backToObsBtn');
+  if (_obsBtnEnd) { _obsBtnEnd.disabled = false; _obsBtnEnd.classList.remove('btn-obs-active'); }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// PART 4: SESSION MANAGEMENT (Reset & Undo)
+// ═══════════════════════════════════════════════════════════════════════════
+// Manages session state: resetting to initial game state, undoing turns.
+// Functions:
+//   resetSession() — reset current game to initial state, save as session
+//   undoStep() — undo the last turn(s) and restore grid state
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function resetSession() {
   if (!currentState.game_id) return;
@@ -2369,6 +1059,10 @@ async function resetSession() {
 
   // Clear reasoning panel
   document.getElementById('reasoningContent').innerHTML = '';
+
+  // Reset Observatory button
+  const _obsBtnReset = document.getElementById('backToObsBtn');
+  if (_obsBtnReset) { _obsBtnReset.disabled = true; _obsBtnReset.classList.remove('btn-obs-active'); }
 
   await startGame(gameId);
 }
@@ -2441,35 +1135,5 @@ async function undoStep() {
   updateUndoBtn();
 }
 
-async function testModel() {
-  const model = getSelectedModel();
-  if (!model) return;
-  const btn = document.getElementById('testBtn');
-  const resultEl = document.getElementById('testResult');
-  btn.disabled = true;
-  btn.textContent = '⏳ Testing...';
-  resultEl.style.display = 'block';
-  resultEl.style.background = '#333';
-  resultEl.style.color = '#aaa';
-  resultEl.textContent = `Testing ${model}...`;
-
-  try {
-    const modelInfo = getModelInfo(model);
-    const provider = modelInfo?.provider;
-    const testPrompt = 'Reply with exactly: {"action": 1, "observation": "test"}';
-    const t0 = performance.now();
-    let result;
-    result = await callLLM([{role: 'user', content: testPrompt}], model);
-    const latency = Math.round(performance.now() - t0);
-    resultEl.style.background = '#1a3a1a';
-    resultEl.style.color = '#6f6';
-    resultEl.innerHTML = `<b>${model}</b> ✓ ${latency}ms`;
-  } catch (e) {
-    resultEl.style.background = '#3a1a1a';
-    resultEl.style.color = '#f66';
-    resultEl.textContent = `Error: ${e.message}`;
-  }
-  btn.disabled = false;
-  btn.textContent = '🔗 Test';
-}
+// testModel() extracted to llm-controls.js (loaded before this file)
 
