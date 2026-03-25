@@ -1,5 +1,5 @@
-# Author: Cascade, using Claude Opus 4.6 Thinking
-# Date: 2026-03-10 21:08
+# Author: Cascade, using Claude Opus 4.6 Thinking + Claude Sonnet 4.6
+# Date: 2026-03-25 15:30
 # PURPOSE: Model registry and capability constants for ARC-AGI-3. Contains:
 #   - MODEL_REGISTRY: all cloud/hosted provider models with capabilities, pricing, context windows
 #   - LMSTUDIO_CAPABILITIES: known LM Studio model overrides (reasoning, image) keyed on api_model ID

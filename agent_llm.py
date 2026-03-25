@@ -1,5 +1,5 @@
-# Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-# Date: 2026-03-12 12:52
+# Author: Mark Barney + Cascade (Claude Opus 4.6 thinking) + Claude Sonnet 4.6
+# Date: 2026-03-25 14:45
 # PURPOSE: LLM provider calls and retry logic for ARC-AGI-3. Handles communication
 #   with Gemini, Anthropic, Cloudflare, OpenAI-compatible endpoints, Ollama, Groq,
 #   Mistral, HuggingFace. Provides retry with exponential backoff and cost tracking.
@@ -63,7 +63,7 @@ def _call_openai_compatible(url: str, api_key: str, model: str, messages: list,
 def _call_anthropic(model: str, messages: list, system: str,
                     temperature: float, max_tokens: int) -> dict:
     """Call Anthropic API (Claude). Supports both API keys and OAuth tokens."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_CODE_TOKEN") or ""
     is_oauth = api_key.startswith("sk-ant-oat")
     auth_headers = (
         {"Authorization": f"Bearer {api_key}", "anthropic-beta": "oauth-2025-04-20"}
