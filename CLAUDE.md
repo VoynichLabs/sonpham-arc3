@@ -258,13 +258,14 @@ When a session is saved/resumed, all necessary state (REPL variables, memory, co
 
 ## Model Select Checklist (recurring bug)
 
-Every `{ type: 'model-select', id: '...' }` field in `SCAFFOLDING_SCHEMAS` **must** be wired up in three places:
+Every `{ type: 'model-select', id: '...' }` field in `SCAFFOLDING_SCHEMAS` **must** be wired up in **four** places:
 
-1. **`loadModels()`** — populate the `<select>` with model options via `_populateSubModelSelect()`. Without this, the select stays at "Loading..." forever.
-2. **`loadModels()` restore block** — after populating, restore saved value from `localStorage.getItem('arc_scaffolding_<type>')`. Without this, model choices reset when switching scaffoldings.
-3. **`attachSettingsListeners()`** — add a `change` listener to trigger BYOK key prompt updates (if the scaffold has a Model Keys section).
+1. **`_populateAllModelSelects()` in `scaffolding.js`** — populate the `<select>` with model options via `_populateSubModelSelect()`. Without this, the select stays at "Loading..." forever.
+2. **`_populateAllModelSelects()` restore block** — after populating, restore saved value from `localStorage.getItem('arc_scaffolding_<type>')`. Without this, model choices reset when switching scaffoldings.
+3. **`attachSettingsListeners()` change listener loop in `state.js`** — add the select ID to the `for (const selId of [...])` loop that calls `updateAllByokKeys`. Without this, changing the model won't refresh the required keys panel.
+4. **`updateAllByokKeys()` → `allSelectIds` list in `ui-models.js`** — add the select ID so the BYOK key panel scans it when determining which provider keys to show. **This is the most commonly missed step.** Without it, the key field never appears even if the right model is selected.
 
-This has been missed repeatedly (Three-System selects, REPL selects, etc.). When adding a new `model-select` to any scaffold, always update all three places.
+This has been missed repeatedly (RGB analyzer select, Three-System selects, Agent Spawn selects, etc.). When adding a new `model-select` to any scaffold, always update all four places. A quick grep for any existing select ID (e.g. `sf_rgb_analyzerModelSelect`) across these four files confirms the pattern.
 
 ## Building New Games
 
