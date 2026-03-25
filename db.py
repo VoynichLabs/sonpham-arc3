@@ -168,37 +168,6 @@ def _backup_db():
             pass  # Skip files that don't match the naming pattern
 
 
-def _vacuum_if_bloated():
-    """VACUUM the DB if it's larger than 200MB to reclaim dead arena table pages.
-
-    Runs at most once per DB: uses a sentinel file to skip on subsequent startups.
-    Called before the main connection is opened in _init_db.
-    """
-    if not DB_PATH.exists():
-        return
-
-    sentinel = _DATA_DIR / "backups" / ".vacuumed"
-    if sentinel.exists():
-        return
-
-    db_size_mb = DB_PATH.stat().st_size / (1024 * 1024)
-    if db_size_mb <= 200:
-        return
-
-    try:
-        log.info("DB is %.0f MB — running one-time VACUUM to reclaim arena bloat", db_size_mb)
-        # VACUUM cannot run inside a transaction; use isolation_level=None
-        vconn = sqlite3.connect(str(DB_PATH), isolation_level=None)
-        vconn.execute("VACUUM")
-        vconn.close()
-        new_size = DB_PATH.stat().st_size / (1024 * 1024)
-        log.info("VACUUM complete: %.0f MB → %.0f MB", db_size_mb, new_size)
-        # Write sentinel so we never run this again
-        sentinel.parent.mkdir(parents=True, exist_ok=True)
-        sentinel.touch()
-    except Exception as e:
-        log.warning("VACUUM failed: %s", e)
-
 
 def _init_db():
     """Create the sessions database and tables if they don't exist.
@@ -213,9 +182,6 @@ def _init_db():
 
     # Rolling backup: keep today's snapshot, rotate out backups older than 7 days
     _backup_db()
-
-    # One-time VACUUM to reclaim arena table bloat (safe: runs only if DB > 200MB)
-    _vacuum_if_bloated()
 
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("PRAGMA journal_mode=WAL")
