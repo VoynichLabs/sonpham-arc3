@@ -1669,49 +1669,6 @@ def batch_status(batch_id):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# DIAGNOSTIC — temporary DB volume inspector (remove after recovery check)
-# ═══════════════════════════════════════════════════════════════════════════
-
-@app.route("/api/admin/volume-diag")
-def volume_diag():
-    """One-time diagnostic: list DB volume files and check for corrupt backup."""
-    import sqlite3 as _sqlite3
-    token = request.args.get("token", "")
-    expected = os.environ.get("DIAG_TOKEN", "")
-    if not expected or token != expected:
-        return jsonify({"error": "forbidden"}), 403
-
-    data_dir = os.environ.get("DB_DATA_DIR", "/data")
-    result = {"data_dir": data_dir, "files": [], "corrupt_file": None, "sessions_count": None}
-
-    try:
-        for root, _dirs, files in os.walk(data_dir):
-            for fname in files:
-                fpath = os.path.join(root, fname)
-                size = os.path.getsize(fpath)
-                result["files"].append({"path": fpath, "size_bytes": size})
-    except Exception as e:
-        result["walk_error"] = str(e)
-
-    corrupt_path = os.path.join(data_dir, "sessions.db.corrupt")
-    if os.path.exists(corrupt_path):
-        result["corrupt_file"] = {"path": corrupt_path, "size_bytes": os.path.getsize(corrupt_path)}
-
-    db_path = os.path.join(data_dir, "sessions.db")
-    if os.path.exists(db_path):
-        try:
-            conn = _sqlite3.connect(db_path, timeout=5)
-            row = conn.execute("SELECT COUNT(*), MIN(created_at), MAX(created_at) FROM sessions").fetchone()
-            result["sessions_count"] = row[0]
-            result["sessions_date_range"] = [row[1], row[2]]
-            conn.close()
-        except Exception as e:
-            result["sessions_error"] = str(e)
-
-    return jsonify(result)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # MAIN — dual-port serving
 # ═══════════════════════════════════════════════════════════════════════════
 
