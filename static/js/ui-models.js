@@ -55,6 +55,7 @@ function updateAllByokKeys() {
 
   // 1. Collect all model select IDs (main + compact + interrupt + all scaffold sub-selects)
   const allSelectIds = ['modelSelect', 'compactModelSelectTop', 'interruptModelSelect',
+    'sf_rgb_analyzerModelSelect',
     'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
     'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
     'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect',
