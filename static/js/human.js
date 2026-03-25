@@ -1,3 +1,10 @@
+// Author: Claude Sonnet 4.6
+// Date: 2026-03-25 13:00
+// PURPOSE: Human Play mode coordinator. Handles game selection, session lifecycle
+//   (start/pause/resume/stop), canvas input, keyboard bindings, live mode, undo,
+//   and recording. Calls _renderGames (ui.js) for sidebar; all game steps via pyodide or /api/step.
+// SRP/DRY check: Pass — sidebar rendering delegated to _renderGames in ui.js.
+
 // ═══════════════════════════════════════════════════════════════════════════
 // HUMAN PLAY MODE — Play as Human (Coordinator & Initialization)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -52,13 +59,7 @@ async function _loadHumanGames() {
     _humanGames = games;
     const el = document.getElementById('humanGameList');
     el.innerHTML = '';
-    const foundation = games.filter(g => _ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
-    const observatory = games.filter(g => !_ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
-    const sortByTitle = (a, b) => ((a.title || a.game_id).localeCompare(b.title || b.game_id));
-    foundation.sort(sortByTitle);
-    observatory.sort(sortByTitle);
-    _renderGameGroup(el, 'ARC Prize Foundation', foundation, g => _humanSelectGame(g.game_id));
-    _renderGameGroup(el, 'ARC Observatory', observatory, g => _humanSelectGame(g.game_id));
+    _renderGames(el, games, g => _humanSelectGame(g.game_id));
   } catch (e) {
     document.getElementById('humanGameList').innerHTML = '<div class="empty-state" style="height:auto;">Failed to load games.</div>';
   }

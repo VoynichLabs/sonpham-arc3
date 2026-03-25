@@ -5,6 +5,17 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.13.7] — feat: game sidebar uses dynamic Foundation detection, no subscript for ID-only games
+*Author: Claude Sonnet 4.6 | 2026-03-25*
+
+### Changed
+- **Dynamic Foundation detection** — Replaced hardcoded `_ARC_FOUNDATION_GAMES = ['ls20','vc33','ft09','lp85']` with `_isFoundationGame(game)` that detects Foundation games dynamically: title equals ID (e.g. "LS20" = game_id "ls20"). `ws03`/`ws04` are hardcoded exceptions (Observatory despite ID-like titles). New Foundation games from the ARC Prize API now auto-sort into the correct section without code changes.
+- **No subscript for Foundation games** — Games like LS20, FT09 showed a redundant "LS20" label below their title. Subscript (`.game-id-label`) now only renders for Observatory games that have descriptive names (e.g. "Feeding Frenzy" → subscript "FR01").
+- **Staging tag limited to px/sn** — The `[staging]` tag was shown on all Observatory games. Now limited to Potion Mixer (`px`) and Sneeze (`sn`) only.
+- **Shared `_renderGames()` helper** — `human.js` and `session-views-grid.js` now call `_renderGames(el, games, onClick)` from `ui.js` instead of duplicating Foundation/Observatory split logic.
+
+---
+
 ## [1.13.6] — fix: game version selection uses date_downloaded, not hash sort
 *Author: Claude Sonnet 4.6 | 2026-03-25*
 

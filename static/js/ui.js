@@ -1,5 +1,5 @@
-// Author: Mark Barney + Cascade (Claude Opus 4.6 thinking)
-// Date: 2026-03-11 13:47
+// Author: Claude Sonnet 4.6
+// Date: 2026-03-25 13:00
 // PURPOSE: UI interaction handlers for ARC-AGI-3 web UI. Provides collapsible section
 //   toggling, compact settings, grid rendering wrappers (renderGrid, renderGridWithChanges
 //   delegating to grid-renderer.js), keyboard/mouse input handling, canvas click-to-act,
@@ -102,30 +102,40 @@ async function fetchJSON(url, body, signal) {
   return r.json();
 }
 
-const _ARC_FOUNDATION_GAMES = ['ls20', 'vc33', 'ft09', 'lp85'];
-function gameSource(gameId) {
-  const short = (gameId || '').split('-')[0].toLowerCase();
-  return _ARC_FOUNDATION_GAMES.includes(short) ? 'ARC Prize Foundation' : 'ARC Observatory';
+// ws03/ws04 are Observatory games despite having ID-like titles (no descriptive name)
+const _OBSERVATORY_EXCEPTIONS = new Set(['ws03', 'ws04']);
+
+// Foundation games: from ARC Prize Foundation, title equals the uppercased ID (no real name).
+// Observatory games: our custom games with descriptive titles like "Feeding Frenzy".
+function _isFoundationGame(game) {
+  const shortId = (game.game_id || '').split('-')[0].toLowerCase();
+  if (_OBSERVATORY_EXCEPTIONS.has(shortId)) return false;
+  return (game.title || '').toUpperCase() === shortId.toUpperCase();
 }
-function gameDevTag(gameId) {
-  const short = (gameId || '').split('-')[0].toLowerCase();
-  if (_ARC_FOUNDATION_GAMES.includes(short)) return '';
+
+// Only Potion Mixer (px) and Sneeze (sn) show the staging tag
+const _STAGING_TAG_PREFIXES = new Set(['px', 'sn']);
+
+function gameDevTag(game) {
+  if (_isFoundationGame(game)) return '';
+  const prefix = (game.game_id || '').split('-')[0].toLowerCase().slice(0, 2);
+  if (!_STAGING_TAG_PREFIXES.has(prefix)) return '';
   return '<span class="dev-tag" title="The game is currently iterating through feedback before released and open-sourced">staging</span>';
+}
+
+function _renderGames(el, games, onClick) {
+  const sortByTitle = (a, b) => ((a.title || a.game_id).localeCompare(b.title || b.game_id));
+  const foundation = games.filter(g => _isFoundationGame(g)).sort(sortByTitle);
+  const observatory = games.filter(g => !_isFoundationGame(g)).sort(sortByTitle);
+  _renderGameGroup(el, 'ARC Prize Foundation', foundation, onClick);
+  _renderGameGroup(el, 'ARC Observatory', observatory, onClick);
 }
 
 async function loadGames() {
   let games = await fetchJSON('/api/games');
-  // Hide "Find the Difference" on the online/global server for now
-  // prod filtering handled server-side via HIDDEN_GAMES
   const el = document.getElementById('gameList');
   el.innerHTML = '';
-  const foundation = games.filter(g => _ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
-  const observatory = games.filter(g => !_ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
-  const sortByTitle = (a, b) => ((a.title || a.game_id).localeCompare(b.title || b.game_id));
-  foundation.sort(sortByTitle);
-  observatory.sort(sortByTitle);
-  _renderGameGroup(el, 'ARC Prize Foundation', foundation, g => startGame(g.game_id));
-  _renderGameGroup(el, 'ARC Observatory', observatory, g => startGame(g.game_id));
+  _renderGames(el, games, g => startGame(g.game_id));
 }
 
 function _renderGameGroup(el, label, games, onClick) {
@@ -146,10 +156,12 @@ function _renderGameGroup(el, label, games, onClick) {
     const div = document.createElement('div');
     div.className = 'game-card';
     const shortName = g.title || g.game_id.split('-')[0].toUpperCase();
-    const tag = gameDevTag(g.game_id);
+    const tag = gameDevTag(g);
     const liveTag = (g.tags || []).includes('live') ? ' <span class="live-tag">LIVE</span>' : '';
+    // Show subscript only for Observatory games (real names); Foundation games don't need it
+    const showSubscript = !_isFoundationGame(g);
     const gameLabel = g.game_id.split('-')[0].toUpperCase();
-    div.innerHTML = `<div class="title">${shortName}${tag ? ' ' + tag : ''}${liveTag}</div><div class="game-id-label">${gameLabel}</div>`;
+    div.innerHTML = `<div class="title">${shortName}${tag ? ' ' + tag : ''}${liveTag}</div>${showSubscript ? `<div class="game-id-label">${gameLabel}</div>` : ''}`;
     div.dataset.gameId = g.game_id;
     div.onclick = () => onClick(g);
     list.appendChild(div);
