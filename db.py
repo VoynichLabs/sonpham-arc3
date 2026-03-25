@@ -1,5 +1,5 @@
-# Author: Claude Opus 4.6
-# Date: 2026-03-21 14:00
+# Author: Claude Sonnet 4.6
+# Date: 2026-03-25 12:30
 # PURPOSE: SQLite database layer for ARC Observatory. Manages schema migrations, session
 #   persistence (sessions, session_actions, llm_calls), observatory data, share links,
 #   auth (magic links, Google OAuth), leaderboard, and tool execution logging.
@@ -125,6 +125,81 @@ def _check_and_recover_db():
     log.warning("Could not recover DB. Starting fresh. Corrupt backup at %s", backup_path)
 
 
+def _vacuum_if_bloated():
+    """VACUUM the DB if it's larger than 200MB to reclaim free pages.
+
+    VACUUM does NOT delete any data — it rebuilds the file from scratch,
+    compacting free pages left behind by deleted rows. All tables and rows
+    are preserved. Runs at most once (sentinel file prevents re-runs).
+    """
+    if not DB_PATH.exists():
+        return
+
+    sentinel = _DATA_DIR / "backups" / ".vacuumed"
+    if sentinel.exists():
+        return
+
+    db_size_mb = DB_PATH.stat().st_size / (1024 * 1024)
+    if db_size_mb <= 200:
+        return
+
+    try:
+        log.info("DB is %.0f MB — running one-time VACUUM (no data deleted)", db_size_mb)
+        vconn = sqlite3.connect(str(DB_PATH), isolation_level=None)
+        vconn.execute("VACUUM")
+        vconn.close()
+        new_size = DB_PATH.stat().st_size / (1024 * 1024)
+        log.info("VACUUM complete: %.0f MB → %.0f MB", db_size_mb, new_size)
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.touch()
+    except Exception as e:
+        log.warning("VACUUM failed: %s", e)
+
+
+def _backup_db():
+    """Take a daily SQLite backup and prune copies older than 7 days.
+
+    Uses SQLite's online backup API (safe while DB is live). Writes to
+    {DATA_DIR}/backups/sessions_YYYYMMDD.db. At most one backup per calendar
+    day; skips if today's file already exists.
+    """
+    import datetime
+    import shutil
+
+    if not DB_PATH.exists():
+        return
+
+    backup_dir = _DATA_DIR / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    today = datetime.date.today().strftime("%Y%m%d")
+    today_backup = backup_dir / f"sessions_{today}.db"
+
+    if not today_backup.exists():
+        try:
+            src = sqlite3.connect(str(DB_PATH))
+            dst = sqlite3.connect(str(today_backup))
+            src.backup(dst)
+            dst.close()
+            src.close()
+            log.info("DB backup written to %s", today_backup)
+        except Exception as e:
+            log.warning("DB backup failed: %s", e)
+            today_backup.unlink(missing_ok=True)
+
+    # Prune backups older than 7 days
+    cutoff = datetime.date.today() - datetime.timedelta(days=7)
+    for f in backup_dir.glob("sessions_????????.db"):
+        try:
+            file_date = datetime.datetime.strptime(f.stem.split("_")[1], "%Y%m%d").date()
+            if file_date < cutoff:
+                f.unlink()
+                log.info("Pruned old backup: %s", f)
+        except (ValueError, IndexError):
+            pass  # Skip files that don't match the naming pattern
+
+
+
 def _init_db():
     """Create the sessions database and tables if they don't exist.
 
@@ -135,6 +210,12 @@ def _init_db():
 
     # Check for corruption and recover before opening
     _check_and_recover_db()
+
+    # Rolling backup: keep today's snapshot, rotate out backups older than 7 days
+    _backup_db()
+
+    # One-time VACUUM to reclaim free pages (no data deleted — just compacts the file)
+    _vacuum_if_bloated()
 
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("PRAGMA journal_mode=WAL")

@@ -1,5 +1,5 @@
-// Author: Claude Opus 4.6 (1M context)
-// Date: 2026-03-15 18:00
+// Author: Claude Sonnet 4.6
+// Date: 2026-03-25 12:00
 // PURPOSE: Agent Spawn orchestrator scaffolding for ARC-AGI-3. Implements Agentica-style
 //   multi-agent orchestration: a coordinator LLM spawns reactive subagents, each running
 //   independent observation-action loops. Provides runAgentSpawn() entry point, subagent
@@ -548,7 +548,10 @@ async function askLLMAgentSpawn(_cur, model, modelInfo, waitEl, isActiveFn, hist
       history_length: orchHistoryLength,
     };
 
-    const prompt = AS_ORCHESTRATOR_PREMISE + '\n\n' + AS_GAME_REFERENCE + '\n\n' + _asFill(
+    // Prompt caching: static premise + game reference → system message (cached by Anthropic handler).
+    // Dynamic state (grid, history, memories) → user message (new every turn, not cached).
+    const orchStaticSystem = AS_ORCHESTRATOR_PREMISE + '\n\n' + AS_GAME_REFERENCE;
+    const orchDynamicUser = _asFill(
       `# Current State
 - Game: {game_id}
 - Step: {step_num}
@@ -573,7 +576,7 @@ Decide your next move. Respond with a JSON object (delegate or think).`, turnVar
     const t0 = performance.now();
     let raw;
     try {
-      raw = await callLLM([{role: 'system', content: prompt}], orchModel, { maxTokens: orchMaxTokens, thinkingLevel: orchThinking });
+      raw = await callLLM([{role: 'system', content: orchStaticSystem}, {role: 'user', content: orchDynamicUser}], orchModel, { maxTokens: orchMaxTokens, thinkingLevel: orchThinking });
     } catch (e) {
       console.error(`[agent_spawn] orchestrator turn ${turn} failed:`, e);
       orchestratorLog.push({ turn, type: 'error', error: e.message });
@@ -677,9 +680,21 @@ Decide your next move. Respond with a JSON object (delegate or think).`, turnVar
         }
         // (feedback appended at end of loop for subsequent iterations)
 
+        // Prompt caching: system message (static per agent type) is cached by Anthropic handler.
+        // For growing multi-turn conversation, mark all user messages except the last as cached
+        // (they were already sent in the previous iteration — cache hit on Anthropic).
+        const _cachedSubMsgs = subMessages.map((msg, idx) => {
+          if (msg.role !== 'user') return msg;
+          const isLastUser = !subMessages.slice(idx + 1).some(m => m.role === 'user');
+          if (!isLastUser) {
+            // History user message — move content to _cacheableHistory, leave content empty
+            return { ...msg, _cacheableHistory: msg.content, content: '' };
+          }
+          return msg;
+        });
         let subRaw;
         try {
-          subRaw = await callLLM(subMessages, subModel, { maxTokens: subMaxTokens, thinkingLevel: subThinking });
+          subRaw = await callLLM(_cachedSubMsgs, subModel, { maxTokens: subMaxTokens, thinkingLevel: subThinking });
         } catch (e) {
           console.error(`[agent_spawn] ${agentType} iter ${si} failed:`, e);
           break;

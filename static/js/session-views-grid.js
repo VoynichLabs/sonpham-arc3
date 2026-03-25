@@ -1,5 +1,5 @@
-// Author: Claude Opus 4.6
-// Date: 2026-03-14 22:00
+// Author: Claude Sonnet 4.6
+// Date: 2026-03-25 13:00
 // PURPOSE: Browse sessions view — renders Human / AI / My sessions as tables
 //   with columns: Timestamp, Game (with version), Levels, Steps, Time, actions.
 //   Depends on fetchJSON/gameShortName/formatDuration (ui.js), currentUser (state.js),
@@ -27,13 +27,7 @@ async function _loadBrowseGameList() {
     let games = await fetchJSON('/api/games');
     if (MODE === 'prod') games = games.filter(g => g.game_id !== 'fd01-00000001');
     el.innerHTML = '';
-    const foundation = games.filter(g => _ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
-    const observatory = games.filter(g => !_ARC_FOUNDATION_GAMES.includes(g.game_id.split('-')[0].toLowerCase()));
-    const sortByTitle = (a, b) => ((a.title || a.game_id).localeCompare(b.title || b.game_id));
-    foundation.sort(sortByTitle);
-    observatory.sort(sortByTitle);
-    _renderGameGroup(el, 'ARC Prize Foundation', foundation, g => _browseSelectGame(g.game_id));
-    _renderGameGroup(el, 'ARC Observatory', observatory, g => _browseSelectGame(g.game_id));
+    _renderGames(el, games, g => _browseSelectGame(g.game_id));
   } catch { el.innerHTML = '<div class="browse-empty" style="padding:12px;">Failed to load games.</div>'; }
 }
 

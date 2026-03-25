@@ -1,5 +1,5 @@
-// Author: Claude Opus 4.6 (1M context)
-// Date: 2026-03-15 18:00
+// Author: Claude Sonnet 4.6
+// Date: 2026-03-25 12:30
 // PURPOSE: Global application state and settings management for ARC-AGI-3 web UI.
 //   Declares all global state variables (sessionId, currentGrid, moveHistory, etc.),
 //   feature flags (FEATURES), color palette (COLORS), settings persistence helpers
@@ -534,8 +534,9 @@ function attachSettingsListeners() {
     });
   }
 
-  // RLM / Three-System / Two-System model select changes — update BYOK key prompts
+  // Scaffold sub-model select changes — update BYOK key prompts
   for (const selId of [
+    'sf_rgb_analyzerModelSelect',
     'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
     'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
     'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect',

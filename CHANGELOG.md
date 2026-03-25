@@ -1,7 +1,68 @@
 # Changelog
 
 All notable changes to this project will be documented here.
-Format: [SemVer](https://semver.org/) — what / why / how. Author and model noted per entry. New entries at the top. 
+Format: [SemVer](https://semver.org/) — what / why / how. Author and model noted per entry. New entries at the top.
+
+---
+
+## [1.13.9] — fix: unplayable Foundation games hidden; level selector placeholders; remove Game Results tab
+*Author: Claude Sonnet 4.6 | 2026-03-25*
+
+### Fixed
+- **"Game engine failed: Unexpected token '<'" on new Foundation games** — Games in the ARC Prize API but not downloaded locally (`local_dir=None`) appeared in the sidebar and caused `Path(None)` TypeError in `game_source()`, returning HTML 500 instead of JSON. Fixed: `list_games()` now filters out `local_dir=None` entries; `game_source()` guards against it with a proper JSON 404. `_env_date()` and `_is_newer_env()` hardened for `None` local_dirs.
+- **Level selector showing blank/black canvases** — Level cards showed empty `<canvas>` elements when thumbnails failed. Now draws a numbered placeholder immediately; real thumbnail overwrites when available.
+
+### Removed
+- **"Game Results" tab from Play as Human right panel** — showed nothing useful. Removed button, pane, and all related JS calls.
+
+---
+
+## [1.13.8] — feat: restore Agent Spawn harness with prompt caching; fix settings blank on stale scaffolding type
+*Author: Claude Sonnet 4.6 | 2026-03-25*
+
+### Added
+- **Agent Spawn harness restored** — Re-added to `SCAFFOLDING_SCHEMAS` (orchestrator + subagent model selects, thinking levels, max tokens, budget/turn/history params) and back in the JS bundle. The harness was removed in 1.13.4 but the JS file was kept on disk.
+- **Prompt caching for Agent Spawn (Anthropic)** — Orchestrator loop: static premise + game reference moved to system message (cached by Anthropic handler every turn). Dynamic state (grid, memories, history) sent as user message only. Subagent multi-turn loop: non-last user messages marked `_cacheableHistory` so growing conversation prefix is cached on each iteration. Both save significant cache read tokens when using Anthropic models.
+
+### Fixed
+- **Agent Settings blank after harness removal** — If `localStorage` held a removed scaffolding type (`rlm`, `three_system`, etc.), `renderScaffoldingSettings()` returned early with an empty panel. Now validates against current `SCAFFOLDING_SCHEMAS` and falls back to `linear`, clearing the stale key.
+- **Anthropic prompt caching: empty content block** — Handler now skips empty `content` text blocks when building Anthropic message arrays. Required for `_cacheableHistory` on fully-stable user messages (Agent Spawn multi-turn subagent conversations).
+
+---
+
+## [1.13.7] — feat: game sidebar uses dynamic Foundation detection, no subscript for ID-only games
+*Author: Claude Sonnet 4.6 | 2026-03-25*
+
+### Changed
+- **Dynamic Foundation detection** — Replaced hardcoded `_ARC_FOUNDATION_GAMES = ['ls20','vc33','ft09','lp85']` with `_isFoundationGame(game)` that detects Foundation games dynamically: title equals ID (e.g. "LS20" = game_id "ls20"). `ws03`/`ws04` are hardcoded exceptions (Observatory despite ID-like titles). New Foundation games from the ARC Prize API now auto-sort into the correct section without code changes.
+- **No subscript for Foundation games** — Games like LS20, FT09 showed a redundant "LS20" label below their title. Subscript (`.game-id-label`) now only renders for Observatory games that have descriptive names (e.g. "Feeding Frenzy" → subscript "FR01").
+- **Staging tag limited to px/sn** — The `[staging]` tag was shown on all Observatory games. Now limited to Potion Mixer (`px`) and Sneeze (`sn`) only.
+- **Shared `_renderGames()` helper** — `human.js` and `session-views-grid.js` now call `_renderGames(el, games, onClick)` from `ui.js` instead of duplicating Foundation/Observatory split logic.
+
+---
+
+## [1.13.6] — fix: game version selection uses date_downloaded, not hash sort
+*Author: Claude Sonnet 4.6 | 2026-03-25*
+
+### Fixed
+- **LS20 serving wrong version** — When two Foundation game versions exist (e.g. `ls20-cb3b57cc` and `ls20-9607627b`), the server picked the one with the lexicographically larger hash suffix. `cb3b57cc > 9607627b` alphabetically, so the older version (2026-03-18) beat the newer one (2026-03-25) even though the newer one has updated mechanics. Fixed in `server/helpers.py` (`get_game_version`, new `_env_date` helper) and `server/app.py` (`list_games` deduplication and `game_source` env selection) to prefer the version with the newer `date_downloaded` in `metadata.json`. Alphabetical game_id is now only a tiebreaker.
+
+---
+
+## [1.13.5] — feat: hide 5 games from prod, remove 5 advanced harnesses from UI
+*Author: Claude Sonnet 4.6 | 2026-03-25*
+
+### Changed
+- **HIDDEN_GAMES expanded** — Added `ar` (Arbitrage Runner), `gh` (Ghost Heist), `pc` (Parallel Clone), `ts` (Tower Siege), `td` (Tower Defense) to `HIDDEN_GAMES` in `server/state.py`. These games are now hidden from `/api/games` in prod (still visible in staging and via `?show_all=1`).
+- **Advanced harnesses removed from Play as Agent UI** — Removed `rlm`, `three_system`, `two_system`, `agent_spawn`, and `world_model` entries from `SCAFFOLDING_SCHEMAS` in `static/js/config/scaffolding-schemas.js`. The harness selector now shows only: Linear, Linear w/ Interrupt, RGB. The corresponding JS files (`scaffolding-rlm.js`, `scaffolding-three-system.js`, `scaffolding-agent-spawn.js`, `scaffolding-world-model.js`) are kept on disk for reference but no longer loaded by `templates/index.html`. Dead model-select populate/restore blocks for the removed harnesses removed from `scaffolding.js`.
+
+---
+
+## [1.13.4] — fix: Browse Session sidebar matches Play as Human/Agent
+*Author: Claude Sonnet 4.6 | 2026-03-25*
+
+### Fixed
+- **Browse Session sidebar visual consistency** — The game list sidebar in Browse Session mode was narrower (220px vs 260px) and had a different header style (smaller font, dimmed color, lighter padding) compared to Play as Human and Play as Agent. Updated `.browse-sidebar` to 260px, and updated `.browse-sidebar-header` to match `.sidebar h2` (13px font, accent color, 14px/16px padding). Also removed the 4px inner padding from `.browse-sidebar-list` so game cards align flush like the other modes.
 
 ---
 

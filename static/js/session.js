@@ -1,5 +1,5 @@
-// Author: Claude Opus 4.6
-// Date: 2026-03-16 23:30
+// Author: Claude Sonnet 4.6
+// Date: 2026-03-25 00:00
 // PURPOSE: Main coordinator and entry point (Phase 9 modularization).
 //   Coordinates extracted session modules: session-storage, session-replay,
 //   session-persistence, session-views. Handles multi-session tabs, switching,
@@ -367,7 +367,9 @@ async function initApp() {
   try {
     // Render scaffolding settings (must happen before loadModels populates selects)
     migrateOldSettingsToScaffolding();
-    const savedScaffolding = localStorage.getItem('arc_scaffolding_type') || 'linear';
+    const _rawScaffolding = localStorage.getItem('arc_scaffolding_type') || 'linear';
+    const savedScaffolding = SCAFFOLDING_SCHEMAS[_rawScaffolding] ? _rawScaffolding : 'linear';
+    if (savedScaffolding !== _rawScaffolding) localStorage.setItem('arc_scaffolding_type', savedScaffolding);
     renderScaffoldingSettings(savedScaffolding);
     loadScaffoldingFromStorage(savedScaffolding);
 

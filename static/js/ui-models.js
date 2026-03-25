@@ -1,3 +1,8 @@
+// Author: Claude Sonnet 4.6
+// Date: 2026-03-25 12:00
+// PURPOSE: Model selector population, model info display, BYOK key management UI.
+//   Extracted from ui.js (Phase 24). Renders BYOK key input fields per provider.
+// SRP/DRY check: Pass — model UI isolated from LLM call logic
 // ═══════════════════════════════════════════════════════════════════════════
 // ui-models.js — Model management UI
 // Extracted from ui.js (Phase 24)
@@ -50,6 +55,7 @@ function updateAllByokKeys() {
 
   // 1. Collect all model select IDs (main + compact + interrupt + all scaffold sub-selects)
   const allSelectIds = ['modelSelect', 'compactModelSelectTop', 'interruptModelSelect',
+    'sf_rgb_analyzerModelSelect',
     'sf_rlm_modelSelect', 'sf_rlm_subModelSelect',
     'sf_ts_plannerModelSelect', 'sf_ts_monitorModelSelect', 'sf_ts_wmModelSelect',
     'sf_2s_plannerModelSelect', 'sf_2s_monitorModelSelect',
@@ -87,15 +93,11 @@ function updateAllByokKeys() {
     const label = PROVIDER_LABELS[provider] || provider;
     const saved = savedValues[provider] || localStorage.getItem(`byok_key_${provider}`) || '';
     html += `<div style="margin-bottom:8px;">`;
-    const labelSuffix = provider === 'anthropic' ? 'API Key / Token' : 'API Key';
-    html += `<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">${label} ${labelSuffix}</div>`;
+    html += `<div style="font-size:10px;color:var(--dim);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;">${label} API Key</div>`;
     const placeholder = provider === 'anthropic'
-      ? 'Paste API key (sk-ant-api...) or Claude Code token (sk-ant-oat...)...'
+      ? 'Paste API key (sk-ant-api...)...'
       : `Paste API key for ${label} here...`;
     html += `<input type="password" class="text-input" data-byok-provider="${provider}" value="${saved.replace(/"/g, '&quot;')}" placeholder="${placeholder}" style="margin-bottom:4px;font-size:10px;font-family:monospace;">`;
-    if (provider === 'anthropic') {
-      html += `<div style="font-size:9px;color:var(--text-dim);margin-bottom:4px;">No API key? Run <code style="background:var(--bg-secondary);padding:1px 4px;border-radius:3px;">claude setup-token</code> in your terminal to generate a free OAuth token from your Claude Pro/Max subscription.</div>`;
-    }
     // Extra fields (e.g. Cloudflare Account ID)
     const extras = _BYOK_PROVIDER_EXTRA_FIELDS[provider] || [];
     for (const extra of extras) {
