@@ -125,6 +125,37 @@ def _check_and_recover_db():
     log.warning("Could not recover DB. Starting fresh. Corrupt backup at %s", backup_path)
 
 
+def _vacuum_if_bloated():
+    """VACUUM the DB if it's larger than 200MB to reclaim free pages.
+
+    VACUUM does NOT delete any data — it rebuilds the file from scratch,
+    compacting free pages left behind by deleted rows. All tables and rows
+    are preserved. Runs at most once (sentinel file prevents re-runs).
+    """
+    if not DB_PATH.exists():
+        return
+
+    sentinel = _DATA_DIR / "backups" / ".vacuumed"
+    if sentinel.exists():
+        return
+
+    db_size_mb = DB_PATH.stat().st_size / (1024 * 1024)
+    if db_size_mb <= 200:
+        return
+
+    try:
+        log.info("DB is %.0f MB — running one-time VACUUM (no data deleted)", db_size_mb)
+        vconn = sqlite3.connect(str(DB_PATH), isolation_level=None)
+        vconn.execute("VACUUM")
+        vconn.close()
+        new_size = DB_PATH.stat().st_size / (1024 * 1024)
+        log.info("VACUUM complete: %.0f MB → %.0f MB", db_size_mb, new_size)
+        sentinel.parent.mkdir(parents=True, exist_ok=True)
+        sentinel.touch()
+    except Exception as e:
+        log.warning("VACUUM failed: %s", e)
+
+
 def _backup_db():
     """Take a daily SQLite backup and prune copies older than 7 days.
 
@@ -182,6 +213,9 @@ def _init_db():
 
     # Rolling backup: keep today's snapshot, rotate out backups older than 7 days
     _backup_db()
+
+    # One-time VACUUM to reclaim free pages (no data deleted — just compacts the file)
+    _vacuum_if_bloated()
 
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("PRAGMA journal_mode=WAL")
