@@ -5,6 +5,19 @@ Format: [SemVer](https://semver.org/) — what / why / how. Author and model not
 
 ---
 
+## [1.13.8] — feat: restore Agent Spawn harness with prompt caching; fix settings blank on stale scaffolding type
+*Author: Claude Sonnet 4.6 | 2026-03-25*
+
+### Added
+- **Agent Spawn harness restored** — Re-added to `SCAFFOLDING_SCHEMAS` (orchestrator + subagent model selects, thinking levels, max tokens, budget/turn/history params) and back in the JS bundle. The harness was removed in 1.13.4 but the JS file was kept on disk.
+- **Prompt caching for Agent Spawn (Anthropic)** — Orchestrator loop: static premise + game reference moved to system message (cached by Anthropic handler every turn). Dynamic state (grid, memories, history) sent as user message only. Subagent multi-turn loop: non-last user messages marked `_cacheableHistory` so growing conversation prefix is cached on each iteration. Both save significant cache read tokens when using Anthropic models.
+
+### Fixed
+- **Agent Settings blank after harness removal** — If `localStorage` held a removed scaffolding type (`rlm`, `three_system`, etc.), `renderScaffoldingSettings()` returned early with an empty panel. Now validates against current `SCAFFOLDING_SCHEMAS` and falls back to `linear`, clearing the stale key.
+- **Anthropic prompt caching: empty content block** — Handler now skips empty `content` text blocks when building Anthropic message arrays. Required for `_cacheableHistory` on fully-stable user messages (Agent Spawn multi-turn subagent conversations).
+
+---
+
 ## [1.13.7] — feat: game sidebar uses dynamic Foundation detection, no subscript for ID-only games
 *Author: Claude Sonnet 4.6 | 2026-03-25*
 

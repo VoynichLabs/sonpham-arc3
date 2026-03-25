@@ -1,5 +1,5 @@
 // Author: Claude Sonnet 4.6
-// Date: 2026-03-25 10:00
+// Date: 2026-03-25 12:00
 // PURPOSE: Scaffolding configuration schemas for ARC-AGI-3 web UI. Defines
 //   SCAFFOLDING_SCHEMAS — the declarative field definitions (toggles, selects,
 //   sliders, model selects) for each active scaffolding type (linear,
@@ -215,6 +215,79 @@ const SCAFFOLDING_SCHEMAS = {
           fields: [
             { type: 'number-input', id: 'sf_rgb_planSize', label: 'Plan size (actions per batch)', default: 5, min: 1, max: 20, width: '55px' },
             { type: 'number-input', id: 'sf_rgb_maxToolIter', label: 'Max tool iterations', default: 15, min: 1, max: 30, width: '55px' },
+          ]
+        }]
+      },
+      {
+        id: 'secKeys', label: 'Model Keys', open: true,
+        customHtml: function() { return '<div id="byokKeysContainer"></div>'; }
+      }
+    ]
+  },
+
+  agent_spawn: {
+    id: 'agent_spawn',
+    name: 'Agent Spawn',
+    description: 'Orchestrator spawns reactive subagents (explorer, theorist, tester, solver) that collaborate via shared memory to solve the game.',
+    pipeline: [
+      { id: 'orchestrator', label: 'Orchestrator', color: 'var(--accent)', settingsRef: 'orchestrator' },
+      { id: 'explorer', label: 'Explorer', color: 'var(--green)', settingsRef: null },
+      { id: 'theorist', label: 'Theorist', color: 'var(--cyan)', settingsRef: null },
+      { id: 'tester', label: 'Tester', color: 'var(--yellow)', settingsRef: null },
+      { id: 'solver', label: 'Solver', color: 'var(--purple)', settingsRef: null },
+    ],
+    edges: [
+      { from: 'orchestrator', to: 'explorer', label: 'delegate' },
+      { from: 'orchestrator', to: 'theorist', label: 'delegate' },
+      { from: 'orchestrator', to: 'tester', label: 'delegate' },
+      { from: 'orchestrator', to: 'solver', label: 'delegate' },
+      { from: 'explorer', to: 'orchestrator', label: 'report' },
+      { from: 'theorist', to: 'orchestrator', label: 'report' },
+      { from: 'tester', to: 'orchestrator', label: 'report' },
+      { from: 'solver', to: 'orchestrator', label: 'report' },
+    ],
+    sections: [
+      {
+        id: 'sf_as_secInput', label: 'Input', open: true, bodyClass: 'settings-grid',
+        fields: [
+          { type: 'select', id: 'sf_as_inputGrid', label: 'Grid representation',
+            options: [{v:'lp16',l:'LP16'},{v:'numeric',l:'Numeric'},{v:'rgb',l:'RGB-Agent'}], default: 'lp16' },
+          { type: 'toggle', id: 'sf_as_inputDiff', label: 'Diff', default: true },
+          { type: 'toggle', id: 'sf_as_inputHistogram', label: 'Color histogram', default: false },
+        ]
+      },
+      {
+        id: 'sf_as_secOrchestrator', label: 'Orchestrator', open: true,
+        groups: [{
+          subHeader: 'Orchestrator Model',
+          fields: [
+            { type: 'model-select', id: 'sf_as_orchestratorModelSelect', capsId: 'sf_as_orchestratorModelCaps' },
+            { type: 'grid-2col', marginBottom: '8px', children: [
+              { type: 'quadswitch', id: 'sf_as_orchestratorThinking', name: 'sf_as_orchestratorThinking', label: 'Thinking',
+                options: [{v:'off',l:'Off'},{v:'low',l:'Low'},{v:'med',l:'Med'},{v:'high',l:'High',checked:true}],
+                hint: 'Orchestrator thinking budget' },
+              { type: 'number-spin', id: 'sf_as_orchestratorMaxTokens', label: 'Max tokens',
+                default: 16384, min: 1024, max: 65536, step: 1024, spinFn: null, inline: true },
+            ]},
+            { type: 'number-input', id: 'sf_as_orchestratorMaxTurns', label: 'Max orchestrator turns', default: 5, min: 1, max: 20, width: '55px' },
+            { type: 'number-input', id: 'sf_as_orchestratorHistoryLength', label: 'History steps shown', default: 15, min: 1, max: 50, width: '55px' },
+          ]
+        }]
+      },
+      {
+        id: 'sf_as_secSubagent', label: 'Subagents', open: true,
+        groups: [{
+          subHeader: 'Subagent Model',
+          fields: [
+            { type: 'model-select', id: 'sf_as_subagentModelSelect', capsId: 'sf_as_subagentModelCaps' },
+            { type: 'grid-2col', marginBottom: '8px', children: [
+              { type: 'quadswitch', id: 'sf_as_subagentThinking', name: 'sf_as_subagentThinking', label: 'Thinking',
+                options: [{v:'off',l:'Off'},{v:'low',l:'Low'},{v:'med',l:'Med',checked:true},{v:'high',l:'High'}],
+                hint: 'Subagent thinking budget' },
+              { type: 'number-spin', id: 'sf_as_subagentMaxTokens', label: 'Max tokens',
+                default: 16384, min: 1024, max: 65536, step: 1024, spinFn: null, inline: true },
+            ]},
+            { type: 'number-input', id: 'sf_as_maxSubagentBudget', label: 'Max subagent actions', default: 5, min: 1, max: 20, width: '55px' },
           ]
         }]
       },

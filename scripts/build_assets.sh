@@ -30,6 +30,7 @@ JS_FILES=(
   "$STATIC/js/llm.js"
   "$STATIC/js/scaffolding.js"
   "$STATIC/js/scaffolding-linear.js"
+  "$STATIC/js/scaffolding-agent-spawn.js"
   "$STATIC/js/scaffolding-rgb.js"
   "$STATIC/js/session-storage.js"
   "$STATIC/js/session-replay.js"

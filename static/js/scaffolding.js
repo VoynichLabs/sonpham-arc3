@@ -1,5 +1,5 @@
 // Author: Claude Sonnet 4.6
-// Date: 2026-03-25 10:00
+// Date: 2026-03-25 12:00
 // PURPOSE: Core scaffolding infrastructure for ARC-AGI-3 web UI. Handles API mode
 //   switching (local vs official), model discovery (loadModels + LM Studio via direct browser fetch),
 //   model select population, BYOK key management, LLM call routing (callLLM → _callLLMInner
@@ -286,6 +286,34 @@ function _populateAllModelSelects() {
     }
   } catch {}
 
+  // Populate Agent Spawn model selects if they exist
+  for (const asSelId of ['sf_as_orchestratorModelSelect', 'sf_as_subagentModelSelect']) {
+    const asSel = document.getElementById(asSelId);
+    if (!asSel) continue;
+    const asSaved = asSel.value;
+    asSel.innerHTML = '<option value="">Select a model...</option>';
+    _populateSubModelSelect(asSel, groups, providerOrder, providerLabels, byokGroups, byokProviderOrder, asSaved);
+  }
+  // Restore Agent Spawn model selections from saved settings
+  try {
+    const asRaw = localStorage.getItem('arc_scaffolding_agent_spawn');
+    if (asRaw) {
+      const asS = JSON.parse(asRaw);
+      const asMap = {
+        sf_as_orchestratorModelSelect: asS.orchestrator_model,
+        sf_as_subagentModelSelect: asS.subagent_model,
+      };
+      for (const [id, val] of Object.entries(asMap)) {
+        const el = document.getElementById(id);
+        if (el && val && [...el.options].some(o => o.value === val)) el.value = val;
+      }
+    }
+  } catch (e) { console.warn('[scaffolding] localStorage restore Agent Spawn settings error:', e.message); }
+
+  // Sync cascade last-val for orchestrator select so first cascade uses restored value
+  const _asOrcSel = document.getElementById('sf_as_orchestratorModelSelect');
+  if (_asOrcSel) _asOrcSel.dataset.cascadeLastVal = _asOrcSel.value;
+
   updateModelCaps();
   // Sync main model to sub-selects on initial load
   const mainVal = document.getElementById('modelSelect')?.value || '';
@@ -539,7 +567,7 @@ async function _callLLMInner(messages, model, { maxTokens = 16384, thinkingLevel
         if (m._cacheableHistory) {
           blocks.push({ type: 'text', text: m._cacheableHistory, cache_control: { type: 'ephemeral' } });
         }
-        blocks.push({ type: 'text', text: m.content });
+        if (m.content) blocks.push({ type: 'text', text: m.content });
         return { role: 'user', content: blocks };
       }
       return { role: m.role, content: m.content };
